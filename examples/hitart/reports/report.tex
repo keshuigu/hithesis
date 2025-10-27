@@ -1,4 +1,5 @@
 % !Mode:: "TeX:UTF-8"
+% !TeX root = report.tex
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %          ,
 %      /\^/`\
@@ -16,7 +17,7 @@
 %      `\\//`   \\   \./    \\ /     //    \\./   \\   //   \\ |/ /
 %     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\documentclass[fontset=fandol,toc=true,type=doctor,stage=opening,campus=shenzhen]{hithesisart}
+\documentclass[fontset=fandol,toc=true,type=master,stage=midterm,campus=harbin]{hithesisart}
 % 此处选项中不要有空格
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 必填选项
@@ -40,7 +41,12 @@
 
 \graphicspath{{figures/}}
 
-
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{longtable}
+\usepackage{xcolor}
 \begin{document}
 
 \input{front/coverart.tex}
@@ -48,7 +54,9 @@
 
 % 深圳博士开题报告 -----------------------------------------------
 
-\input{body/report_shenzhen_doctor_opening}
+% \input{body/report_shenzhen_doctor_opening}
+
+\input{body/report_weihai_bachelor_midterm.tex}
 
 % 威海校区本科生开题报告结构 ----------------------------------------
 % \input{body/report_weihai_bachelor_opening}
