@@ -1,0 +1,1 @@
+cd /home/yl/workspace/hithesis/examples/hitbook/chinese/ && make thesis
