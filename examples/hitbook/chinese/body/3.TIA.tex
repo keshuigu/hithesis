@@ -1,11 +1,143 @@
 % !Mode:: "TeX:UTF-8"
 
+% TODO (写作提示):
+% - 在方法开头形式化输入/输出：明确 $x$ (图像) 的尺寸、特征模板 $t$ 的维度、y 的含义等。
+% - 在训练/推理小节后增加超参数表（batch size、lr、迭代次数、lambda 调度、随机种子）。
+% - 在推理流程图下方给出示例推理命令（便于复现），例如：\texttt{python infer.py --ckpt model.pt --template tpl.npy --steps 18}
+% - 若有关键实现文件或脚本，补充路径或仓库链接。
+
 \chapter[面向人脸特征提取模型的逆向重建方法]{面向人脸特征提取模型的逆向重建方法}[Reconstruction Method for Face Feature Extraction Models]
-这是 \hithesis\ 的示例文档，基本上覆盖了模板中所有格式的设置。建议大家在使用模
-板之前，除了阅读《\hithesis\:哈尔滨工业大学学位论文模板》\footnote{即
-hithesis.pdf文件}，本示例文档也最好能看一看。此示例文档尽量使用到所有的排版格式
-，然而对于一些不在我工规范中规定的文档，理论上是由用户自由发挥，这里不给出样例
-。需要另行载入的宏包和自定义命令在文件`hithesis.sty'中有示例，这里不列举。
+
+基于模板(Template)匹配的识别模型, 主要应用于人脸识别、指纹识别等生物特征识别系统。此类模型用户的原始数据如人脸图像 $x$ , 经过特征提取网络 $F(\cdot)$ 得到特征模板 $t = F(x)$, 并存储于数据库, 这里的 $t$ 称为模板信息。在需要进行身份验证时, 用户给出新的输入图像 $x'$ ; 识别系统会比对此次输入的图像与数据库中的特征模板的匹配程度, 从而判断用户身份。以常见的余弦相似度为例, 模板匹配的判定准则为:
+\[
+  d(F(x'), t) = \frac{F(x') \cdot t}{\| F(x') \|_2 \| t \|_2}
+\]
+若 $d(F(x'), t) > \tau$, 则判定 $x'$ 与模板 $t$ 属于同一身份, 其中 $\tau$ 为系统设定的阈值。
+
+虽然这种方法在实际应用中具有较高的准确率和效率, 但也存在隐私泄露的风险。具体来说, 由于模板存储在特征数据库中, 假设攻击者获得了特征数据库的访问权限, 窃取到特征模板信息, 则攻击者可以通过模板信息反向生成出接近用户的图像信息, 从而误导识别模型的识别结果。针对这类模型的攻击方法称为模板逆向攻击(Template Inversion Attack, TIA)。模板逆向攻击的核心在于利用特征模板 $t$ 来重建与之匹配的原始输入图像 $x'$ 。攻击者可以通过优化算法或生成模型来实现这一目标。此类攻击寻找一个输入 $x^*$, 使得其特征 $F(x^*)$ 与模板 $t$ 的相似度最大化, 可通过如下优化目标来描述:
+$$x^* = \arg\min_{x'}Sim(F(x'), t)$$
+其中$Sim(\cdot)$表示衡量特征与模板之间相似程度的函数。
+
+
+针对基于模板匹配模型的隐私泄露问题, 设计了如图\ref{fig:edm_tia_train}所示的利用EDM扩散模型进行模板逆向攻击的训练流程。其中扩散模型的核心部分采用了EDM扩散模型, 利用其生成能力和噪声调度机制, 实现高效的模板逆向攻击算法。通过对扩散模型的训练和优化, 模型可以重建与目标模板匹配的原始输入图像, 从而实现对用户隐私信息的还原。本课题在损失函数设计上, 结合了特征提取网络与扩散生成模型, 使得攻击流程能够同时优化生成图像的像素质量以及其与目标模板的特征相似度。
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=0.7\textwidth]{images/train.drawio.pdf}
+  \caption{基于EDM的模板逆向攻击模型训练流程示意图}
+  \label{fig:edm_tia_train}
+\end{figure}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+以EDM扩散模型为基础, 训练中使用的损失函数可以概括为:
+
+\[
+  \mathcal{L}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ w(\sigma) \left\|  f_\theta(x_0 + \sigma \epsilon,y,\sigma) - x_0 \right\|^2 \right]
+  + \lambda \| F( f_\theta(x_0 + \sigma \epsilon,y,\sigma)) - F(x_0) \|^2
+\]
+
+其中, $F(\cdot)$ 表示特征提取网络, $y$ 为目标类别标签, $\lambda$ 为平衡系数。损失函数由两部分组成: 第一项是像素空间的均方误差损失, 用于衡量生成图像与原始输入图像在像素级别上的相似度, 确保生成图像具备较高的视觉质量和基础结构还原能力; 第二项是特征空间的损失, 通过特征提取网络 $F$ 计算生成图像与原始图像在特征空间的距离, 用于衡量生成图像与目标模板之间的匹配程度, 从而提升攻击的有效性。$\lambda$ 的作用是平衡这两部分损失的影响, 使得模型在训练过程中既能生成与原始输入图像高度相似的图像, 又能保证生成图像在特征空间上与目标模板保持一致。
+
+模板逆向攻击模型训练的具体步骤如算法\ref{alg:edm_tia_train}所示:
+
+\begin{algorithm}[H]
+  \caption{模板逆向攻击模型训练}
+  \label{alg:edm_tia_train}
+  \begin{algorithmic}[1]
+    \REQUIRE 训练样本集 $\mathcal{D}$, 扩散生成模型 $f_\theta$, 特征提取网络 $F$
+    \ENSURE 训练好的生成模型参数 $f_\theta$
+    \FOR{迭代 $=1$ 到 $N$}
+    \STATE 随机采样一批训练样本 $(x_0, y_0)$
+    \FOR{每个样本 $(x_0, y_0)$}
+    \STATE 采样噪声 $\epsilon \sim \mathcal{N}(0, I)$, 噪声幅度 $\sigma$
+    \STATE 计算带噪输入 $x = x_0 + \sigma \epsilon$
+    \STATE 生成图像 $\hat{x} = f_\theta(x, y_0, \sigma)$
+    \STATE 计算损失
+    \[
+      \mathcal{L}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ w(\sigma) \left\|  f_\theta(x_0 + \sigma \epsilon,y_0,\sigma) - x_0 \right\|^2 \right]
+      + \lambda \| F( f_\theta(x_0 + \sigma \epsilon,y_0,\sigma)) - F(x_0) \|^2
+    \]
+    \ENDFOR
+    \STATE 更新 $\theta$ 以最小化 $\mathcal{L}(\theta)$
+    \ENDFOR
+  \end{algorithmic}
+\end{algorithm}
+
+
+在训练完毕后, 模型可以用于推理阶段, 即利用训练好的扩散模型生成与目标特征模板匹配的图像。推理阶段的主要目标是, 在已知目标特征模板的情况下, 通过扩散模型逐步去噪, 从随机噪声中重建出与该模板高度匹配的原始输入图像。在实际采样时, 常用离散步长来近似EDM的随机微分方程采样过程, 即:
+\[
+  x_{i-1} = x_i + \frac{1}{2} \sigma_i^2 \nabla_x \log f_\theta(x_i, \sigma_i, y) \Delta \sigma + \sigma_i \sqrt{\Delta \sigma} \cdot z_i
+\]
+
+其中 $z_i \sim \mathcal{N}(0, I)$, $\Delta \sigma = \sigma_{i-1} - \sigma_i$。具体而言, 首先以随机噪声作为初始输入, 结合目标模板信息, 经过多步迭代的去噪过程, 模型不断优化生成图像的特征, 使其在特征空间中逐渐接近目标模板。每一步生成的中间结果都会被输入特征提取网络进行特征对齐, 确保最终生成的图像不仅在视觉上具有较高的质量, 同时在特征空间中与目标模板高度一致。图\ref{fig:edm_tia_infer}展示了扩散模型在模板逆向攻击中的应用过程。
+
+
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=0.8\textwidth]{images/infer.drawio.pdf}
+  \caption{基于EDM的模板逆向攻击模型推理流程示意图}
+  \label{fig:edm_tia_infer}
+\end{figure}
+
+
+上述研究结果表明, 在训练模型中, 使用模板信息一致性损失和图像重建的像素损失一起训练, 随着动态权重的增加, 图像质量存在一定的下滑现象, 因此在已有的模板逆向攻击的基础上, 本课题进一步提出了一种基于一致性微调的两阶段训练策略。该策略旨在最大程度地保持生成图像的高质量, 同时引导模型生成与目标类别特征分布相匹配的图像。通过两阶段的训练策略, 预期模型不仅能够生成高质量、结构一致的图像, 还能进一步提升生成图像与目标类别特征的匹配度。整个训练过程如图\ref{fig:consistency_finetune}所示.
+
+第一阶段为 EDM 核心损失训练, 主要目标是使生成模型能够充分学习数据的基础分布和图像生成的核心特征。在该阶段, 优化的损失函数为EDM的像素误差损失:
+
+\[
+  \mathcal{L}_{\text{EDM}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ w(\sigma) \left\| f_\theta(x_0 + \sigma \epsilon, t, \sigma) - x_0 \right\|^2 \right]
+\]
+
+其中, $x_0$ 表示原始图像, $\sigma$ 为噪声幅度, $\epsilon$ 为高斯噪声, $w(\sigma)$ 为噪声权重, $f_\theta$ 为生成模型。该阶段训练的重点在于提升生成图像的整体质量和结构一致性, 确保生成结果具备较高的真实性和清晰度。
+
+第二阶段为微调阶段, 此时冻结大部分网络层, 仅对部分关键层进行微调。微调过程中, 引入模板信息一致性损失, 引导模型生成与目标模板信息特征更为匹配的图像。此阶段的损失函数可以使用特征值的均方误差损失来约束特征值的一致性:
+
+\[
+  \mathcal{L}_{id} = \| F( f_\theta(x_0 + \sigma \epsilon,y_0,\sigma)) - F(x_0) \|^2
+\]
+% 在一致性微调策略下, 模型的训练过程分为两个阶段。第一阶段是EDM核心损失训练, 主要目标是使生成模型能够充分学习数据的基础分布和图像生成的核心特征。在这一阶段, 模型专注于生成图像的整体质量和结构一致性, 确保生成结果具备较高的真实性和清晰度。第二阶段是微调阶段, 此时冻结大部分网络层, 仅对部分关键层进行微调, 以保持已获得的高质量图像生成能力, 并进一步调整生成策略, 使生成图像能够更好地与目标类别的特征分布相匹配。整个训练过程如图\ref{fig:consistency_finetune}所示, 清晰地展示了两阶段训练和参数调整的流程。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.6\textwidth]{images/train_finetune.pdf}
+  \caption{加入一致性微调后的两阶段模板逆向攻击示意图}
+  \label{fig:consistency_finetune}
+\end{figure}
+
+\subsection*{实现与复现说明}
+为便于同行复现，本研究在附录及公开的代码仓库中提供实现细节、数据预处理流程、模型权重及必要的运行脚本。正文中仅报告用于描述实验设置的关键超参数与其含义，详细的运行命令与脚本不在正文中列出。
+
+下表列出本研究关键超参数的示例（供结果解释与方法对比使用），实际实验参数请参见附录或代码仓库中的配置文件。
+
+\begin{table}[htbp]
+  \centering
+  \begin{tabular}{lll}
+    \hline
+    超参数 & 示例值 & 说明 \\
+    \hline
+    batch size & 32 & 每次训练的样本数（依据显存调整） \\
+    learning rate & $1\times10^{-4}$ & 优化器初始学习率（Adam/AdamW） \\
+    训练迭代次数 & 若干 epochs 或固定迭代次数 & 总训练规模 \\
+    $\lambda$ 初始/调度 & 0 $\to$ 100（示例） & 模板一致性损失权重调度策略 \\
+    随机种子 & 42 & 用于复现随机性 \\
+    采样步数 & 18 & EDM 采样步数示例 \\
+    $\sigma_{\min},\sigma_{\max}$ & 0.002, 80 & 采样噪声区间示例 \\
+    \hline
+  \end{tabular}
+  \caption{用于描述实验设置的关键超参数示例（TIA）}
+  \label{tab:tia_hyperparams}
+\end{table}
+
+详细的实现说明包括但不限于：
+\begin{itemize}
+  \item 代码与配置文件的位置（见附录/代码仓库）；
+  \item 所用软件环境与依赖版本（如框架、库版本）；
+  \item 数据集预处理步骤与划分标准；
+  \item 随机种子设置与评估统计策略（重复实验次数、报告均值与方差）。
+\end{itemize}
+
 % Local Variables:
 % TeX-master: "../main"
 % TeX-engine: xetex

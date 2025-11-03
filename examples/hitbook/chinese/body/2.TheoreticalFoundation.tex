@@ -1,11 +1,235 @@
 % !Mode:: "TeX:UTF-8"
 
+% TODO (写作提示):
+% - 本章较长，建议加入一个“符号说明”小节，列出常用符号 (例如 $x_t, \alpha_t, \epsilon_\theta, \sigma$) 与含义，便于读者快速查阅。
+% - 在章节末尾注明实现细节：使用的框架（PyTorch/TensorFlow）、关键库版本、参考实现链接（若有）。
+% - 若有较长证明，考虑把完整证明移到附录并在正文给出结论要点。
+
 \chapter[理论基础]{理论基础}[Theoretical Foundation]
-这是 \hithesis\ 的示例文档，基本上覆盖了模板中所有格式的设置。建议大家在使用模
-板之前，除了阅读《\hithesis\:哈尔滨工业大学学位论文模板》\footnote{即
-hithesis.pdf文件}，本示例文档也最好能看一看。此示例文档尽量使用到所有的排版格式
-，然而对于一些不在我工规范中规定的文档，理论上是由用户自由发挥，这里不给出样例
-。需要另行载入的宏包和自定义命令在文件`hithesis.sty'中有示例，这里不列举。
+\section[图像生成模型研究现状]{图像生成模型研究现状}
+
+目前有三个主流的图像生成模型研究方向，分别是基于似然的模型，生成对抗网络以及基于能量的模型\cite{luoUnderstandingDiffusionModels2022}。
+基于似然的模型，主要目标是学习为观察到的数据样本分配高似然的模型，代表的模型有自回归模型、流模型和变分自动编码器。
+生成对抗网络模型中一般包括判别器和生成器共同运行，其中生成器根据隐空间采样数据生成一个图像，判别器则用于区分生成的图像与原始的图像。训练过程中，生成器和判别器的相互对抗，生成器所学习到的分布逐渐靠近原始图像分布。
+基于能量的模型又称扩散模型，扩散模型一般由前向扩散过程和反向生成过程组成。其中前向扩散过程将图像逐步添加噪声直至变成随机噪声，反向生成过程则将随机噪声逐步去除噪声直至生成图像数据。
+\par
+在基于似然的模型方面，Kingma\cite{kingmaAutoEncodingVariationalBayes2022}等人提出了变分自编码器(Variational Auto-Encoder, VAE)模型，通过变分贝叶斯方法，将对原始图像数据的负对数似然的建模优化转为变分下界的计算。VAE模型包含编码器和解码器，其中编码器将原始图像映射到隐变量，解码器从采样的隐变量重建原始图像。
+Sohn\cite{sohnLearningStructuredOutput2015}等人在VAE的基础上提出了条件变分自编码器(Conditional Variational Auto-Encoder, CVAE) 模型，其在VAE的基础上，引入条件概率，使得在生成时能够按照标签条件生成。VAE与CVAE的区别在于数据产生方式，VAE是从隐变量采样后使用网络生成图像数据，而CVAE使用标签采样隐变量，再使用网络生成图像数据。
+Van\cite{vandenoordNeuralDiscreteRepresentation2017}等人提出了向量量化变分自编码器(VectorQuantisation Variational Auto-Encoder, VQ-VAE)，其在VAE基础上，采用了离散的隐变量，并单独训练一个自回归模型来学习隐变量的先验分布。相比于原始的VAE，VQ-VAE采用了离散编码，并且用了两阶段来生成，让隐变量的先验分布从高斯分布变成可学习的分布，提升了模型的学习能力。
+\par
+生成对抗模型(Generative Adversarial Networks, GAN)是由Goodfellow\cite{goodfellowGenerativeAdversarialNetworks2014}等人提出。这类模型主要是通过一个生成器G和一个判别器D的双方博弈完成训练。对于判别器而言，其优化期望能区分输入图像是生成图像的概率；对于生成器而言，其优化期望是能生成判别器难以分辨真伪的图像。
+Arjovsky\cite{arjovskyWassersteinGAN2017}等人提出WGAN(Wasserstein GAN,WGAN)模型，该文献认为原始GAN模型的损失函数中使用的对称的JS散度不能很好体现两个分布之间的差距，使得在初始阶段分布差距过大时难以训练，而KL散度对生成器训练阶段的多样性与真实性的惩罚贡献不均衡，使得模型发生模式崩溃而难以生成多样性的样本。这项工作中使用了Wasserstein距离代替了JS散度，解决训练稳定性问题。
+Esser\cite{esserTamingTransformersHighResolution2021}等人在VQ-VAE的基础上，将其隐变量生成器从pixelCNN换成了Transformer，并且在训练过程中加入使用PatchGAN的判别器以及对抗损失。通过使用Transformer做离散编码的生成器，隐变量的预测过程可以被视作自回归预测。经实验，VQGAN可以很好的完成高分辨图像的生成任务。
+
+\par
+在扩散模型方面，Ho\cite{hoDenoisingDiffusionProbabilistic2020}等人提出了第一个正式的去噪扩散模型(Denoising Diffusion Probabilistic Models, DDPM)，其包含一个前向的扩散过程和一个反向的生成过程。前向扩散过程中，将原始图像数据按马尔可夫过程据逐步添加随机噪声，最终变成纯随机噪声；在反向生成过程中，将噪声数据每次去噪并采样，逐步恢复原始数据。DDPM对整个扩散生成过程建模，经过优化将问题转变为预测每一步的随机噪声，并采用神经网络对噪声预测拟合。
+Song\cite{songGenerativeModelingEstimating2019}等人提出了条件噪声得分网络(Noise-Conditional Score Networks, NCSN)，其主要思路为分数匹配方法来估算数据分布的分数函数，并通过朗之万动力学采样实现采样生成。由于数据位于高维空间中的低维流行上，难以估计分数函数，则该文献提出了使用不同程度的噪声对其扰动，并联合估计分数函数。该工作可以视为DDPM扩散模型的另一种解释。
+Song\cite{songScoreBasedGenerativeModeling2021}等人针对扩散模型，提出了Score SDE框架统一并且解释了扩散模型。该文献从分数匹配与能量模型角度，提出了基于随机微分方程(StochasticDifferential Equations, SDE) 的去噪分数匹配模型。不同于DDPM的离散形式，使用随机微分方程建模的ScoreSDE是连续形式，正向过程通过SDE求解来注入噪声，将图像数据分布转换到已知的先验分布，并使用神经网络模型学习分数，反向过程通过预测并修正的采样方案，最终将噪声去除并从先验分布转换到数据分布。该文献不仅提出模型，并且将以往的DDPM模型和基于得分匹配朗之万动力学模型都统一使用SDE模型表达，实现了对扩散模型的解释与统一。
+Rombach\cite{rombachHighResolutionImageSynthesis2022}等人提出了隐扩散模型 LDM(Latent Diffusion Models, LDM)，因以往的扩散模型直接在图像空间扩散与训练，对计算资源、运算时间消耗大，LDM在隐空间作扩散训练，通过预训练的自编码模型来实现对图像像素空间与隐空间的转换。其中还内嵌条件生成机制，可以在模型中引入多种形态的条件机制，如文本、标签、语音、图像等条件信息。经过实验，其在图像生成、超分辨率、图像修复等诸多下游任务都有很好的表现。
+\par
+除了以上三类模型，在条件生成模型方面，还有不少工作取得了效果显著的成果。Radford \cite{pmlr-v139-radford21a}等提出文图对比预训练模型CLIP(Contrastive Language-Image Pre-training, CLIP)，为基于对比学习的多模态模型。该模型使用文本编码器和图像编码器，将文本与图像编码到相似的隐空间中。该文献打通了文本与图像的隔阂，将两者统一起来，后续许多工作的研究都采用了 CLIP 的引导实现的文生图与图生图功能。
+Ramesh \cite{pmlr-v139-ramesh21a}等人提出了DALL-E模型，这是一个由OpenAI开发的文本描述生成图像模型。该模型首先使用VAE思路将图像编码为离散的隐变量，用Transformer模型将自然语言映射到隐变量，最后将隐变量融合成并使用解码器生成图像，通过CLIP辅助计算文本与图像的相关度。其中的VAE、Transformer和CLIP都可以独立完成训练学习。
+\par
+大语言模型（Large Language Models，LLM）出现后，条件引导图像生成的研究工作中涌现出了一个新的思路，即利用现成预训练好的大语言模型去生成图像，因此产生了多模态大模型\cite{zhang2024mmllmsrecentadvancesmultimodal}。
+Alayrac\cite{NEURIPS2022_960a172b}等人基于70B参数的Chinchilla大语言模型，训练出的Flamingo模型在5个任务达到了领先的水平。目前的效果较好的生成模型规模普遍较大，训练过程长，所需资源多。为了解决根据下游任务重新训练大模型代价昂贵的问题，Hu\cite{hu2021loralowrankadaptationlarge}等人提出了低秩适应（Low-rank Adaptation，LoRA）技术，通过冻结了预训练的模型权重，并将可训练的秩分解矩阵注入到 Transformer 架构的每一层中，大大减少了利用大模型进行下游任务的可训练参数的数量。LoRA作为一种有效的适应策略，既不会引入推理延迟，也不会减少输入序列长度，同时保持高模型质量。重要的是，通过共享绝大多数模型参数，它可以在部署为服务时实现快速任务切换。该项工作指出其所提出的原理通常适用于任何具有密集层的神经网络。
+
+\section[DM]{扩散模型}
+
+本研究提出一个高效率的模型反演方法，从公共数据集上训练的一般无条件生成网络，结合图像特征信息的分数作为引导，从而实现高效率的图像特征反向攻击。
+\par
+首先对图像特征反向攻击问题作出基本假设。记图像特征信息为y，对应的原始未知图像为$x \sim p(x)$，则图像特征信息的分布可以表示为 $p(y|x)$。本课题所研究的目标是对分布$p(x|y)$进行建模。以往的方法采用GAN模型作为生成器，其生成时是一步生成，难以使用分类引导生成。本研究基于扩散模型进行，其前向扩散步骤与反向生成步骤可以表示为公式\eqref{eqn-1}和公式\eqref{eqn-2},
+\begin{align}
+      q(x_t|x_{0})=\mathcal{N}(x_t;\sqrt{\overline{\alpha}_t}x_{0},(1-\overline{\alpha}_t)I)\label{eqn-1} \\
+      x_{t-1}= \frac{1}{\sqrt{\alpha_t}}
+      (x_t -
+      \frac{1-\alpha_T}{\sqrt{1-\overline{\alpha}_t}}
+      (\epsilon_\theta(x_t,t))) + \sigma_t z \label{eqn-2}
+\end{align}
+\par
+其中$z \sim \mathcal{N}(0,I)$，$x_T \sim \mathcal{N}(0,I)$，$\epsilon_\theta$ 是通过训练得到的关于$x_t$和$t$的噪音，$\sigma_t$,$\alpha_t$ 为与扩散时间步t相关的参数，$\alpha_t$和$\overline{\alpha}_t$为前向过程中参数，这些参数会在\ref{sec:finishwork}一节中详细说明。生成过程即通过从随机噪声 $x_T$ 的采样，迭代公式\eqref{eqn-2}，一步一步恢复图像直至 $x_0$ ，完成生成过程。
+\par
+以上过程为无条件图像重建的过程，接下来增加图像特征信息$y$对生成过程的引导和约束。对于条件概率贝叶斯公式的导数形式，可以有如下表示：
+\begin{equation}\label{eqn-3}
+      \nabla \log p(x|y) = \nabla \log p(x) + \nabla \log p(y|x)
+\end{equation}
+\par
+其中的 $y$ 表示分类标签，$\nabla \log p(x|y)$ 表示标签条件下的分数估计，而 $\nabla \log p(x)$表示无条件的分数，$\nabla \log p(y|x)$ 这个认为是在此图像$x$的条件下标签的分数估计。使用特威迪公式对扩散模型的采样过程做估计可以得到如下表示：
+\begin{equation}\label{eqn-4}
+      \sqrt{\overline{\alpha}_t}x_0 = x_t + (1 - \overline{\alpha}_t) \cdot \nabla_x \log p(x_t) = x_t - \sqrt{1-\overline{\alpha}_t}\cdot\epsilon_\theta(x_t,t)
+\end{equation}
+\par
+于是可以推得扩散模型中采样过程的网络输出与模型分数的关联：
+\begin{equation}\label{eqn-5}
+      \nabla_{x_t} \log p(x_t) = - \frac{1}{\sqrt{1-\overline{\alpha}_t}} \cdot\epsilon_\theta(x_t,t)
+\end{equation}
+\par
+代入公式\eqref{eqn-3}，得到以下结果：
+\begin{equation}\label{eqn-6}
+      \nabla \log p(x|y) = - \frac{1}{\sqrt{1-\overline{\alpha}_t}} \cdot\epsilon_\theta(x_t,t)
+      + \nabla \log p(y|x)
+\end{equation}
+\par
+若将$p(x|y)$视为生成过程，那么其与模型分数的关联可以表示为：
+\begin{equation}\label{eqn-7}
+      \nabla \log p(x|y) = - \frac{1}{\sqrt{1-\overline{\alpha}_t}} \cdot\hat{\epsilon}_\theta(x_t,t)
+\end{equation}
+\par
+联合公式\eqref{eqn-6}，则得到以下表达：
+\begin{equation}\label{eqn-8}
+      \hat{\epsilon}_\theta(x_t,t) = \epsilon_\theta(x_t,t) -\sqrt{1-\overline{\alpha}_t} \cdot \nabla \log p(y|x)
+\end{equation}
+\par
+其中，公式\eqref{eqn-8}等号右边第一项为扩散模型原本的模型噪声输出，右边第二项可以认为是在当前图像上的模型图像分类器分数，而等号左边则为分类器分数调整后的模型噪声修正。
+\subsubsection{无条件扩散模型理论}\label{sec:DDPM}
+无条件扩散模型模型包含两个过程，前向扩散过程和反向生成过程，下面进行详细分析。
+前向扩散过程是指的对数据逐渐增加高斯噪音直至数据变成随机噪音的过程。
+\begin{equation}\label{eqn-11}
+      q(x_t|x_{t-1})=\mathcal{N}(x_t;\sqrt{1-\beta_t}x_{t-1},\beta_tI)
+\end{equation}
+\par
+其中$\{\beta_t\}^{T}_{t=1}$为每一步所采用的方差，介于$0 \sim 1$之间。通常情况下，越后面的时间步会采用更大的方差。如果扩散步数T足够大，那么最终得到的$x_T$就完全丢失了原始数据而变成了一个随机噪音。扩散过程的每一步都生成一个带噪音的数据，整个扩散过程也就是一个马尔卡夫链：
+\begin{equation}\label{eqn-12}
+      q(x_{1:T}|x_0) = \Pi^T_{t=1}{q(x_t|x_{t-1})}
+\end{equation}
+\par
+扩散过程的一个重要特性是可以直接基于原始数据来对任意t步的$x_t$进行采样：$x_t \sim q(x_t|x_0)$。
+定义$\alpha_t = 1 - \beta_t$和$\overline{\alpha}_t=\Pi^t_{i=1}{\alpha_i}$，通过反复使用重参数技巧，每次重参数都随机从标准高斯分布中采样，再将采样值作为噪声在数据中扩散，那么有：
+\begin{align}
+x_t &= \sqrt{\alpha_t}x_{t-1} + \sqrt{1-\alpha_t}\epsilon_{t-1} \nonumber\\
+    &= \sqrt{\alpha_t}(\sqrt{\alpha_{t-1}}x_{t-2} + \sqrt{1-\alpha_{t-1}}\epsilon_{t-2}) + \sqrt{1-\alpha_t}\epsilon_{t-1} \nonumber\\
+    &= \sqrt{\alpha_t\alpha_{t-1}}x_{t-2} + \sqrt{\sqrt{\alpha_t-\alpha_t\alpha_{t-1}^2}+ \sqrt{1-\alpha_t}^2}\overline{\epsilon}_{t-2}; \nonumber\\
+    &= \sqrt{\alpha_t\alpha_{t-1}}x_{t-2} + \sqrt{1-\alpha_t\alpha_{t-1}}\overline{\epsilon}_{t-2} \nonumber\\
+    &= \cdots \nonumber\\
+    &= \sqrt{\overline{\alpha}_t}x_{0} + \sqrt{1-\overline{\alpha}_t}\epsilon \label{eqn-13}
+\end{align}
+\par
+于是可以得到以下表示:
+\begin{equation}\label{eqn-14}
+      q(x_t|x_{0})=\mathcal{N}(x_t;\sqrt{\overline{\alpha}_t}x_{0},(1-\overline{\alpha}_t)I)
+\end{equation}
+\par
+扩散过程是将数据噪音化，那么反向过程就是一个去噪的过程，如果反向过程的每一步的真实分布$q(x_{t-1}|x_t)$已知，那么从一个随机噪音$x_T \sim \mathcal{N}(0,I)$开始，逐渐去噪就能生成一个真实的样本，所以反向过程也就是生成数据的过程。
+估计分布$q(x_{t-1}|x_t)$需要用到整个训练样本，可以用神经网络来估计这些分布。这里将反向过程也定义为一个马尔卡夫链，只不过它是由一系列用神经网络参数化的高斯分布来组成：
+\begin{align}
+      p_{\theta}(x_{0:T}) &= p(X_T)\Pi^T_{t=1}{p_{\theta}(x_{t-1}|x_t)} \label{eqn-15}\\
+      p(x_T) &= \mathcal{N}(x_T;0,I)\label{eqn-16}\\
+      p_{\theta}(x_{t-1}|x_t) &= \mathcal{N}(x_{t-1};\mu_{\theta}(x_t,t),\Sigma_{\theta}(x_t,t))\label{eqn-17}
+\end{align}
+\par
+分布是$q(x_{t-1}|x_t)$不可直接处理的，但是加上条件$x_0$的后验分布$q(x_{t-1}|x_t,x_0)$却是可处理的。
+利用贝叶斯公式，得到以下结果：
+\begin{equation}\label{eqn-18}
+      q(x_{t-1}|x_t,x_0) = q(x_{t}|x_{t-1},x_0)\frac{q(x_{t-1}|x_0)}{q(x_{t}|x_0)}
+\end{equation}
+\par
+这里利用马尔可夫链性质，可知第一项与$x_0$无关，分式两项可以从前向过程得到。因此可以计算。再利用公式\eqref{eqn-14}及公式\eqref{eqn-18}，可以证明$q(x_{t-1}|x_t,x_0)$是一个高斯分布，这里表示为:
+\begin{equation}\label{eqn-19}
+      q(x_{t-1}|x_t,x_0) = \mathcal{N}(x_{t-1};\widetilde{\mu}(x_t,x_0),\widetilde{\beta_t}I)
+\end{equation}
+\par
+最终可以得到:
+\begin{align}
+      \widetilde{\beta_t} &= \frac{1 - \overline{\alpha}_{t-1}}{1 - \overline{\alpha}_{t}}\beta_t \label{eqn-20}\\
+      \widetilde{\mu}(x_t,x_0) &= \frac{\sqrt{\alpha_t}(1- \overline{\alpha}_{t-1})}{1- \overline{\alpha}_{t}}x_t + \frac{\sqrt{\overline{\alpha}_{t-1}}\beta_t}{1- \overline{\alpha}_{t}}x_0 \label{eqn-21}
+\end{align}
+\par
+可以看到由于扩散过程参数固定，方差是一个定量，而均值是一个依赖$x_0$和$x_t$的函数。
+\par
+上面介绍了扩散模型的扩散过程和反向过程，现在从另外一个角度来看扩散模型：如果把中间产生的变量看成隐变量的话，那么扩散模型其实是包含$T$个隐变量的隐变量模型，它可以看成是一个特殊的层次化的VAE，相比VAE来说，扩散模型的隐变量是和原始数据同维度的，而且扩散过程是固定的。既然扩散模型是隐变量模型，那么就可以基于变分推断常用的证据下界ELBO作为最大化优化目标，这里有：
+\begin{align}
+      \log{p_{\theta}(x_0)} &= \log{\int{p_{\theta}(x_{0:T})dx_{1:T}}};\nonumber\\
+      &=\log{\int{\frac{p_{\theta}(x_{0:T})q(x_{1:T}|x_0)}{q(x_{1:T}|x_0)}dx_{1:T}}} \nonumber\\
+      &\ge \mathbb{E}_{q(x_{1:T}|x_0)}[\log{\frac{p_{\theta}(x_{0:T})}{q(x_{1:T}|x_0)}}]\nonumber
+\end{align}
+\par
+则训练目标为：
+\begin{equation}\label{eqn-22}
+L = - L_{VLB} = \mathbb{E}_{q(x_{1:T}|x_0)}[-\log{\frac{p_{\theta}(x_{0:T})}{q(x_{1:T}|x_0)}}] = \mathbb{E}_{q(x_{1:T}|x_0)}[\log{\frac{q(x_{1:T}|x_0)}{p_{\theta}(x_{0:T})}}]
+\end{equation}
+\par
+最终得到：
+\begin{align}
+      L &= \underbrace{D_{KL}(q(x_T|x_0) || p_\theta(x_T))}_{L_T} \nonumber\\
+      &+ \sum^T_{t=2}{\underbrace{\mathbb{E}_{q(x_t|x_0)}[D_{KL}(q(x_{t-1}|x_t,x_0) || p_\theta(x_{t-1}|x_t))]}_{L_{t-1}}} \nonumber\\
+      &- \underbrace{\mathbb{E}_{q(x_1|x_0)}\log{p_\theta(x_0|x_1)}}_{L_0} \label{eqn-23}
+\end{align}
+\par
+在这里对模型做进一步简化，采用固定的方差$\Sigma_\theta=\sigma^2_tI$，利用高斯分布计算KL散度的公式，经推导优化目标$L_{t-1}$可以变换为：
+\begin{equation}\label{eqn-24}
+L_{t-1}=\mathbb{E}_{q(x_t|x_0)}[\frac{1}{2\sigma^2_t}\lVert \widetilde{\mu}_t(x_t,x_0)-\mu(x_t,t) \rVert^2_2]
+\end{equation}
+\par
+从上述公式来看，扩散模型希望网络学习到的均值和后验分布的均值一致。从另外一个角度利用重新参数化技巧。在对$q ( x_t | x_0 )$形式的推导以及公式\eqref{eqn-13}中，重新整理结果，将$x_0$视为变量，来得到以下结果：
+\begin{equation}\label{eqn-25}
+      x_0 = \frac{x_t - \sqrt{1-\overline{\alpha}_t}\epsilon_0}{\sqrt{\overline{\alpha}_t}}
+\end{equation}
+\par
+将其代入我们之前推导的去噪转移均值公式\eqref{eqn-21}，利用新得到的表达式代入公式\eqref{eqn-23}可以重新推导优化目标$L_{t-1}$为：
+\begin{equation}\label{eqn-26}
+      L_{t-1}=\mathbb{E}_{x_0,\epsilon \sim \mathcal{N}(0,I)}[\lVert \epsilon - \epsilon_\theta (\sqrt{\overline{\alpha}_t}x_0 + \sqrt{1 - \overline{\alpha}_t}\epsilon,t)\rVert^2_2]
+\end{equation}
+\par
+以上结果表明通过预测原始图像$x_0$的学习目标来训练扩散模型等价于通过学习预测噪声来进行训练。
+\subsubsection{基于得分函数的扩散模型解释与条件引导生成}
+对于一个高斯变量$z\sim \mathcal{N} ( z ; \mu_z , \Sigma_z)$，特威迪公式为：
+\begin{equation}\label{eqn-27}
+\mathbb{E}[\mu_z | z] = z + \Sigma_z\nabla_z\log{p(z)}
+\end{equation}
+\par
+由之前的结果，可以得到：
+\begin{equation}\label{eqn-28}
+      q(x_t|x_0) = \mathcal{N}(x_t;\sqrt{\overline{\alpha}_t}x_0,(1-\overline{\alpha}_t)I)
+\end{equation}
+\par
+然后，应用特威迪公式来预测给定样本的$x_t$的真实后验均值：
+\begin{equation}\label{eqn-29}
+  \mathbb{E}[\mu_{x_t} | x_t] = x_t + (1-\overline{\alpha}_t)\nabla_{x_t}\log{p(x_t)}
+\end{equation}
+\par
+根据特威迪公式，真实均值最佳估计定义为：
+\begin{align}
+  \sqrt{\overline{\alpha}_t}x_0 = x_t + (1-\overline{\alpha}_t)\nabla_{x_t}\log{p(x_t)} \label{eqn-30} \\
+  x_0 =\frac{ x_t + (1-\overline{\alpha}_t)\nabla_{x_t}\log{p(x_t)}}{\sqrt{\overline{\alpha}_t}} \label{eqn-31}
+\end{align}
+\par
+然后，我们可以将上述方程再次代入\ref{sec:DDPM}节的$\widetilde{\mu}(x_t,x_0)$并推导出新优化目标的形式：
+\begin{equation}\label{eqn-32}
+      L_{t-1}=\mathbb{E}_{x_0,\epsilon \sim \mathcal{N}(0,I)}[\lVert s_\theta(x_t,t) - \nabla \log p(x_t)\rVert^2_2]
+\end{equation}
+\par
+这里可以认为训练扩散模型可以通过学习预测得分函数$\nabla_{x_t}\log{p(x_t)}$来优化。得分函数是对于任意的噪声水平$t$，$x_t$在数据空间的梯度。
+\par
+以上过程中只对无条件数据分布$p ( x )$进行了建模。然而，如果希望通过条件信息y显式地控制生成的数据，需要学习条件分布$p ( x | y )$。从扩散模型的基于得分的表述开始，我们的目标可以视为是在任意噪声水平t下学习条件模型的得分$\nabla \log p ( x_t | y )$。根据贝叶斯法则，可以推导出如下等价形式。其中，$\log p ( y )$关于$x_t$的梯度为零。
+\begin{align}
+  \nabla \log p (x_t|y)
+  &= \nabla \log \frac{
+    p(x_t)p(y|x_t)
+  }{
+    p(y)
+  } \nonumber\\
+  &= \nabla \log p(x_t) + \nabla \log p(y|x_t) + \nabla \log p(y) \nonumber\\
+  &= \nabla \log p(x_t) + \nabla \log p(y|x_t) \label{eqn-33}
+\end{align}
+\par
+我们的最终推导结果可以理解为学习一个无条件的得分函数，结合分类器的对抗梯度。因此，在分类器指导中，无条件扩散模型的得分与前面推导的一样被学习，同时一个分类器接受任意噪声$x_t$并试图预测条件信息$y$。然后，在采样过程中，用于朗之万动力学的整体条件得分函数被计算为无条件得分函数和噪声分类器的对抗梯度之和。
+
+\subsection[EDM]{明晰扩散模型}[Elucidated Diffusion Models]
+
+EDM是扩散概率模型领域的重要进展, 由Karras等人在2022年提出。EDM对扩散过程的噪声调度、采样策略和损失函数进行了系统性分析和优化, 极大提升了扩散模型的采样效率和生成质量。
+
+具体来说, 扩散模型通过逐步向数据添加噪声, 将数据分布映射为高斯分布, 并训练神经网络学习逆过程以去噪重建数据。EDM提出了一种统一的噪声调度框架, 定义了噪声幅度 $\sigma$ 的连续变化, 并用参数化的去噪器 $f_\theta(x, \sigma)$ 预测无噪声数据。EDM的核心训练目标为:
+\[
+  \mathcal{L}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ w(\sigma) \left\| f_\theta(x_0 + \sigma \epsilon, \sigma) - x_0 \right\|^2 \right]
+\]
+其中, $x_0$ 为真实样本, $\epsilon \sim \mathcal{N}(0, I)$ 为高斯噪声, $\sigma$ 为噪声幅度, $w(\sigma)$ 为权重函数。
+
+
+EDM的采样过程可用如下随机微分方程描述:
+\[
+  dx = -\frac{1}{2} \sigma^2 \nabla_x \log p_\theta(x, \sigma) \, d\sigma + \sigma \, dW
+\]
+
+其中 $dW$ 为维纳过程, $\nabla_x \log p_\theta(x, \sigma)$ 由神经网络近似。基于以上随机微分方, EDM提出使用二阶采样器来大幅减少采样步数, 提升生成速度。EDM框架统一了多种扩散模型的训练与采样方式, 便于理论分析和工程实现。本课题使用EDM扩散模型作为基础, 设计任务对应的生成模型来达到攻击目的。通过对EDM的训练和优化, 利用不同任务信息来重建匹配的原始输入图像, 从而实现对用户隐私信息的还原。
 % Local Variables:
 % TeX-master: "../main"
 % TeX-engine: xetex
