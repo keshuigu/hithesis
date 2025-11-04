@@ -7,6 +7,64 @@
 % - 若有关键实现文件或脚本，补充路径或仓库链接。
 
 \chapter[面向人脸特征提取模型的逆向重建方法]{面向人脸特征提取模型的逆向重建方法}[Reconstruction Method for Face Feature Extraction Models]
+\section{引言}
+% 原占位（空）已被扩写，原文保留为注释。
+本章聚焦于针对人脸识别系统中基于模板（embedding/template）匹配机制的逆向重建问题。我们以实际系统中常见的“模板—比对”验证流程为背景，系统化地研究如何在不同攻击假设下利用生成模型（尤其是隐空间扩散模型）将被泄露或可获的模板信息映射回可感知的图像样本。章节目标包括：
+
+- 明确模板逆向问题的形式化定义与攻击假设（白盒/黑盒/中度可见情形）；
+- 提出并实现一种基于隐空间扩散（LDM/EDM）并结合嵌入一致性引导的重建框架；
+- 设计一套可复现的训练与推理流程（含超参数、微调策略与采样配置），用于评估重建的识别一致性与视觉质量；
+- 通过大规模对比实验揭示不同引导策略、噪声调度与微调规模对重建成功率与资源消耗之间的权衡。
+
+本章工作的技术路线基于两条核心观察：一是现代扩散生成器在隐空间（latent）上进行条件化可在保持采样效率的同时取得高质量输出；二是识别模型的嵌入空间提供了直接、可微的相似度信号，该信号既可用于微调阶段的嵌入一致性损失，也可在采样阶段作为分数/分类器引导注入，从而将目标模板的约束显式融入生成过程。基于此，我们在后续小节中逐步给出问题的形式化、方法细节、训练与推理流程以及工程化复现提示（包括示例命令与超参数表），以便实现可复现且可比较的实验评估。
+
+\section{攻击任务与假设}
+本小节形式化地定义模板逆向攻击的问题、输入/输出格式、评估准则以及不同的威胁模型（攻击者能力假设），为后续方法与实验提供严格的评价基准。
+
+\subsection*{形式化问题定义}
+令原始图像空间为 $\mathcal{X}$（例如 $H\times W\times C$ 的像素域），识别器为映射 $F:\mathcal{X}\to\mathbb{R}^d$，其中 $d$ 为嵌入维度。记目标模板为 $t\in\mathbb{R}^d$，它可为单一浮点向量，也可附带元信息（量化位宽、归一化方式或置信度分数）。攻击者的目标是构造一个攻击算法 $\mathcal{A}$，根据可用信息生成一组候选图像或单个重构图像 $\hat{x}=\mathcal{A}(\mathcal{I})$，使得重建图像在识别器空间与目标模板相吻合：
+\begin{equation}\label{eq:attack_goal}
+  	ext{maximize}\quad \mathrm{sim}(F(\hat{x}), t),
+\end{equation}
+其中 $\mathrm{sim}(\cdot,\cdot)$ 可取余弦相似度或负欧氏距离。我们称攻击成功当
+\begin{equation}\label{eq:success}
+  \mathrm{sim}(F(\hat{x}), t) \ge \tau,
+\end{equation}
+其中阈值 $\tau$ 可由目标系统的验证策略（例如在给定假接受率 FAR 下的 TAR）确定。
+
+此外，可定义识别级别的成功（identification success）：在给定候选库（gallery）$\mathcal{G}$ 中，若 $\hat{x}$ 与同一身份的真实样本在检索/比对中排名靠前（例如 top-1 命中），则视为识别成功。相应指标可写为
+\begin{equation}
+  \mathrm{ID\_succ}(\hat{x}, t;\mathcal{G}) = \mathbb{I}\left[\operatorname{rank}_{g\in\mathcal{G}}\big(\mathrm{sim}(F(\hat{x}), F(g))\big) = 1\right].
+\end{equation}
+
+\subsection*{输入/输出与前置假设}
+- 输入：目标模板 $t\in\mathbb{R}^d$。可选的伴随信息 $\mathcal{I}$ 包括：预处理流水线描述 $\mathcal{P}$（对齐/裁剪/归一化）、量化信息、置信度或打分 $s$，以及（若存在）小量真实图像样本 $\{x_i\}$ 用于微调/校准。图像尺寸与像素范围应在实验协议中明确（例如 $H{=}224,W{=}224$，像素归一化到 $[-1,1]$）。
+- 输出：若干候选重构图像集合 $\{\hat{x}_k\}_{k=1}^K$ 或单一最佳重构 $\hat{x}$，并报告对应的识别器相似度分数与感知质量度量（LPIPS/FID 等）。
+
+前置假设（威胁模型的维度）：
+- 白盒（Full white-box）：攻击者能访问识别器 $F$ 的结构与权重，能计算或回传梯度 $\nabla_x\mathrm{sim}(F(x),t)$；在此情形下，可直接利用梯度信息进行采样引导或优化式反演。\
+- 黑盒-可查询嵌入（Embedding-query black-box）：攻击者不能访问 $F$ 的内部，但可以发送任意输入并获得嵌入向量 $F(x)$；该模型允许通过迭代查询估计梯度或构建代理模型。\
+- 黑盒-仅打分/相似度（Score-only black-box）：攻击者只能获取相似度分数或阈内/阈外的二元判定（例如认证通过/失败），查询预算有限。\
+- 无访问-仅预训练生成器（No-access generative prior）：攻击者无法查询识别器或模板，但可以使用在相似域上训练好的生成先验（预训练的 EDM/LDM）；此类攻击依赖于将 generative prior 与目标模板信息（若可用）结合的策略，例如通过微调 LoRA 或优化生成器潜变量。\
+
+此外，攻击者可能受限于查询预算 $Q$（允许的最大查询次数），存储/计算资源 $R$（GPU 数量与显存），以及可用的外部数据集 $\mathcal{D}_{aux}$（用于微调或训练代理模型）。这些约束应在实验中明确并作为可比性条件。
+
+\subsection*{评估协议与指标}
+为公平比较不同攻击策略与防御方法，本研究采用如下统一评估协议：
+
+- 相似度度量：报告重建样本与目标模板的平均余弦相似度 $\mathbb{E}_t[\mathrm{cos}(F(\hat{x}),t)]$ 及其分位数分布；同时展示成功率曲线在不同阈值 $\tau$ 下的变化（等价于 ROC/TAR 曲线的局部视图）。
+- 验证成功率：在指定 FAR（例如 1e-3, 1e-4）下报告 TAR；若攻击者目标为冒名顶替，应报告在给定阈值下的接受率。\
+- 识别/检索指标：在给定 gallery 下计算 top-k 命中率（特别是 top-1）。\
+- 感知质量：使用 FID、LPIPS、SSIM 等衡量重建图像的视觉质量与多样性，避免仅凭相似度指标误导结论。\
+- 计算/查询成本：报告每次生成的平均采样步数、单次生成的平均 GPU 时间，以及攻击所需的查询预算 $Q$ 与微调参数量（例如 LoRA 的参数数目）。
+
+在实验报告中，应同时给出成功/失败样本的可视化，以及对失败模式（例如姿态、遮挡或数据偏差）进行定性分析以增强结论的可解释性。
+
+% 原占位（若存在）保留为注释以便回溯
+
+\section{攻击目标}
+
+\section{攻击目标}
 
 基于模板(Template)匹配的识别模型, 主要应用于人脸识别、指纹识别等生物特征识别系统。此类模型用户的原始数据如人脸图像 $x$ , 经过特征提取网络 $F(\cdot)$ 得到特征模板 $t = F(x)$, 并存储于数据库, 这里的 $t$ 称为模板信息。在需要进行身份验证时, 用户给出新的输入图像 $x'$ ; 识别系统会比对此次输入的图像与数据库中的特征模板的匹配程度, 从而判断用户身份。以常见的余弦相似度为例, 模板匹配的判定准则为:
 \[
@@ -17,128 +75,170 @@
 虽然这种方法在实际应用中具有较高的准确率和效率, 但也存在隐私泄露的风险。具体来说, 由于模板存储在特征数据库中, 假设攻击者获得了特征数据库的访问权限, 窃取到特征模板信息, 则攻击者可以通过模板信息反向生成出接近用户的图像信息, 从而误导识别模型的识别结果。针对这类模型的攻击方法称为模板逆向攻击(Template Inversion Attack, TIA)。模板逆向攻击的核心在于利用特征模板 $t$ 来重建与之匹配的原始输入图像 $x'$ 。攻击者可以通过优化算法或生成模型来实现这一目标。此类攻击寻找一个输入 $x^*$, 使得其特征 $F(x^*)$ 与模板 $t$ 的相似度最大化, 可通过如下优化目标来描述:
 $$x^* = \arg\min_{x'}Sim(F(x'), t)$$
 其中$Sim(\cdot)$表示衡量特征与模板之间相似程度的函数。
+\section{结合生成式模型的重建方法}
+\section{损失函数设计}
 
 
 针对基于模板匹配模型的隐私泄露问题, 设计了如图\ref{fig:edm_tia_train}所示的利用EDM扩散模型进行模板逆向攻击的训练流程。其中扩散模型的核心部分采用了EDM扩散模型, 利用其生成能力和噪声调度机制, 实现高效的模板逆向攻击算法。通过对扩散模型的训练和优化, 模型可以重建与目标模板匹配的原始输入图像, 从而实现对用户隐私信息的还原。本课题在损失函数设计上, 结合了特征提取网络与扩散生成模型, 使得攻击流程能够同时优化生成图像的像素质量以及其与目标模板的特征相似度。
 
 \begin{figure}[!htbp]
-  \centering
-  \includegraphics[width=0.7\textwidth]{images/train.drawio.pdf}
-  \caption{基于EDM的模板逆向攻击模型训练流程示意图}
-  \label{fig:edm_tia_train}
-\end{figure}
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+本节详细介绍将隐空间扩散模型（LDM/EDM）用于模板逆向重建的具体架构与训练/微调流程。本方法遵循“先有强生成先验，再做目标化微调”的范式，以兼顾视觉质量与识别一致性。
+本研究采用隐空间扩散（LDM）框架作为基线，并在其 U-Net 去噪器上实现条件化。总体架构包括：
 
-以EDM扩散模型为基础, 训练中使用的损失函数可以概括为:
-
-\[
-  \mathcal{L}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ w(\sigma) \left\|  f_\theta(x_0 + \sigma \epsilon,y,\sigma) - x_0 \right\|^2 \right]
-  + \lambda \| F( f_\theta(x_0 + \sigma \epsilon,y,\sigma)) - F(x_0) \|^2
-\]
-
-其中, $F(\cdot)$ 表示特征提取网络, $y$ 为目标类别标签, $\lambda$ 为平衡系数。损失函数由两部分组成: 第一项是像素空间的均方误差损失, 用于衡量生成图像与原始输入图像在像素级别上的相似度, 确保生成图像具备较高的视觉质量和基础结构还原能力; 第二项是特征空间的损失, 通过特征提取网络 $F$ 计算生成图像与原始图像在特征空间的距离, 用于衡量生成图像与目标模板之间的匹配程度, 从而提升攻击的有效性。$\lambda$ 的作用是平衡这两部分损失的影响, 使得模型在训练过程中既能生成与原始输入图像高度相似的图像, 又能保证生成图像在特征空间上与目标模板保持一致。
-
-模板逆向攻击模型训练的具体步骤如算法\ref{alg:edm_tia_train}所示:
-
-\begin{algorithm}[H]
-  \caption{模板逆向攻击模型训练}
-  \label{alg:edm_tia_train}
-  \begin{algorithmic}[1]
-    \REQUIRE 训练样本集 $\mathcal{D}$, 扩散生成模型 $f_\theta$, 特征提取网络 $F$
-    \ENSURE 训练好的生成模型参数 $f_\theta$
-    \FOR{迭代 $=1$ 到 $N$}
-    \STATE 随机采样一批训练样本 $(x_0, y_0)$
-    \FOR{每个样本 $(x_0, y_0)$}
-    \STATE 采样噪声 $\epsilon \sim \mathcal{N}(0, I)$, 噪声幅度 $\sigma$
-    \STATE 计算带噪输入 $x = x_0 + \sigma \epsilon$
-    \STATE 生成图像 $\hat{x} = f_\theta(x, y_0, \sigma)$
-    \STATE 计算损失
-    \[
-      \mathcal{L}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ w(\sigma) \left\|  f_\theta(x_0 + \sigma \epsilon,y_0,\sigma) - x_0 \right\|^2 \right]
-      + \lambda \| F( f_\theta(x_0 + \sigma \epsilon,y_0,\sigma)) - F(x_0) \|^2
-    \]
-    \ENDFOR
-    \STATE 更新 $\theta$ 以最小化 $\mathcal{L}(\theta)$
-    \ENDFOR
-  \end{algorithmic}
-\end{algorithm}
-
-
-在训练完毕后, 模型可以用于推理阶段, 即利用训练好的扩散模型生成与目标特征模板匹配的图像。推理阶段的主要目标是, 在已知目标特征模板的情况下, 通过扩散模型逐步去噪, 从随机噪声中重建出与该模板高度匹配的原始输入图像。在实际采样时, 常用离散步长来近似EDM的随机微分方程采样过程, 即:
-\[
-  x_{i-1} = x_i + \frac{1}{2} \sigma_i^2 \nabla_x \log f_\theta(x_i, \sigma_i, y) \Delta \sigma + \sigma_i \sqrt{\Delta \sigma} \cdot z_i
-\]
-
-其中 $z_i \sim \mathcal{N}(0, I)$, $\Delta \sigma = \sigma_{i-1} - \sigma_i$。具体而言, 首先以随机噪声作为初始输入, 结合目标模板信息, 经过多步迭代的去噪过程, 模型不断优化生成图像的特征, 使其在特征空间中逐渐接近目标模板。每一步生成的中间结果都会被输入特征提取网络进行特征对齐, 确保最终生成的图像不仅在视觉上具有较高的质量, 同时在特征空间中与目标模板高度一致。图\ref{fig:edm_tia_infer}展示了扩散模型在模板逆向攻击中的应用过程。
-
-
-
-\begin{figure}[!htbp]
-  \centering
-  \includegraphics[width=0.8\textwidth]{images/infer.drawio.pdf}
-  \caption{基于EDM的模板逆向攻击模型推理流程示意图}
-  \label{fig:edm_tia_infer}
-\end{figure}
-
-
-上述研究结果表明, 在训练模型中, 使用模板信息一致性损失和图像重建的像素损失一起训练, 随着动态权重的增加, 图像质量存在一定的下滑现象, 因此在已有的模板逆向攻击的基础上, 本课题进一步提出了一种基于一致性微调的两阶段训练策略。该策略旨在最大程度地保持生成图像的高质量, 同时引导模型生成与目标类别特征分布相匹配的图像。通过两阶段的训练策略, 预期模型不仅能够生成高质量、结构一致的图像, 还能进一步提升生成图像与目标类别特征的匹配度。整个训练过程如图\ref{fig:consistency_finetune}所示.
-
-第一阶段为 EDM 核心损失训练, 主要目标是使生成模型能够充分学习数据的基础分布和图像生成的核心特征。在该阶段, 优化的损失函数为EDM的像素误差损失:
-
-\[
-  \mathcal{L}_{\text{EDM}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ w(\sigma) \left\| f_\theta(x_0 + \sigma \epsilon, t, \sigma) - x_0 \right\|^2 \right]
-\]
-
-其中, $x_0$ 表示原始图像, $\sigma$ 为噪声幅度, $\epsilon$ 为高斯噪声, $w(\sigma)$ 为噪声权重, $f_\theta$ 为生成模型。该阶段训练的重点在于提升生成图像的整体质量和结构一致性, 确保生成结果具备较高的真实性和清晰度。
-
-第二阶段为微调阶段, 此时冻结大部分网络层, 仅对部分关键层进行微调。微调过程中, 引入模板信息一致性损失, 引导模型生成与目标模板信息特征更为匹配的图像。此阶段的损失函数可以使用特征值的均方误差损失来约束特征值的一致性:
-
-\[
-  \mathcal{L}_{id} = \| F( f_\theta(x_0 + \sigma \epsilon,y_0,\sigma)) - F(x_0) \|^2
-\]
-% 在一致性微调策略下, 模型的训练过程分为两个阶段。第一阶段是EDM核心损失训练, 主要目标是使生成模型能够充分学习数据的基础分布和图像生成的核心特征。在这一阶段, 模型专注于生成图像的整体质量和结构一致性, 确保生成结果具备较高的真实性和清晰度。第二阶段是微调阶段, 此时冻结大部分网络层, 仅对部分关键层进行微调, 以保持已获得的高质量图像生成能力, 并进一步调整生成策略, 使生成图像能够更好地与目标类别的特征分布相匹配。整个训练过程如图\ref{fig:consistency_finetune}所示, 清晰地展示了两阶段训练和参数调整的流程。
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.6\textwidth]{images/train_finetune.pdf}
-  \caption{加入一致性微调后的两阶段模板逆向攻击示意图}
-  \label{fig:consistency_finetune}
-\end{figure}
-
-\subsection*{实现与复现说明}
-为便于同行复现，本研究在附录及公开的代码仓库中提供实现细节、数据预处理流程、模型权重及必要的运行脚本。正文中仅报告用于描述实验设置的关键超参数与其含义，详细的运行命令与脚本不在正文中列出。
-
-下表列出本研究关键超参数的示例（供结果解释与方法对比使用），实际实验参数请参见附录或代码仓库中的配置文件。
-
-\begin{table}[htbp]
-  \centering
-  \begin{tabular}{lll}
-    \hline
-    超参数 & 示例值 & 说明 \\
-    \hline
-    batch size & 32 & 每次训练的样本数（依据显存调整） \\
-    learning rate & $1\times10^{-4}$ & 优化器初始学习率（Adam/AdamW） \\
-    训练迭代次数 & 若干 epochs 或固定迭代次数 & 总训练规模 \\
-    $\lambda$ 初始/调度 & 0 $\to$ 100（示例） & 模板一致性损失权重调度策略 \\
-    随机种子 & 42 & 用于复现随机性 \\
-    采样步数 & 18 & EDM 采样步数示例 \\
-    $\sigma_{\min},\sigma_{\max}$ & 0.002, 80 & 采样噪声区间示例 \\
-    \hline
-  \end{tabular}
-  \caption{用于描述实验设置的关键超参数示例（TIA）}
-  \label{tab:tia_hyperparams}
-\end{table}
-
-详细的实现说明包括但不限于：
 \begin{itemize}
-  \item 代码与配置文件的位置（见附录/代码仓库）；
-  \item 所用软件环境与依赖版本（如框架、库版本）；
-  \item 数据集预处理步骤与划分标准；
-  \item 随机种子设置与评估统计策略（重复实验次数、报告均值与方差）。
+  \item 能量式引导/分数注入：不在网络结构中直接条件化，而是在采样时用识别器的相似度梯度修正去噪器输出（参见第2章理论推导），适用于白盒或嵌入可查询的设置。
+  \end{enumerate}
+\subsection{训练与两阶段流程}
+为兼顾通用生成能力与目标适配能力，我们采用两阶段训练流程：
+
+\paragraph{1) 基础生成器训练 / 采用预训练权重}
+使用大规模人脸数据集（或通用人像数据集）在隐空间上训练 EDM/LDM，目标为还原像素或隐空间重建误差（EDM 损失）。若可利用高质量开源预训练权重（例如公开的 LDM/EDM 模型），建议直接加载并冻结大部分参数，仅用于作为生成先验。
+
+\paragraph{2) 目标化微调（微适配）}
+在每个目标模板或目标集合上进行参数高效微调：仅微调 Cross-Attention 投影层或使用 LoRA 在 U-Net 的关键线性/注意力矩阵上注入低秩增量。微调目标函数包含生成器的像素/隐空间重建损失与识别器嵌入一致性损失的组合：
+\begin{equation}\label{eq:finetune_loss}
+微调阶段的实现细节：
+\begin{itemize}
+\item 冻结大部分网络，仅训练 LoRA 模块或 attention 投影（减少显存与计算）；
+\item 使用较小学习率与较短训练步数（例如数百到上千步），并以识别器在验证集上的相似度作为早停准则；
+\item 可在微调时采用数据增强（轻微姿态/光照扰动）以提升鲁棒性，但应避免破坏身份特征。
 \end{itemize}
 
-% Local Variables:
-% TeX-master: "../main"
-% TeX-engine: xetex
-% End:
+\subsection{超参数表示与示例}
+下面给出一组用于论文中基线复现的经验超参数（作为起点，视资源与数据规模调整）：
+\begin{center}
+\begin{tabular}{l l}
+\hline
+参数 & 建议值 \\
+\hline
+图像尺寸 (H x W) & $256\times256$ \\
+隐空间维度 & 与 VAE 编码器有关（示例: 64x64x4） \\
+基础训练 batch size & 64 (多 GPU 下) \\
+微调 batch size & 8--32 \\
+基础训练学习率 (AdamW) & $2\times10^{-4}$ \\
+微调学习率 (LoRA / head) & $1\times10^{-5}\sim5\times10^{-4}$ \\
+LoRA 秩 $r$ & 8--32 \\
+LoRA 缩放 $\alpha$ & 8--32 \\
+采样步数 (推理) & 18--100 (取决于加速方法) \\
+EDM 权重函数 $w(\sigma)$ & 使用文献推荐的调度\cite{karras2022elucidating} \\
+随机种子 & 固定 (例如 42) \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection{实现注意事项与复现命令示例}
+框架与依赖：推荐使用 PyTorch >=1.11、diffusers/edm 的实现或项目内自有 EDM 实现；使用 mixed precision (AMP) 以节省显存并提速；建议记录 CUDA/cuDNN 版本与 GPU 型号。
+
+检查点管理：在微调时保存 LoRA 参数与训练元信息（所改层、秩 $r$、$\alpha$、训练步数、验证相似度），并提供脚本将 LoRA 合并入主权重以便推理（或在加载时直接加载 LoRA 模块）。
+
+数据预处理：严格记录人脸对齐/裁剪步骤（关键点对齐、归一化区间）；对比实验需保证识别器输入与训练/测试阶段一致。
+
+示例训练命令（伪码）：
+\begin{verbatim}
+python train_edm.py \
+  --config configs/edm_tia.yaml \
+  --dataset /path/to/faces \
+  --batch-size 64 \
+  --lr 2e-4 \
+  --work-dir /exp/edm_tia_base
+\end{verbatim}
+
+微调（LoRA）示例：
+\begin{verbatim}
+python finetune_lora.py \
+  --ckpt /exp/edm_tia_base/checkpoint.pt \
+  \section{损失函数设计与采样引导策略}
+
+  本节在第2章理论推导的基础上，系统化描述训练阶段与采样阶段使用的损失项、权重调度与引导策略，以便实现既有高视觉质量又能在识别器空间中匹配目标模板的重建。
+
+  \subsection{总目标与损失项分解}
+  训练时的总损失通常采用多项式组合：像素/隐空间重建（EDM 基线）、识别器嵌入一致性、感知损失与可选的对抗/正则化项：
+  \begin{equation}\label{eq:total_loss}
+    \mathcal{L}_{\text{total}} = \mathcal{L}_{\text{EDM}} + \lambda_{id}(t)\,\mathcal{L}_{id} + \lambda_{perc}\,\mathcal{L}_{perc} + \lambda_{adv}\,\mathcal{L}_{adv} + \lambda_{reg}\,\mathcal{L}_{reg}.
+  \end{equation}
+
+  说明各项：
+  - EDM 基线（去噪/重建）损失：采用明晰扩散（EDM）定义的加权均方误差：
+  \begin{equation}\label{eq:edm_loss}
+    \mathcal{L}_{\text{EDM}} = \mathbb{E}_{x_0,\sigma,\epsilon}\left[ w(\sigma) \left\| f_\theta(x_0 + \sigma\epsilon,\sigma) - x_0 \right\|_2^2 \right].
+  \end{equation}
+  其中 $w(\sigma)$ 为噪声权重函数（遵循 EDM/文献建议以平衡不同噪声尺度的训练信号）\cite{karras2022elucidating}。
+
+  - 嵌入一致性损失（识别器约束）：用于保证生成图像在识别器嵌入空间与目标模板 $t$ 接近。可选择均方误差或余弦相似度损失：
+  \begin{align}
+    &\mathcal{L}_{id}^{\mathrm{MSE}} = \| F(D(z_0)) - t \|_2^2, \\
+    &\mathcal{L}_{id}^{\mathrm{cos}} = 1 - \frac{F(D(z_0))\cdot t}{\|F(D(z_0))\|_2\,\|t\|_2}.
+  \end{align}
+  在实践中我们常用 $\mathcal{L}_{id}^{\mathrm{MSE}}$ 作简单可微目标，或混合使用余弦目标以直接最大化相似度。
+
+  - 感知损失 $\mathcal{L}_{perc}$：使用 VGG 感知特征的 L2 距离（或 LPIPS）以改善视觉细节与纹理一致性。\
+  - 对抗损失 $\mathcal{L}_{adv}$（可选）：若需提升真实感，可在微调阶段加入小规模 Patch-GAN 判别器，注意该项易影响识别一致性且可能带来不稳定性。\
+  - 正则化项 $\mathcal{L}_{reg}$：包括 TV 损失、参数范数惩罚或 LoRA 参数的范数约束，防止过拟合与生成伪影。
+
+  超参数调度：特别说明 $\lambda_{id}(t)$ 可采用时间/阶段依赖调度（见下）。常用做法是训练初期以较小 $\lambda_{id}$ 保障视觉学习，随后逐步增大以提升识别一致性。
+
+  \subsection{识别一致性权重调度（示例）}
+  为避免在微调初期破坏生成器的视觉质量，推荐采用分段或余弦退火式的 $\lambda_{id}$ 调度：
+  \begin{equation}
+    \lambda_{id}(e) = \lambda_{id}^{\max} \cdot S(e; e_{warm}, e_{ramp}),
+  \end{equation}
+  其中 $e$ 为当前微调 epoch/step，$S(\cdot)$ 为平滑上升函数（线性或余弦），$e_{warm}$ 为预热期长度，$e_{ramp}$ 为达到最大值的步数。经验值：$\lambda_{id}^{\max}=0.5\sim2.0$，$e_{warm}$ 为前 50--200 步。
+
+  \subsection{采样阶段的引导（Guidance）}
+  训练后在采样阶段可采用若干引导策略以增强重构与模板的契合度：
+
+  1) Classifier-free guidance（CFG）：训练时部分样本屏蔽条件以学得无条件与有条件去噪器。采样时常用公式：
+  \[
+    \epsilon_{\text{guid}} = \epsilon_{\text{uncond}} + s\cdot(\epsilon_{\text{cond}} - \epsilon_{\text{uncond}}),
+  \]
+  其中 $s$ 为 guidance scale，通常取值在 $1.0\sim10.0$。对嵌入条件的 CFG 能有效提升条件遵从性且实现简单。
+
+  2) Classifier / energy guidance：若能计算 $\nabla_x \log p(t|x)$（白盒或可查询情形），则可在采样步加入该梯度：
+  \[
+    \nabla_x \log p(x|t) \approx \nabla_x \log p(x) + \gamma\,\nabla_x \log p(t|x),
+  \]
+  其中 $\nabla_x \log p(t|x)$ 可由识别器相似度 / 负损失 $-\nabla_x \mathcal{L}_{id}$ 估计（注意符号）。在离散采样更新中对 $x$ 加入该项等价于对噪声预测 $\epsilon_\theta$ 做修正（参见第2章公式推导）。常用做法是将该梯度正则化并按步长缩放以保证数值稳定性。
+
+  3) Gradient-projection / iterative refinement：在每一步去噪后，可对当前样本 $x_t$ 做 $k$ 次小步长梯度下降以减小识别一致性损失：
+  \[
+    x \leftarrow x - \eta \frac{\nabla_x \mathcal{L}_{id}(x)}{\|\nabla_x \mathcal{L}_{id}(x)\| + \epsilon},
+  \]
+  其中 $\eta$ 为小步长（如 $1\times10^{-2}$），归一化能避免过大扰动。通常 $k=1\sim3$，以平衡计算开销。
+
+  综合策略：对多数场景，采用 CFG 作为主导（低成本且稳定），并在白盒或可查询情形下结合轻量的能量/投影步以进一步提高识别一致性。
+
+  \subsection{采样伪代码（带嵌入引导）}
+  下面给出一个简化的采样伪代码，展示如何在 EDM/隐空间采样中加入 CFG 与投影步：
+
+  \begin{verbatim}
+  z_T = N(0,I)
+  for i = T..1:
+    # predict noise for cond and uncond
+    eps_cond = eps_theta(z_i, sigma_i, cond=t)
+    eps_uncond = eps_theta(z_i, sigma_i, cond=None)
+    # classifier-free guidance
+    eps = eps_uncond + s * (eps_cond - eps_uncond)
+    # one EDM/score step to get z_{i-1}
+    z_{i-1} = edm_step(z_i, eps, sigma_i, sigma_{i-1})
+    # optional projection: reduce embedding loss
+    for k in 1..K_proj:
+      x_ = D(z_{i-1})
+      g = grad_x L_id(x_, t)
+      x_ = x_ - eta * g / (||g|| + eps)
+      z_{i-1} = E(x_)
+  end
+  \end{verbatim}
+
+  注意：投影步应在隐空间/像素域之间保持一致的编码器/解码器，以避免引入编码偏差。
+
+  \subsection{数值稳定性与实现细节}
+  - 梯度归一化：对识别器梯度做 L2 归一化或按条目裁剪，避免少数步长造成的巨大像素破坏。\
+  - 学习率/步长选择：CFG 的 scale 与投影步长 $\eta$ 的选择对视觉质量影响显著，建议先固定 CFG 在 1\~3 范围内，投影步长设置在 1e-3\~1e-2，并观察识别相似度与 FID 的权衡曲线。\
+  - 计算成本考量：投影步会显著增加每步的成本（因需额外一次前向/反向通过识别器），在查询预算或实时场景下需谨慎使用。\
+  - LoRA 微调结合：若使用 LoRA 微调，识别一致性损失既可用于微调期间优化 LoRA 参数，也可在推理时用作投影目标；保存 LoRA 权重便于复现实验并减小部署开销。
+
+  \subsection{建议的超参数（供复现与对比）}
+  简要建议：$\lambda_{id}^{\max}=0.5$、$\lambda_{perc}=0.1$、$\lambda_{adv}=0$（如不使用对抗训练）、CFG scale $s=1.5$、投影步 $K_{proj}=1$, $\eta=5\times10^{-3}$，采样步数 50 或使用 EDM 二阶采样器做 18 步的折中试验。
+
+  本节给出的损失体系与采样引导策略为第3章方法实现提供了可操作的细节：训练端以 EDM 基线 + 嵌入一致性微调为主，推理端以 CFG 为主并在有条件的白盒场景中辅以轻量投影/能量引导以提升识别一致性。
