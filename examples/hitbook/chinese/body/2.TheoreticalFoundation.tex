@@ -1,67 +1,84 @@
 % !Mode:: "TeX:UTF-8"
+\subsection[数学原理补充]{数学原理补充}
+本小节补充并明确本章涉及的若干数学原理与推导要点，便于将来在论文正文中引用定理/公式并用于算法实现的严格说明。
 
-% TODO (写作提示):
-% - 本章较长，建议加入一个“符号说明”小节，列出常用符号 (例如 $x_t, \alpha_t, \epsilon_\theta, \sigma$) 与含义，便于读者快速查阅。
-% - 在章节末尾注明实现细节：使用的框架（PyTorch/TensorFlow）、关键库版本、参考实现链接（若有）。
-% - 若有较长证明，考虑把完整证明移到附录并在正文给出结论要点。
+\subsubsection*{1. 从 score-matching 到去噪目标的等价性（要点）}
+考虑噪声预测目标
+\begin{equation}
+      L_{\epsilon} = \mathbb{E}_{x_0,\epsilon\sim\mathcal{N}(0,I),t}\left[ w(t) \|\epsilon - \epsilon_\theta(x_t,t)\|^2\right],
+\end{equation}
+其中 $x_t=\sqrt{\overline{\alpha}_t}x_0+\sqrt{1-\overline{\alpha}_t}\,\epsilon$。按链式运算可得关于 $x_t$ 的得分函数近似
+\begin{equation}
+      \nabla_{x_t}\log p(x_t) = -\frac{1}{\sqrt{1-\overline{\alpha}_t}}\,\epsilon_\theta(x_t,t) + C(t),
+\end{equation}
+其中常数项 $C(t)$ 与 $x_t$ 无关，可被吸收到权重或偏移项中。进而，最小化 $L_{\epsilon}$ 等价于对不同噪声尺度下的加权得分匹配（score-matching）问题，从而保证训练得到的 $\epsilon_\theta$ 能用于近似 $\nabla_{x_t}\log p(x_t)$（参见式~\eqref{eqn-5}）。
 
-\chapter[理论基础]{理论基础}[Theoretical Foundation]
-\section[引言]{引言}
-本章旨在为后续方法设计与实验评估奠定理论基础。首先对本文所涉及的问题与符号进行形式化说明，然后回顾支持本研究的若干核心技术：人脸识别中的特征表示与验证指标、生成模型家族（包括显式似然模型、生成对抗网络与扩散模型及其隐空间变体）、以及参数高效微调方法（如 LoRA）与判别/分数引导的理论依据。通过对这些基础理论的系统梳理，读者将能理解第3章与第4章所提出方法的建模取向、损失设计与采样引导策略的理论来源。
+证明要点（略）: 将 $x_0$ 用 $x_t,\epsilon$ 表示并展开展开平方项，可把 $L_{\epsilon}$ 重写为关于 $\epsilon_\theta$ 与真实得分的二次项，进而等价于加权的得分匹配下界（见 Song 等人的推导）。在工程实践中通过选择合适的权重 $w(t)$ 可稳定训练并平衡不同噪声尺度的贡献。
 
-在形式化层面，我们采用以下基本约定：原始图像记为 $x\in\mathcal{X}$，其经目标识别模型$f(\cdot)$ 提取得到的特征（模板或嵌入）记为 $y=f(x)\in\mathbb{R}^d$；生成器或扩散模型以参数化映射 $g_\theta(z)$ 或去噪器 $\epsilon_\theta(\cdot,t)$ 表示，其中 $z$ 为隐空间随机变量，$t$ 表示扩散/噪声等级。后续章节中若出现常用符号（例如 $x_t,\alpha_t,\epsilon_\theta,\sigma$ 等），将统一在本章“符号说明”小节列出以便查阅。
+\subsubsection*{2. Score-based SDE 与反向 SDE}
+令前向 SDE 写作
+\begin{equation}
+      d x = f(x,t)\,dt + g(t)\,dW_t,
+\end{equation}
+则其对应的反向（time-reversed）SDE 在已知 $\nabla_x\log p_t(x)$ 时可写为
+\begin{equation}
+      d x = \left[f(x,t) - g(t)^2\,\nabla_x\log p_t(x)\right] dt + g(t)\,d\bar W_t,
+\end{equation}
+其中 $\bar W_t$ 为反向 Wiener 过程。该表达说明：若能估计出 $\nabla_x\log p_t(x)$（由去噪网络提供），即可解出反向生成过程；分类器/能量项可通过在得分上叠加 $\nabla_x\log p(y|x)$ 实现条件化（见下小节）。
 
-此外，本章亦简要讨论基于得分函数的条件化生成原理（score-based guidance）与分类器/分数引导对扩散采样路径的影响机理，这些理论结果直接支撑第3章提出的嵌入一致性损失与采样修正项的推导（参见文献 \\cite{hoDenoisingDiffusionProbabilistic2020,songScoreBasedGenerativeModeling2021,rombachHighResolutionImageSynthesis2022}）。最后，我们将对工程实现细节（推荐的深度学习框架、关键库与版本）在本章末尾做说明，并提示将技术证明或较长推导置于附录以保持正文的流畅性。
+\subsubsection*{3. 分类器引导与 classifier-free guidance 的关系}
+若存在一个条件分类器 $p_\phi(y|x_t)$，则
+\begin{equation}
+      \nabla_{x_t}\log p(y|x_t) \approx \nabla_{x_t} \log p_\phi(y|x_t).
+\end{equation}
+将其与无条件得分相加给出条件得分（贝叶斯分解）:
+\begin{equation}
+      \nabla_{x_t}\log p(x_t|y) = \nabla_{x_t}\log p(x_t) + \nabla_{x_t}\log p(y|x_t).
+\end{equation}
+在实际采样中，常用带权重的混合形式来放大条件信息：
+\begin{equation}
+      s_{\text{guid}} = s_{\text{uncond}} + w\,(s_{\text{cond}} - s_{\text{uncond}}) = (1-w) s_{\text{uncond}} + w s_{\text{cond}},
+\end{equation}
+其中 $s=\nabla_{x_t}\log p(\cdot)$。等价地，对噪声預測器而言有
+\begin{equation}
+      \epsilon_{\text{guid}} = \epsilon_{\text{uncond}} + \gamma\,(\epsilon_{\text{cond}} - \epsilon_{\text{uncond}}),
+\end{equation}
+其中 $\gamma$ 与 $w$ 存在简单线性映射（与噪声尺度因子有关）。
 
-% === 被替换/新增内容的记录（原文若存在则保留为注释） ===
-% 此处原先为空白“引言”章节，现添加引导性说明、符号约定与章节导读，便于后续理论与方法的连贯表述。
+Classifier-free guidance 的实现不需要额外训练分类器，而是在训练阶段隨機屏蔽条件（例如将条件 embedding 替换为全零或 sentinel），使模型学会在有/无条件下均可预测噪声。推导上 classifier-free guidance 与上式等价，只是 $\epsilon_{\text{cond}}$ 与 $\epsilon_{\text{uncond}}$ 来自同一网络在不同输入下的输出。
 
-\section[人脸识别模型理论基础]{人脸识别模型理论基础}
-% 原占位："人脸识别模型理论基础"
-本节系统回顾用于人脸识别与验证的模型设计要点、典型的损失函数与嵌入规范化技术，以及用于衡量识别性能与模板相似性的常用指标。目的是为第3章和第4章中针对特征模板的逆向重建与模型反演方法提供必要的理论背景。
+\subsubsection*{4. 条件化采样时的能量项近似}
+在本研究我们把识别器的嵌入相似度视为能量 $E(x;y) = -\lambda\cdot \text{sim}(f(x),y)$，其对 $x$ 的梯度用于在采样过程中修正得分：
+\begin{equation}
+      \nabla_x \log p(x|y) \approx \nabla_x \log p(x) - \nabla_x E(x;y).
+\end{equation}
+在实现中直接对 $f(\cdot)$ 取微分并反向传播得到 $\nabla_x \text{sim}(f(x),y)$ 的近似梯度，该项与去噪器的输出在 score-space 中进行线性组合（见伪代码示例），可视为对目标嵌入相似度的显式引导。
 
-1) 模型架构与特征表示。现代人脸识别系统通常以卷积神经网络（CNN）或其变体（例如 ResNet 系列）作为骨干网络，用于将输入图像映射到紧凑的特征向量空间；代表性工作包括 FaceNet\cite{schroff2015facenet}、SphereFace\cite{liu2017sphereface}、CosFace\cite{wang2018cosface} 与 ArcFace\cite{deng2019arcface}。这些方法在网络架构之外的关键贡献集中在损失函数与采样策略上，以提升嵌入的可区分性与跨域、跨姿态的鲁棒性。
+\subsubsection*{5. LoRA 的代数表示与参数量分析}
+设原权重矩阵为 $W\in\mathbb{R}^{d_{out}\times d_{in}}$，LoRA 引入低秩增量 $\Delta W = B A$，其中 $A\in\mathbb{R}^{r\times d_{in}}$、$B\in\mathbb{R}^{d_{out}\times r}$。若在前向传播中采用缩放因子 $\alpha$，则实际替换为
+\begin{equation}
+      W' = W + \frac{\alpha}{r} B A.
+\end{equation}
+参数额外开销约为 $r(d_{in}+d_{out})$，远小于 $d_{out}d_{in}$。训练时仅更新 $A,B$（和可能的缩放），可显著降低显存与存储成本。训练结束后可合并：
+\begin{equation}
+      W'_{\text{merged}} = W + \frac{\alpha}{r} B A
+\end{equation}
+以便高效推理。
 
-2) 判别性损失与边际约束。基于度量学习的损失（如三元组损失）和基于分类器的角度/余弦边际损失（SphereFace 的角度间隔、CosFace 的加性余弦边际、ArcFace 的加性角度边际）通过在训练阶段人为扩大类间距或收缩类内散度来提高识别器的判别性。这类损失直接影响嵌入空间的几何结构，从而决定了模板间相似度在验证任务中的可用性\cite{schroff2015facenet,liu2017sphereface,wang2018cosface,deng2019arcface}。
+梯度维度说明：若损失为 $\mathcal{L}$，则对 $A,B$ 的梯度分别为
+\begin{equation}
+      \nabla_A \mathcal{L} = B^{\top} \nabla_{W'} \mathcal{L},\qquad \nabla_B \mathcal{L} = \nabla_{W'} \mathcal{L}\, A^{\top},
+\end{equation}
+从而训练仅在低维子空间中进行权重更新。
 
-3) 嵌入规范化与距离度量。为便于比对，实践中常对嵌入向量进行 L2 归一化，并使用余弦相似度或欧氏距离作为比对度量。归一化后的嵌入使得阈值在不同模型/数据下更具可迁移性，并简化了基于阈值的验证协议（例如在给定假接受率 FAR 下报告真实接受率 TAR）\cite{schroff2015facenet}。
+\subsubsection*{6. 黑盒优化时的无梯度近似（简要）}
+在黑盒场景下，若只能得到标量分数 $S(x)$，可采用有限差分或随机扰动估计梯度：
+\begin{equation}
+      \hat g = \frac{1}{m}\sum_{i=1}^m \frac{S(x+\delta_i)-S(x-\delta_i)}{2\epsilon} \, \delta_i,
+\end{equation}
+其中 $\delta_i$ 为服从零均值分布的随机方向（例如高斯或 Rademacher），$\epsilon$ 为扰动幅度。NES / SPSA 等方法即基于该类估计，通过并行化或控制方差技巧提高查询效率。本研究在实现黑盒潜在优化基线时采用了上述思路并在实验中测量查询成本与成功率的 trade-off。
 
-4) 模板格式与信息内容。所谓“模板”可指模型最后一层的浮点向量、量化后的离散表示或带噪声/扰动的变换表示。模板的维度、量化水平与是否存储置信度/打分信息都会显著影响逆向重建难度和隐私风险；例如，公开或被泄露的原始浮点嵌入比量化或签名化模板更容易被重建\cite{fredrikson2015model}。
-
-5) 评估指标与协议。针对验证/识别任务，常用的评估指标包括 TAR@FAR（在给定假接受率下的真正接受率）、ROC 曲线、CMC 排名指标；而在模板逆向/重建研究中，则通常同时报告嵌入相似度（余弦/欧氏）、识别/验证成功率与感知质量指标（例如 FID、LPIPS）以衡量重建图像既保持视觉真实性又能在识别层面通过匹配\cite{9393327}。
-
-6) 训练数据与泛化问题。人脸识别模型的鲁棒性在很大程度上依赖于训练数据的多样性（种族、年龄、光照、姿态等）。低样本或数据偏倚会导致嵌入在某些群体上表现较差，也会影响基于嵌入的逆向攻击的成功率与泛化性。本研究在实验设计时将显式考虑数据集的多样性与潜在偏倚问题，并在结果分析中讨论其对攻击/防御结论的影响。
-
-7) 隐私与安全考量。识别系统的模板作为长期存储的中间表示，其可比对性使得一旦泄露便可能被用于重建原始脸部图像或进行身份滥用。已有工作表明，仅凭模型输出来反推训练样本或输入（模型反演、成员推断）存在现实风险\cite{fredrikson2015model}。因此在后续章节中，我们将把模板格式、输出信息（是否包含相似度分数或置信度）作为不同攻击假设的维度，系统评估重建方法在白盒/黑盒/嵌入可见等场景下的表现。
-
-本节对主流人脸识别模型的关键组成、损失设计与评估协议作了概述，为第3章和第4章的算法设计与实验协议选择提供依据。
-
-% === 原占位（保留为注释以便回溯） ===
-% 人脸识别模型理论基础
-\section[扩散生成模型技术基础]{扩散生成模型技术基础}
-% 扩展说明：在此小节先给出扩散模型家族的系统性技术要点与工程考虑，然后保留下文的形式化推导与公式，便于读者由理论到实践的理解。
-扩散生成模型已成为近年生成建模的主流范式之一，其核心在于将生成问题转化为一个由无噪声样本向高斯噪声分布的正向扩散过程及其对应的反向去噪过程的建模任务。针对本课题（基于嵌入/模板的逆向重建），以下技术要点尤为重要：
-
-- 像素空间与隐空间（latent）扩散：像素空间扩散直接在图像像素上建模，通常能获得更直接的视觉质量但计算代价大；隐空间扩散（LDM）先通过编码器将图像映射到低维隐表征，在隐空间上执行扩散与去噪，再解码回像素域，显著降低计算与存储开销且便于条件化控制\\cite{rombachHighResolutionImageSynthesis2022}。
-
-- 得分函数与条件化原理（score-based view）：扩散模型可以等价地看作对不同噪声等级下数据分布得分函数的估计。通过贝叶斯分解，条件分布的得分可由无条件得分与条件项之和表示，这为将外部信息（如识别器输出或嵌入相似度）作为引导项直接加入采样过程提供了理论基础\\cite{songScoreBasedGenerativeModeling2021,hoDenoisingDiffusionProbabilistic2020}。
-
-- 引导策略：常用引导包括（1）分类器引导（classifier guidance）：通过训练额外的噪声条件分类器估计$ \nabla_x \log p(y|x) $并在采样时叠加该梯度；（2）classifier-free guidance：在同一扩散模型中通过随机屏蔽条件实现无监督的条件强化，具有实现简单且效果稳定的优点；（3）基于能量或判别器的引导：将识别器的相似度或代价函数作为能量项融入采样。针对模板逆向任务，识别模型的嵌入相似度可直接构造成条件梯度或损失用于引导采样/微调\\cite{hoDenoisingDiffusionProbabilistic2020}。
-
-- 采样效率与加速器：传统 DDPM/score-based 采样需要大量步数（数百至上千步），不利于工程化部署。DDIM、EDM 与分数匹配下的二阶采样器等提出了步数减少与采样稳定性的改进，适合在需要较低延迟或多次查询的逆向攻击场景采用\\cite{songGenerativeModelingEstimating2019,rombachHighResolutionImageSynthesis2022}。
-
-- 噪声调度与权衡：噪声调度（noise schedule）与权重函数 $w(\sigma)$ 对生成质量与可控性有显著影响。EDM 等工作对连续噪声谱与去噪器权重进行了系统化设计，能在相同或更少采样步数下获得更高的视觉保真度与稳定性\\cite{karras2022elucidating}。
-
-- 参数高效微调与适配：在目标特定的逆向任务中，直接对大型生成器全量微调代价高且不可行，因而采用 LoRA、低秩调整或仅微调解码器/条件模块等参数高效策略可在较少可训练参数下实现良好适配，从而在资源受限环境中加速攻击器的训练与部署\\cite{hu2021loralowrankadaptationlarge}。
-
-- 与识别器的耦合方式：将识别器嵌入作为条件有多种实现路径：直接以嵌入相似度构造损失（微调阶段）；在采样阶段通过对未来样本预测的嵌入误差进行动态修正；或训练噪声条件的嵌入到图像映射器以实现一键条件化。每种方式对计算开销、稳定性与鲁棒性有不同取舍，需在实验中对比验证。
-
-基于以上要点，本研究在设计模板逆向重建方法时将优先采用隐空间扩散以兼顾质量与成本，使用 classifier-free 与嵌入导向的混合引导策略来平衡视觉质量与识别一致性，并通过 LoRA 等微调方法实现对目标模板的高效适配。下面保留原有的形式化推导与公式，详细说明条件化采样的数学基础与实现细节。
-
-本研究提出一个高效率的模型反演方法，从公共数据集上训练的一般无条件生成网络，结合图像特征信息的分数作为引导，从而实现高效率的图像特征反向攻击。
-\par
-首先对图像特征反向攻击问题作出基本假设。记图像特征信息为y，对应的原始未知图像为$x \sim p(x)$，则图像特征信息的分布可以表示为 $p(y|x)$。本课题所研究的目标是对分布$p(x|y)$进行建模。以往的方法采用GAN模型作为生成器，其生成时是一步生成，难以使用分类引导生成。本研究基于扩散模型进行，其前向扩散步骤与反向生成步骤可以表示为公式\eqref{eqn-1}和公式\eqref{eqn-2},
-\begin{align}
+% End of math supplement
       q(x_t|x_{0})=\mathcal{N}(x_t;\sqrt{\overline{\alpha}_t}x_{0},(1-\overline{\alpha}_t)I)\label{eqn-1} \\
       x_{t-1}= \frac{1}{\sqrt{\alpha_t}}
       (x_t -
@@ -117,14 +134,15 @@
 \par
 扩散过程的一个重要特性是可以直接基于原始数据来对任意t步的$x_t$进行采样：$x_t \sim q(x_t|x_0)$。
 定义$\alpha_t = 1 - \beta_t$和$\overline{\alpha}_t=\Pi^t_{i=1}{\alpha_i}$，通过反复使用重参数技巧，每次重参数都随机从标准高斯分布中采样，再将采样值作为噪声在数据中扩散，那么有：
+\begin{subequations}\label{eqn:xt_expand}
 \begin{align}
-x_t &= \sqrt{\alpha_t}x_{t-1} + \sqrt{1-\alpha_t}\epsilon_{t-1} \nonumber\\
-    &= \sqrt{\alpha_t}(\sqrt{\alpha_{t-1}}x_{t-2} + \sqrt{1-\alpha_{t-1}}\epsilon_{t-2}) + \sqrt{1-\alpha_t}\epsilon_{t-1} \nonumber\\
-    &= \sqrt{\alpha_t\alpha_{t-1}}x_{t-2} + \sqrt{\sqrt{\alpha_t-\alpha_t\alpha_{t-1}^2}+ \sqrt{1-\alpha_t}^2}\overline{\epsilon}_{t-2}; \nonumber\\
-    &= \sqrt{\alpha_t\alpha_{t-1}}x_{t-2} + \sqrt{1-\alpha_t\alpha_{t-1}}\overline{\epsilon}_{t-2} \nonumber\\
-    &= \cdots \nonumber\\
-    &= \sqrt{\overline{\alpha}_t}x_{0} + \sqrt{1-\overline{\alpha}_t}\epsilon \label{eqn-13}
+x_t &= \sqrt{\alpha_t}x_{t-1} + \sqrt{1-\alpha_t}\,\epsilon_{t-1} \\
+      &= \sqrt{\alpha_t}\left(\sqrt{\alpha_{t-1}}x_{t-2} + \sqrt{1-\alpha_{t-1}}\,\epsilon_{t-2}\right) + \sqrt{1-\alpha_t}\,\epsilon_{t-1} \\
+      &= \sqrt{\alpha_t\alpha_{t-1}}\,x_{t-2} + \sqrt{1-\alpha_t\alpha_{t-1}}\,\overline{\epsilon}_{t-2} \\
+      &\vdots \nonumber \\
+      &= \sqrt{\overline{\alpha}_t}\,x_{0} + \sqrt{1-\overline{\alpha}_t}\,\epsilon \label{eqn-13}
 \end{align}
+\end{subequations}
 \par
 于是可以得到以下表示:
 \begin{equation}\label{eqn-14}
@@ -241,18 +259,59 @@ L_{t-1}=\mathbb{E}_{q(x_t|x_0)}[\frac{1}{2\sigma^2_t}\lVert \widetilde{\mu}_t(x_
 EDM是扩散概率模型领域的重要进展, 由Karras等人在2022年提出。EDM对扩散过程的噪声调度、采样策略和损失函数进行了系统性分析和优化, 极大提升了扩散模型的采样效率和生成质量。
 
 具体来说, 扩散模型通过逐步向数据添加噪声, 将数据分布映射为高斯分布, 并训练神经网络学习逆过程以去噪重建数据。EDM提出了一种统一的噪声调度框架, 定义了噪声幅度 $\sigma$ 的连续变化, 并用参数化的去噪器 $f_\theta(x, \sigma)$ 预测无噪声数据。EDM的核心训练目标为:
-\[
-  \mathcal{L}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ w(\sigma) \left\| f_\theta(x_0 + \sigma \epsilon, \sigma) - x_0 \right\|^2 \right]
-\]
+\begin{equation}
+      \mathcal{L}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ w(\sigma) \left\| f_\theta(x_0 + \sigma \epsilon, \sigma) - x_0 \right\|^2 \right]
+\end{equation}
 其中, $x_0$ 为真实样本, $\epsilon \sim \mathcal{N}(0, I)$ 为高斯噪声, $\sigma$ 为噪声幅度, $w(\sigma)$ 为权重函数。
 
 
 EDM的采样过程可用如下随机微分方程描述:
-\[
-  dx = -\frac{1}{2} \sigma^2 \nabla_x \log p_\theta(x, \sigma) \, d\sigma + \sigma \, dW
-\]
+\begin{equation}
+      dx = -\frac{1}{2} \sigma^2 \nabla_x \log p_\theta(x, \sigma) \, d\sigma + \sigma \, dW
+\end{equation}
 
 其中 $dW$ 为维纳过程, $\nabla_x \log p_\theta(x, \sigma)$ 由神经网络近似。基于以上随机微分方, EDM提出使用二阶采样器来大幅减少采样步数, 提升生成速度。EDM框架统一了多种扩散模型的训练与采样方式, 便于理论分析和工程实现。本课题使用EDM扩散模型作为基础, 设计任务对应的生成模型来达到攻击目的。通过对EDM的训练和优化, 利用不同任务信息来重建匹配的原始输入图像, 从而实现对用户隐私信息的还原。
+\subsubsection*{实用采样与调参配方（工程化建议）}
+为便于将理论转为可复现的实验，本小节给出一组工程化的“配方”与伪代码，适用于以 EDM/LDM 为基础进行嵌入引导的模板重建任务。
+
+要点摘要：
+\begin{itemize}
+      \item 采样步数与采样器：在工程评估中常以 20~100 步作为效率—质量折中。对于 EDM/二阶采样器，20~50 步通常能得到较好视觉质量；若质量为首要指标，可上升至 100 步。优先选用 Heun / 2nd-order 采样器以在低步数下获得稳定性。
+      \item 指导强度（guidance scale）：对 classifier-free guidance 推荐在 3.0~8.0 之间搜索；嵌入/能量型引导（embedding guidance）可使用随噪声水平衰减的权重 $w(t)$，例如 $w(t)=w_0\\cdot e^{-\\kappa\\sigma(t)}$，取 $w_0\\in[1.0,10.0],\\kappa\\in[0.1,1.0]$ 进行调优。
+      \item 噪声谱与权重函数：在 EDM 框架下，使用连续噪声谱并配合 $w(\\sigma)$（如 $w(\\sigma)=1/\\sigma^2$ 或作者建议的平衡形式）可提升低步数表现；在实现时请参考开源 EDM/denoiser 实现的默认设置并在小规模网格搜索中验证。
+      \item LoRA 微调配方（单目标个性化）：秩 $r\\in\\{4,8,16\\}$；缩放 $\\alpha$ 取 8 或 16；学习率 $\\in[1\\times10^{-5},5\\times10^{-4}]$；训练步数依据样本量在 50~2000 步之间；以识别器余弦相似度作为早停与模型选择指标。
+\end{itemize}
+
+简要伪代码（采样 + 嵌入引导示例）：
+\begin{verbatim}
+# x_T ~ N(0,I)
+x = x_T
+for t in sampler_schedule:
+            # predict noise / denoised x
+            eps_uncond = denoiser(x, sigma(t), cond=None)
+            eps_cond   = denoiser(x, sigma(t), cond=embedding)
+            # classifier-free guidance
+            eps_guided = eps_uncond + guidance_scale * (eps_cond - eps_uncond)
+
+            # embedding-guidance: approximate gradient of similarity in pixel/latent space
+            g = embedding_weight(t) * compute_embedding_grad(x, target_embedding)
+
+            # combine in score domain (示例形式)
+            eps_combined = eps_guided - sqrt(1 - alpha_bar(t)) * g
+
+            # sampler step (Heun / 2nd order)
+            x = sampler_step(x, eps_combined, t)
+end
+return x0_estimate(x)
+\end{verbatim}
+
+调参注意事项与实验设计建议：
+\begin{itemize}
+      \item 在小规模验证集上先做两维网格搜索（guidance_scale × embedding_weight），记录识别一致性（TAR@FAR）与感知指标（LPIPS/FID）；优先按识别一致性排序，再用视觉指标做二次筛选。\\
+      \item 将 LoRA 微调与采样引导结合：建议先用少量步数与 LoRA 快速微调验证可行性，再在微调后的模型上执行高质量采样以获得最终结果。\\
+      \item 严格记录复现实验清单：随机种子、采样器类型、步数、噪声谱/σ 范围、LoRA 参数、识别器版本与预处理细节。\\
+\end{itemize}
+
 \subsection[换脸模型]{换脸模型}
 
 换脸（face swapping / face replacement）技术旨在将源人物的面部属性（身份特征、表情或口型）无缝地迁移到目标人物图像或视频上。尽管换脸最初多用于娱乐与影视制作，近年来该技术在深度学习推动下取得显著进展，同时也引发了严重的隐私与滥用风险问题。本小节综述主流的方法学路线、实现要点、常用评估指标以及与模板逆向重建/模型反演研究的关系。
@@ -300,10 +359,21 @@ EDM的采样过程可用如下随机微分方程描述:
 - 对卷积层，可通过在 $1\times1$ 卷积或点卷积处应用低秩分解实现类似效果。
 
 实现要点：
-- 冻结原始网络参数，仅优化 $A,B$（以及可能的偏置项），这能显著降低显存占用并避免破坏原有能力；
-- 初始值选取：常用将 $A$ 置为小的高斯随机或零初始化、将 $B$ 置为零或小随机值，以保证训练初期网络行为接近原模型；\\
-- 缩放策略：采用 $\frac{\alpha}{r}$ 缩放项，能让不同秩设置下的学习率与幅度更可比；\\
-- 推理优化：训练完成后可将 $\Delta W$ 与 $W$ 合并以得到纯粹的密集权重用于高效推理，或在运行时将低秩模块以高效内核实现以节省内存。
+% 原句备份：
+% - 冻结原始网络参数，仅优化 $A,B$（以及可能的偏置项），这能显著降低显存占用并避免破坏原有能力；
+% - 初始值选取：常用将 $A$ 置为小的高斯随机或零初始化、将 $B$ 置为零或小随机值，以保证训练初期网络行为接近原模型；\\
+% - 缩放策略：采用 $\frac{\alpha}{r}$ 缩放项，能让不同秩设置下的学习率与幅度更可比；\\
+% - 推理优化：训练完成后可将 $\Delta W$ 与 $W$ 合并以得到纯粹的密集权重用于高效推理，或在运行时将低秩模块以高效内核实现以节省内存。
+
+- 冻结与分层解冻策略（实践建议）：通常建议在微调初期冻结基础模型 $W$，仅训练 LoRA 增量 $A,B$。这样能显著降低显存与计算开销，同时保留预训练模型的通用能力，从而减少过拟合风险与训练不稳定性。当验证性能不足时，可采用分层解冻（逐步解冻靠近输出或条件模块的少量参数）以增加适配能力，但应配合更小的学习率与更短的训练轮次以避免破坏原有能力。
+
+- 初始化与数值稳定性：将 $A$ 以小方差高斯或零初始化、$B$ 以零或极小值初始化是常见做法；同时建议使用学习率预热（warmup）、梯度裁剪与较低的基线学习率（对 LoRA 参数）以避免早期发散。
+
+- 缩放与超参数对齐：采用 $\frac{\alpha}{r}$ 作为缩放因子能让不同秩设置下的更新幅度更可比；在实验设计中应把 $r$ 与 $\alpha$ 作为一组超参数并联合调优，而不是孤立调整某一项。
+
+- 正则化与监控：对 $B$ 使用轻度 L2 正则化或范数约束可抑制过大投影；训练过程中优先以识别器嵌入一致性（验证集余弦相似度 / TAR@FAR）作为早停与模型选择指标，辅以感知质量指标（LPIPS/FID）防止视觉质量退化。
+
+- 推理与部署：训练结束后可将 $\Delta W=BA$ 与原权重合并（$W'=W+\frac{\alpha}{r}BA$）以获得最高推理速度；若需支持多套 LoRA 配置，建议将底层模型保存为只读并动态加载 LoRA 增量以节省存储与便于切换。
 
 \subsection*{训练细节与超参数建议}
 针对本研究中对生成器（例如 EDM / LDM 的 U-Net）或识别器做微调的场景，建议的经验性超参数范围如下（可根据数据量、目标复杂度与计算资源调整）：
@@ -349,6 +419,87 @@ EDM的采样过程可用如下随机微分方程描述:
 7) 工程实现提示与复现清单——为保证工作可复现，建议在附录或项目说明中列出关键实现细节：深度学习框架与版本（例如 PyTorch 的具体版本）、关键第三方库（如 timm、accelerate、diffusers/edm 实现）、训练/推理的硬件配置、超参数表、随机种子与数据预处理脚本。对 LoRA 等微调方法，应提供如何将低秩增量合并回原模型的说明与伪代码。
 
 本章的理论与工程要点将直接支撑第3章中提出的基于扩散模型的模板逆向重建方法（包括嵌入一致性损失、LoRA 微适配策略与采样引导实现），后续章节将基于本章约定给出详细的算法、实验设置与可复现的实现细节。
+
+\subsection[数学原理补充]{数学原理补充}
+本小节补充并明确本章涉及的若干数学原理与推导要点，便于将来在论文正文中引用定理/公式并用于算法实现的严格说明。
+
+\subsubsection*{1. 从 score-matching 到去噪目标的等价性（要点）}
+考虑噪声预测目标
+\begin{equation}
+      L_{\epsilon} = \mathbb{E}_{x_0,\epsilon\sim\mathcal{N}(0,I),t}\left[ w(t) \|\epsilon - \epsilon_\theta(x_t,t)\|^2\right],
+\end{equation}
+其中 $x_t=\sqrt{\overline{\alpha}_t}x_0+\sqrt{1-\overline{\alpha}_t}\,\epsilon$。按链式运算可得关于 $x_t$ 的得分函数近似
+\begin{equation}
+      \nabla_{x_t}\log p(x_t) = -\frac{1}{\sqrt{1-\overline{\alpha}_t}}\,\epsilon_\theta(x_t,t) + C(t),
+\end{equation}
+其中常数项 $C(t)$ 与 $x_t$ 无关，可被吸收到权重或偏移项中。进而，最小化 $L_{\epsilon}$ 等价于对不同噪声尺度下的加权得分匹配（score-matching）问题，从而保证训练得到的 $\epsilon_\theta$ 能用于近似 $\nabla_{x_t}\log p(x_t)$（参见式~\eqref{eqn-5}）。
+
+证明要点（略）: 将 $x_0$ 用 $x_t,\epsilon$ 表示并展开展开平方项，可把 $L_{\epsilon}$ 重写为关于 $\epsilon_\theta$ 与真实得分的二次项，进而等价于加权的得分匹配下界（见 Song 等人的推导）。在工程实践中通过选择合适的权重 $w(t)$ 可稳定训练并平衡不同噪声尺度的贡献。
+
+\subsubsection*{2. Score-based SDE 与反向 SDE}
+令前向 SDE 写作
+\begin{equation}
+      d x = f(x,t)\,dt + g(t)\,dW_t,
+\end{equation}
+则其对应的反向（time-reversed）SDE 在已知 $\nabla_x\log p_t(x)$ 时可写为
+\begin{equation}
+      d x = \left[f(x,t) - g(t)^2\,\nabla_x\log p_t(x)\right] dt + g(t)\,d\bar W_t,
+\end{equation}
+其中 $\bar W_t$ 为反向 Wiener 过程。该表达说明：若能估计出 $\nabla_x\log p_t(x)$（由去噪网络提供），即可解出反向生成过程；分类器/能量项可通过在得分上叠加 $\nabla_x\log p(y|x)$ 实现条件化（见下小节）。
+
+\subsubsection*{3. 分类器引导与 classifier-free guidance 的关系}
+若存在一个条件分类器 $p_\phi(y|x_t)$，则
+\begin{equation}
+      \nabla_{x_t}\log p(y|x_t) \approx \nabla_{x_t} \log p_\phi(y|x_t).
+\end{equation}
+将其与无条件得分相加给出条件得分（贝叶斯分解）:
+\begin{equation}
+      \nabla_{x_t}\log p(x_t|y) = \nabla_{x_t}\log p(x_t) + \nabla_{x_t}\log p(y|x_t).
+\end{equation}
+在实际采样中，常用带权重的混合形式来放大条件信息：
+\begin{equation}
+      s_{\text{guid}} = s_{\text{uncond}} + w\,(s_{\text{cond}} - s_{\text{uncond}}) = (1-w) s_{\text{uncond}} + w s_{\text{cond}},
+\end{equation}
+其中 $s=\nabla_{x_t}\log p(\cdot)$。等价地，对噪声預測器而言有
+\begin{equation}
+      \epsilon_{\text{guid}} = \epsilon_{\text{uncond}} + \gamma\,(\epsilon_{\text{cond}} - \epsilon_{\text{uncond}}),
+\end{equation}
+其中 $\gamma$ 与 $w$ 存在简单线性映射（与噪声尺度因子有关）。
+
+Classifier-free guidance 的实现不需要额外训练分类器，而是在训练阶段隨機屏蔽条件（例如将条件 embedding 替换为全零或 sentinel），使模型学会在有/无条件下均可预测噪声。推导上 classifier-free guidance 与上式等价，只是 $\epsilon_{\text{cond}}$ 与 $\epsilon_{\text{uncond}}$ 来自同一网络在不同输入下的输出。
+
+\subsubsection*{4. 条件化采样时的能量项近似}
+在本研究我们把识别器的嵌入相似度视为能量 $E(x;y) = -\lambda\cdot \text{sim}(f(x),y)$，其对 $x$ 的梯度用于在采样过程中修正得分：
+\begin{equation}
+      \nabla_x \log p(x|y) \approx \nabla_x \log p(x) - \nabla_x E(x;y).
+\end{equation}
+在实现中直接对 $f(\cdot)$ 取微分并反向传播得到 $\nabla_x \text{sim}(f(x),y)$ 的近似梯度，该项与去噪器的输出在 score-space 中进行线性组合（见伪代码示例），可视为对目标嵌入相似度的显式引导。
+
+\subsubsection*{5. LoRA 的代数表示与参数量分析}
+设原权重矩阵为 $W\in\mathbb{R}^{d_{out}\times d_{in}}$，LoRA 引入低秩增量 $\Delta W = B A$，其中 $A\in\mathbb{R}^{r\times d_{in}}$、$B\in\mathbb{R}^{d_{out}\times r}$。若在前向传播中采用缩放因子 $\alpha$，则实际替换为
+\begin{equation}
+      W' = W + \frac{\alpha}{r} B A.
+\end{equation}
+参数额外开销约为 $r(d_{in}+d_{out})$，远小于 $d_{out}d_{in}$。训练时仅更新 $A,B$（和可能的缩放），可显著降低显存与存储成本。训练结束后可合并：
+\begin{equation}
+      W'_{\text{merged}} = W + \frac{\alpha}{r} B A
+\end{equation}
+以便高效推理。
+
+梯度维度说明：若损失为 $\mathcal{L}$，则对 $A,B$ 的梯度分别为
+\begin{equation}
+      \nabla_A \mathcal{L} = B^{\top} \nabla_{W'} \mathcal{L},\qquad \nabla_B \mathcal{L} = \nabla_{W'} \mathcal{L}\, A^{\top},
+\end{equation}
+从而训练仅在低维子空间中进行权重更新。
+
+\subsubsection*{6. 黑盒优化时的无梯度近似（简要）}
+在黑盒场景下，若只能得到标量分数 $S(x)$，可采用有限差分或随机扰动估计梯度：
+\begin{equation}
+      \hat g = \frac{1}{m}\sum_{i=1}^m \frac{S(x+\delta_i)-S(x-\delta_i)}{2\epsilon} \\, \delta_i,
+\end{equation}
+其中 $\delta_i$ 为服从零均值分布的随机方向（例如高斯或 Rademacher），$\epsilon$ 为扰动幅度。NES / SPSA 等方法即基于该类估计，通过并行化或控制方差技巧提高查询效率。本研究在实现黑盒潜在优化基线时采用了上述思路并在实验中测量查询成本与成功率的 trade-off。
+
+% End of math supplement
 
 % Local Variables:
 % TeX-master: "../main"
