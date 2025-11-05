@@ -81,28 +81,28 @@ $$x^* = \arg\min_{x'}Sim(F(x'), t)$$
 
 针对基于模板匹配模型的隐私泄露问题, 设计了如图\ref{fig:edm_tia_train}所示的利用EDM扩散模型进行模板逆向攻击的训练流程。其中扩散模型的核心部分采用了EDM扩散模型, 利用其生成能力和噪声调度机制, 实现高效的模板逆向攻击算法。通过对扩散模型的训练和优化, 模型可以重建与目标模板匹配的原始输入图像, 从而实现对用户隐私信息的还原。本课题在损失函数设计上, 结合了特征提取网络与扩散生成模型, 使得攻击流程能够同时优化生成图像的像素质量以及其与目标模板的特征相似度。
 
-\begin{figure}[!htbp]
-
 本节详细介绍将隐空间扩散模型（LDM/EDM）用于模板逆向重建的具体架构与训练/微调流程。本方法遵循“先有强生成先验，再做目标化微调”的范式，以兼顾视觉质量与识别一致性。
 本研究采用隐空间扩散（LDM）框架作为基线，并在其 U-Net 去噪器上实现条件化。总体架构包括：
 
 \begin{itemize}
   \item 能量式引导/分数注入：不在网络结构中直接条件化，而是在采样时用识别器的相似度梯度修正去噪器输出（参见第2章理论推导），适用于白盒或嵌入可查询的设置。
-  \end{enumerate}
+\end{itemize}
 \subsection{训练与两阶段流程}
 为兼顾通用生成能力与目标适配能力，我们采用两阶段训练流程：
 
-\paragraph{1) 基础生成器训练 / 采用预训练权重}
+\paragraph{基础生成器训练 / 采用预训练权重}
 使用大规模人脸数据集（或通用人像数据集）在隐空间上训练 EDM/LDM，目标为还原像素或隐空间重建误差（EDM 损失）。若可利用高质量开源预训练权重（例如公开的 LDM/EDM 模型），建议直接加载并冻结大部分参数，仅用于作为生成先验。
 
-\paragraph{2) 目标化微调（微适配）}
+\paragraph{目标化微调（微适配）}
 在每个目标模板或目标集合上进行参数高效微调：仅微调 Cross-Attention 投影层或使用 LoRA 在 U-Net 的关键线性/注意力矩阵上注入低秩增量。微调目标函数包含生成器的像素/隐空间重建损失与识别器嵌入一致性损失的组合：
 \begin{equation}\label{eq:finetune_loss}
+\mathcal{L}_{\text{finetune}} = \mathcal{L}_{\text{EDM}} + \lambda_{id}(t)\,\mathcal{L}_{id} + \lambda_{perc}\,\mathcal{L}_{perc} + \lambda_{adv}\,\mathcal{L}_{adv} + \lambda_{reg}\,\mathcal{L}_{reg}.
+\end{equation}
 微调阶段的实现细节：
 \begin{itemize}
-\item 冻结大部分网络，仅训练 LoRA 模块或 attention 投影（减少显存与计算）；
-\item 使用较小学习率与较短训练步数（例如数百到上千步），并以识别器在验证集上的相似度作为早停准则；
-\item 可在微调时采用数据增强（轻微姿态/光照扰动）以提升鲁棒性，但应避免破坏身份特征。
+  \item 冻结大部分网络，仅训练 LoRA 模块或 attention 投影（减少显存与计算）；
+  \item 使用较小学习率与较短训练步数（例如数百到上千步），并以识别器在验证集上的相似度作为早停准则；
+  \item 可在微调时采用数据增强（轻微姿态/光照扰动）以提升鲁棒性，但应避免破坏身份特征。
 \end{itemize}
 
 \subsection{超参数表示与示例}
@@ -148,97 +148,101 @@ python train_edm.py \
 \begin{verbatim}
 python finetune_lora.py \
   --ckpt /exp/edm_tia_base/checkpoint.pt \
-  \section{损失函数设计与采样引导策略}
+  --data /path/to/faces \
+  --out_dir /exp/edm_tia_finetune \
+  --r 16 --alpha 16 --lr 1e-4 --steps 1000
+\end{verbatim}
 
-  本节在第2章理论推导的基础上，系统化描述训练阶段与采样阶段使用的损失项、权重调度与引导策略，以便实现既有高视觉质量又能在识别器空间中匹配目标模板的重建。
+\section{损失函数设计与采样引导策略}
 
-  \subsection{总目标与损失项分解}
-  训练时的总损失通常采用多项式组合：像素/隐空间重建（EDM 基线）、识别器嵌入一致性、感知损失与可选的对抗/正则化项：
-  \begin{equation}\label{eq:total_loss}
-    \mathcal{L}_{\text{total}} = \mathcal{L}_{\text{EDM}} + \lambda_{id}(t)\,\mathcal{L}_{id} + \lambda_{perc}\,\mathcal{L}_{perc} + \lambda_{adv}\,\mathcal{L}_{adv} + \lambda_{reg}\,\mathcal{L}_{reg}.
-  \end{equation}
+本节在第2章理论推导的基础上，系统化描述训练阶段与采样阶段使用的损失项、权重调度与引导策略，以便实现既有高视觉质量又能在识别器空间中匹配目标模板的重建。
 
-  说明各项：
-  - EDM 基线（去噪/重建）损失：采用明晰扩散（EDM）定义的加权均方误差：
-  \begin{equation}\label{eq:edm_loss}
-    \mathcal{L}_{\text{EDM}} = \mathbb{E}_{x_0,\sigma,\epsilon}\left[ w(\sigma) \left\| f_\theta(x_0 + \sigma\epsilon,\sigma) - x_0 \right\|_2^2 \right].
-  \end{equation}
-  其中 $w(\sigma)$ 为噪声权重函数（遵循 EDM/文献建议以平衡不同噪声尺度的训练信号）\cite{karras2022elucidating}。
+\subsection{总目标与损失项分解}
+训练时的总损失通常采用多项式组合：像素/隐空间重建（EDM 基线）、识别器嵌入一致性、感知损失与可选的对抗/正则化项：
+\begin{equation}\label{eq:total_loss}
+  \mathcal{L}_{\text{total}} = \mathcal{L}_{\text{EDM}} + \lambda_{id}(t)\,\mathcal{L}_{id} + \lambda_{perc}\,\mathcal{L}_{perc} + \lambda_{adv}\,\mathcal{L}_{adv} + \lambda_{reg}\,\mathcal{L}_{reg}.
+\end{equation}
 
-  - 嵌入一致性损失（识别器约束）：用于保证生成图像在识别器嵌入空间与目标模板 $t$ 接近。可选择均方误差或余弦相似度损失：
-  \begin{align}
-    &\mathcal{L}_{id}^{\mathrm{MSE}} = \| F(D(z_0)) - t \|_2^2, \\
-    &\mathcal{L}_{id}^{\mathrm{cos}} = 1 - \frac{F(D(z_0))\cdot t}{\|F(D(z_0))\|_2\,\|t\|_2}.
-  \end{align}
-  在实践中我们常用 $\mathcal{L}_{id}^{\mathrm{MSE}}$ 作简单可微目标，或混合使用余弦目标以直接最大化相似度。
+说明各项：
+- EDM 基线（去噪/重建）损失：采用明晰扩散（EDM）定义的加权均方误差：
+\begin{equation}\label{eq:edm_loss}
+  \mathcal{L}_{\text{EDM}} = \mathbb{E}_{x_0,\sigma,\epsilon}\left[ w(\sigma) \left\| f_\theta(x_0 + \sigma\epsilon,\sigma) - x_0 \right\|_2^2 \right].
+\end{equation}
+其中 $w(\sigma)$ 为噪声权重函数（遵循 EDM/文献建议以平衡不同噪声尺度的训练信号）\cite{karras2022elucidating}。
 
-  - 感知损失 $\mathcal{L}_{perc}$：使用 VGG 感知特征的 L2 距离（或 LPIPS）以改善视觉细节与纹理一致性。\
-  - 对抗损失 $\mathcal{L}_{adv}$（可选）：若需提升真实感，可在微调阶段加入小规模 Patch-GAN 判别器，注意该项易影响识别一致性且可能带来不稳定性。\
-  - 正则化项 $\mathcal{L}_{reg}$：包括 TV 损失、参数范数惩罚或 LoRA 参数的范数约束，防止过拟合与生成伪影。
+- 嵌入一致性损失（识别器约束）：用于保证生成图像在识别器嵌入空间与目标模板 $t$ 接近。可选择均方误差或余弦相似度损失：
+\begin{align}
+  &\mathcal{L}_{id}^{\mathrm{MSE}} = \| F(D(z_0)) - t \|_2^2, \\
+  &\mathcal{L}_{id}^{\mathrm{cos}} = 1 - \frac{F(D(z_0))\cdot t}{\|F(D(z_0))\|_2\,\|t\|_2}.
+\end{align}
+在实践中我们常用 $\mathcal{L}_{id}^{\mathrm{MSE}}$ 作简单可微目标，或混合使用余弦目标以直接最大化相似度。
 
-  超参数调度：特别说明 $\lambda_{id}(t)$ 可采用时间/阶段依赖调度（见下）。常用做法是训练初期以较小 $\lambda_{id}$ 保障视觉学习，随后逐步增大以提升识别一致性。
+- 感知损失 $\mathcal{L}_{perc}$：使用 VGG 感知特征的 L2 距离（或 LPIPS）以改善视觉细节与纹理一致性。\
+- 对抗损失 $\mathcal{L}_{adv}$（可选）：若需提升真实感，可在微调阶段加入小规模 Patch-GAN 判别器，注意该项易影响识别一致性且可能带来不稳定性。\
+- 正则化项 $\mathcal{L}_{reg}$：包括 TV 损失、参数范数惩罚或 LoRA 参数的范数约束，防止过拟合与生成伪影。
 
-  \subsection{识别一致性权重调度（示例）}
-  为避免在微调初期破坏生成器的视觉质量，推荐采用分段或余弦退火式的 $\lambda_{id}$ 调度：
-  \begin{equation}
-    \lambda_{id}(e) = \lambda_{id}^{\max} \cdot S(e; e_{warm}, e_{ramp}),
-  \end{equation}
-  其中 $e$ 为当前微调 epoch/step，$S(\cdot)$ 为平滑上升函数（线性或余弦），$e_{warm}$ 为预热期长度，$e_{ramp}$ 为达到最大值的步数。经验值：$\lambda_{id}^{\max}=0.5\sim2.0$，$e_{warm}$ 为前 50--200 步。
+超参数调度：特别说明 $\lambda_{id}(t)$ 可采用时间/阶段依赖调度（见下）。常用做法是训练初期以较小 $\lambda_{id}$ 保障视觉学习，随后逐步增大以提升识别一致性。
 
-  \subsection{采样阶段的引导（Guidance）}
-  训练后在采样阶段可采用若干引导策略以增强重构与模板的契合度：
+\subsection{识别一致性权重调度（示例）}
+为避免在微调初期破坏生成器的视觉质量，推荐采用分段或余弦退火式的 $\lambda_{id}$ 调度：
+\begin{equation}
+  \lambda_{id}(e) = \lambda_{id}^{\max} \cdot S(e; e_{warm}, e_{ramp}),
+\end{equation}
+其中 $e$ 为当前微调 epoch/step，$S(\cdot)$ 为平滑上升函数（线性或余弦），$e_{warm}$ 为预热期长度，$e_{ramp}$ 为达到最大值的步数。经验值：$\lambda_{id}^{\max}=0.5\sim2.0$，$e_{warm}$ 为前 50--200 步。
 
-  1) Classifier-free guidance（CFG）：训练时部分样本屏蔽条件以学得无条件与有条件去噪器。采样时常用公式：
-  \[
-    \epsilon_{\text{guid}} = \epsilon_{\text{uncond}} + s\cdot(\epsilon_{\text{cond}} - \epsilon_{\text{uncond}}),
-  \]
-  其中 $s$ 为 guidance scale，通常取值在 $1.0\sim10.0$。对嵌入条件的 CFG 能有效提升条件遵从性且实现简单。
+\subsection{采样阶段的引导（Guidance）}
+训练后在采样阶段可采用若干引导策略以增强重构与模板的契合度：
 
-  2) Classifier / energy guidance：若能计算 $\nabla_x \log p(t|x)$（白盒或可查询情形），则可在采样步加入该梯度：
-  \[
-    \nabla_x \log p(x|t) \approx \nabla_x \log p(x) + \gamma\,\nabla_x \log p(t|x),
-  \]
-  其中 $\nabla_x \log p(t|x)$ 可由识别器相似度 / 负损失 $-\nabla_x \mathcal{L}_{id}$ 估计（注意符号）。在离散采样更新中对 $x$ 加入该项等价于对噪声预测 $\epsilon_\theta$ 做修正（参见第2章公式推导）。常用做法是将该梯度正则化并按步长缩放以保证数值稳定性。
+1) Classifier-free guidance（CFG）：训练时部分样本屏蔽条件以学得无条件与有条件去噪器。采样时常用公式：
+\[
+  \epsilon_{\text{guid}} = \epsilon_{\text{uncond}} + s\cdot(\epsilon_{\text{cond}} - \epsilon_{\text{uncond}}),
+\]
+其中 $s$ 为 guidance scale，通常取值在 $1.0\sim10.0$。对嵌入条件的 CFG 能有效提升条件遵从性且实现简单。
 
-  3) Gradient-projection / iterative refinement：在每一步去噪后，可对当前样本 $x_t$ 做 $k$ 次小步长梯度下降以减小识别一致性损失：
-  \[
-    x \leftarrow x - \eta \frac{\nabla_x \mathcal{L}_{id}(x)}{\|\nabla_x \mathcal{L}_{id}(x)\| + \epsilon},
-  \]
-  其中 $\eta$ 为小步长（如 $1\times10^{-2}$），归一化能避免过大扰动。通常 $k=1\sim3$，以平衡计算开销。
+2) Classifier / energy guidance：若能计算 $\nabla_x \log p(t|x)$（白盒或可查询情形），则可在采样步加入该梯度：
+\[
+  \nabla_x \log p(x|t) \approx \nabla_x \log p(x) + \gamma\,\nabla_x \log p(t|x),
+\]
+其中 $\nabla_x \log p(t|x)$ 可由识别器相似度 / 负损失 $-\nabla_x \mathcal{L}_{id}$ 估计（注意符号）。在离散采样更新中对 $x$ 加入该项等价于对噪声预测 $\epsilon_\theta$ 做修正（参见第2章公式推导）。常用做法是将该梯度正则化并按步长缩放以保证数值稳定性。
 
-  综合策略：对多数场景，采用 CFG 作为主导（低成本且稳定），并在白盒或可查询情形下结合轻量的能量/投影步以进一步提高识别一致性。
+3) Gradient-projection / iterative refinement：在每一步去噪后，可对当前样本 $x_t$ 做 $k$ 次小步长梯度下降以减小识别一致性损失：
+\[
+  x \leftarrow x - \eta \frac{\nabla_x \mathcal{L}_{id}(x)}{\|\nabla_x \mathcal{L}_{id}(x)\| + \epsilon},
+\]
+其中 $\eta$ 为小步长（如 $1\times10^{-2}$），归一化能避免过大扰动。通常 $k=1\sim3$，以平衡计算开销。
 
-  \subsection{采样伪代码（带嵌入引导）}
-  下面给出一个简化的采样伪代码，展示如何在 EDM/隐空间采样中加入 CFG 与投影步：
+综合策略：对多数场景，采用 CFG 作为主导（低成本且稳定），并在白盒或可查询情形下结合轻量的能量/投影步以进一步提高识别一致性。
 
-  \begin{verbatim}
-  z_T = N(0,I)
-  for i = T..1:
-    # predict noise for cond and uncond
-    eps_cond = eps_theta(z_i, sigma_i, cond=t)
-    eps_uncond = eps_theta(z_i, sigma_i, cond=None)
-    # classifier-free guidance
-    eps = eps_uncond + s * (eps_cond - eps_uncond)
-    # one EDM/score step to get z_{i-1}
-    z_{i-1} = edm_step(z_i, eps, sigma_i, sigma_{i-1})
-    # optional projection: reduce embedding loss
-    for k in 1..K_proj:
-      x_ = D(z_{i-1})
-      g = grad_x L_id(x_, t)
-      x_ = x_ - eta * g / (||g|| + eps)
-      z_{i-1} = E(x_)
-  end
-  \end{verbatim}
+\subsection{采样伪代码（带嵌入引导）}
+下面给出一个简化的采样伪代码，展示如何在 EDM/隐空间采样中加入 CFG 与投影步：
 
-  注意：投影步应在隐空间/像素域之间保持一致的编码器/解码器，以避免引入编码偏差。
+\begin{verbatim}
+z_T = N(0,I)
+for i = T..1:
+  # predict noise for cond and uncond
+  eps_cond = eps_theta(z_i, sigma_i, cond=t)
+  eps_uncond = eps_theta(z_i, sigma_i, cond=None)
+  # classifier-free guidance
+  eps = eps_uncond + s * (eps_cond - eps_uncond)
+  # one EDM/score step to get z_{i-1}
+  z_{i-1} = edm_step(z_i, eps, sigma_i, sigma_{i-1})
+  # optional projection: reduce embedding loss
+  for k in 1..K_proj:
+    x_ = D(z_{i-1})
+    g = grad_x L_id(x_, t)
+    x_ = x_ - eta * g / (||g|| + eps)
+    z_{i-1} = E(x_)
+end
+\end{verbatim}
+注意：投影步应在隐空间/像素域之间保持一致的编码器/解码器，以避免引入编码偏差。
 
-  \subsection{数值稳定性与实现细节}
-  - 梯度归一化：对识别器梯度做 L2 归一化或按条目裁剪，避免少数步长造成的巨大像素破坏。\
-  - 学习率/步长选择：CFG 的 scale 与投影步长 $\eta$ 的选择对视觉质量影响显著，建议先固定 CFG 在 1\~3 范围内，投影步长设置在 1e-3\~1e-2，并观察识别相似度与 FID 的权衡曲线。\
-  - 计算成本考量：投影步会显著增加每步的成本（因需额外一次前向/反向通过识别器），在查询预算或实时场景下需谨慎使用。\
-  - LoRA 微调结合：若使用 LoRA 微调，识别一致性损失既可用于微调期间优化 LoRA 参数，也可在推理时用作投影目标；保存 LoRA 权重便于复现实验并减小部署开销。
+\subsection{数值稳定性与实现细节}
+- 梯度归一化：对识别器梯度做 L2 归一化或按条目裁剪，避免少数步长造成的巨大像素破坏。\
+- 学习率/步长选择：CFG 的 scale 与投影步长 $\eta$ 的选择对视觉质量影响显著，建议先固定 CFG 在 1\~3 范围内，投影步长设置在 1e-3\~1e-2，并观察识别相似度与 FID 的权衡曲线。\
+- 计算成本考量：投影步会显著增加每步的成本（因需额外一次前向/反向通过识别器），在查询预算或实时场景下需谨慎使用。\
+- LoRA 微调结合：若使用 LoRA 微调，识别一致性损失既可用于微调期间优化 LoRA 参数，也可在推理时用作投影目标；保存 LoRA 权重便于复现实验并减小部署开销。
 
-  \subsection{建议的超参数（供复现与对比）}
-  简要建议：$\lambda_{id}^{\max}=0.5$、$\lambda_{perc}=0.1$、$\lambda_{adv}=0$（如不使用对抗训练）、CFG scale $s=1.5$、投影步 $K_{proj}=1$, $\eta=5\times10^{-3}$，采样步数 50 或使用 EDM 二阶采样器做 18 步的折中试验。
+\subsection{建议的超参数（供复现与对比）}
+简要建议：$\lambda_{id}^{\max}=0.5$、$\lambda_{perc}=0.1$、$\lambda_{adv}=0$（如不使用对抗训练）、CFG scale $s=1.5$、投影步 $K_{proj}=1$, $\eta=5\times10^{-3}$，采样步数 50 或使用 EDM 二阶采样器做 18 步的折中试验。
 
-  本节给出的损失体系与采样引导策略为第3章方法实现提供了可操作的细节：训练端以 EDM 基线 + 嵌入一致性微调为主，推理端以 CFG 为主并在有条件的白盒场景中辅以轻量投影/能量引导以提升识别一致性。
+本节给出的损失体系与采样引导策略为第3章方法实现提供了可操作的细节：训练端以 EDM 基线 + 嵌入一致性微调为主，推理端以 CFG 为主并在有条件的白盒场景中辅以轻量投影/能量引导以提升识别一致性。

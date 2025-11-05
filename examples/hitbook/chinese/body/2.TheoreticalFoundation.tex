@@ -46,7 +46,7 @@
 
 - 得分函数与条件化原理（score-based view）：扩散模型可以等价地看作对不同噪声等级下数据分布得分函数的估计。通过贝叶斯分解，条件分布的得分可由无条件得分与条件项之和表示，这为将外部信息（如识别器输出或嵌入相似度）作为引导项直接加入采样过程提供了理论基础\\cite{songScoreBasedGenerativeModeling2021,hoDenoisingDiffusionProbabilistic2020}。
 
-- 引导策略：常用引导包括（1）分类器引导（classifier guidance）：通过训练额外的噪声条件分类器估计 \nabla_x \log p(y|x) 并在采样时叠加该梯度；（2）classifier-free guidance：在同一扩散模型中通过随机屏蔽条件实现无监督的条件强化，具有实现简单且效果稳定的优点；（3）基于能量或判别器的引导：将识别器的相似度或代价函数作为能量项融入采样。针对模板逆向任务，识别模型的嵌入相似度可直接构造成条件梯度或损失用于引导采样/微调\\cite{hoDenoisingDiffusionProbabilistic2020}。
+- 引导策略：常用引导包括（1）分类器引导（classifier guidance）：通过训练额外的噪声条件分类器估计$ \nabla_x \log p(y|x) $并在采样时叠加该梯度；（2）classifier-free guidance：在同一扩散模型中通过随机屏蔽条件实现无监督的条件强化，具有实现简单且效果稳定的优点；（3）基于能量或判别器的引导：将识别器的相似度或代价函数作为能量项融入采样。针对模板逆向任务，识别模型的嵌入相似度可直接构造成条件梯度或损失用于引导采样/微调\\cite{hoDenoisingDiffusionProbabilistic2020}。
 
 - 采样效率与加速器：传统 DDPM/score-based 采样需要大量步数（数百至上千步），不利于工程化部署。DDIM、EDM 与分数匹配下的二阶采样器等提出了步数减少与采样稳定性的改进，适合在需要较低延迟或多次查询的逆向攻击场景采用\\cite{songGenerativeModelingEstimating2019,rombachHighResolutionImageSynthesis2022}。
 
