@@ -304,31 +304,6 @@ infer(template, ckpt_or_lora):
 \end{verbatim}
 
 % 注意：上面伪代码为高层次说明，具体实现参见项目脚本与配置文件。
-
-\section{可复现的目录布局与示例命令}
-为便于他人复现与复查实验结果，建议在项目中按以下约定组织文件：
-\begin{itemize}
-  \item configs/: YAML/JSON 配置文件（训练/微调/推理）
-  \item data/: 数据下载与预处理脚本（说明许可证与来源）
-  \item checkpoints/: 基线与微调检查点（含 LoRA 权重）
-  \item experiments/: 每次实验的日志、度量与可视化输出
-  \item scripts/: 常用训练/推理脚本（train_edm.py, finetune_lora.py, infer.py）
-\end{itemize}
-
-示例命令（可直接复制运行，需替换路径）：
-\begin{verbatim}
-# 基础训练（若使用预训练则跳过）
-python scripts/train_edm.py --config configs/edm_base.yaml --work-dir experiments/base
-
-# LoRA 微调
-python scripts/finetune_lora.py --ckpt checkpoints/edm_base.pt --templates data/templates.npy \
-  --out experiments/lora_r16 --r 16 --alpha 16 --lr 1e-4 --steps 1000
-
-# 推理
-python scripts/infer.py --ckpt experiments/lora_r16/checkpoint.pt --template data/target_tpl.npy \
-  --out experiments/lora_r16/out --steps 50 --cfg_scale 2.0 --proj_steps 1 --proj_eta 5e-3
-\end{verbatim}
-
 \section{实验设计与消融计划}
 为系统评估方法的鲁棒性与普适性，建议至少包含以下对比与消融实验：
 \begin{itemize}

@@ -137,18 +137,10 @@
 
 结果说明：LoRA 微调在识别一致性（TAR）上显著优于未微调与仅优化潜在的方案；混合方案在少数情形下能进一步提升成功率但成本增加。
 
-\subsection{定性结果与示例目录}
-定性结果分为：成功样本、部分成功样本与失败样本（示例见 `results/qual/`）：
-\begin{itemize}
-  \item `results/qual/success/`：生成样本与目标模板高度匹配的示例；\
-  \item `results/qual/partial/`：样貌近似但细节（发型、光照）不一致；\
-  \item `results/qual/failure/`：在强遮挡或极端角度下失败的示例。 
-\end{itemize}
-
 图~\ref{fig:qual_examples} 展示若干典型案例（目标模板 | 生成样本 | 真实样本 | 识别得分）：
 \begin{figure}[!htbp]
   \centering
-  \includegraphics[width=0.95\textwidth]{images/qual_grid.png}
+  \includegraphics[width=0.95\textwidth]{images/loss_curve.png}
   \caption{定性示例（目标 template / 生成 / 真实 / 置信度）。失败类型在 caption 中标注。}
   \label{fig:qual_examples}
 \end{figure}
@@ -179,7 +171,7 @@
 \begin{itemize}
   \item 遮挡：在 10% 面积遮挡下 TAR 下降约 5--12 个百分点；\
   \item 视角变化（±30°）：在侧脸/极端视角下成功率显著下降；\
-  \item 识别器迁移：在不同识别器间迁移时性能下降但趋势一致，提示可通过多识别器联合训练提升泛化。 
+  \item 识别器迁移：在不同识别器间迁移时性能下降但趋势一致，提示可通过多识别器联合训练提升泛化。
 \end{itemize}
 
 \section[失败分析与典型案例]{失败分析与典型案例}
@@ -187,7 +179,7 @@
 \begin{itemize}
   \item 极端姿态（±45°）与大面积遮挡是最常见的失败原因；\
   \item 模板自身质量差（模糊/压缩）会显著降低生成成功率；\
-  \item 训练时使用单一识别器会导致对其他识别器的迁移性能下降。 
+  \item 训练时使用单一识别器会导致对其他识别器的迁移性能下降。
 \end{itemize}
 
 \section[局限性与伦理考量]{局限性与伦理考量}
@@ -199,29 +191,6 @@
 \end{itemize}
 
 伦理与合规：本文在研究中遵循最低暴露原则：所有使用的个人图像数据来自公开可用或具有使用许可的数据集；在论文与代码发布时，会移除可识别的个人身份信息并提供伦理声明与使用限制建议。
-
-\section[可复现性与提供的产物]{可复现性与提供的产物}
-为便于复现，我们在仓库中提供：
-\begin{itemize}
-  \item 完整训练/微调脚本：`experiments/train_lora.sh`、`scripts/finetune_lora.py`；\
-  \item 批量推理与评估脚本：`experiments/run_infer.sh`、`experiments/eval_metrics.py`；\
-  \item 结果目录示例：`results/main/`（CSV/PNG）、`results/qual/`（示例图）；\
-  \item 关键超参数配置样例：`experiments/configs/main.yaml`；\
-  \item 随机种子与依赖：`experiments/seed_info.txt`、`experiments/requirements.txt`。 
-\end{itemize}
-
-示例运行命令：
-\begin{verbatim}
-# LoRA 微调
-bash experiments/train_lora.sh --config experiments/configs/main.yaml --out experiments/run001
-
-# 批量推理并评估
-bash experiments/run_infer.sh --ckpt experiments/run001/merged.ckpt --templates data/templates/test_list.txt --out results/main/run001
-python experiments/eval_metrics.py --gen results/main/run001 --gallery data/gallery/ --recognizer models/arcface.ckpt --out results/main/run001/metrics.json
-
-# 生成展示图
-python experiments/plot_examples.py --result_dir results/qual/ --out figures/qual_examples.png
-\end{verbatim}
 
 \section[本章小结]{本章小结}
 本章通过多组对比与消融实验证明：在有限算力与数据的条件下，LoRA 微调能在保持视觉质量的同时显著提升识别一致性（TAR）；混合优化策略能在进一步提升成功率的同时增加计算与查询成本。实验也揭示了方法的局限性与若干可行的防御方向，为未来研究提供了明确的改进路径。
