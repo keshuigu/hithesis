@@ -72,7 +72,20 @@ Alayrac\cite{NEURIPS2022_960a172b}等人基于70B参数的Chinchilla大语言模
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \section{本文的研究内容及章节安排}
+
+\subsection{问题描述}
+
+为方便后文形式化与讨论，本文在此给出简要的问题描述与研究假设：
+\begin{itemize}
+  \item 问题对象：设目标识别器为函数 $f(\cdot)$，输入图像 $x$ 的嵌入为 $e=f(x)\in\mathbb{R}^d$，攻击者可获得目标个体的特征模板 $t$（例如 $t=f(x_0)$），希望生成图像 $\hat{x}$ 使得 $f(\hat{x})$ 与 $t$ 在嵌入空间上相似（余弦相似度或欧氏距离小于阈值）。
+  \item 目标形式化：我们将模板逆向重建定义为求解
+  $$\hat{x} = \arg\min_x \; \mathcal{L}_{embed}(f(x),t) + \lambda_{perc}\mathcal{L}_{perc}(x) + R(x),$$
+  其中 $\mathcal{L}_{embed}$ 表示嵌入级别相似度度量（如 $1-\cos(f(x),t)$），$\mathcal{L}_{perc}$ 为感知质量相关损失（例如 LPIPS 或像素重建损失），$R(\cdot)$ 为正则化项或先验（例如扩散先验），$\lambda_{perc}$ 为权衡系数。
+  \item 攻击假设分类：本文将实验覆盖如下常见攻击假设——白盒（攻击者可访问识别器权重与梯度）、半白盒（可查询置信度或嵌入）、黑盒（仅可通过 API 获得 top-k/置信度）以及仅获得模板 $t$ 的极限情形。每种情形在可用信息与可行攻击策略上有所不同，需分别评估。
+\end{itemize}
+
 \subsection{主要研究内容}
+
 本研究围绕人脸识别系统中的特征模板逆向重建问题展开，重点在于在保证视觉保真度的同时最大化生成样本与目标模板在识别模型嵌入空间的相似性，并兼顾工程可行性与计算开销。主要研究内容包括：
 \begin{itemize}
   \item 提出一种基于隐空间扩散模型（Latent Diffusion / EDM）的模板逆向重建框架：以预训练的隐空间自编码器与扩散采样器为基础，结合嵌入级一致性损失与分数/分类器引导（score/classifier guidance）机制，在采样或微调阶段显式优化生成样本在目标识别模型嵌入空间的相似度，从而在保持视觉质量的前提下提升识别级别的一致性（参见第3章与第5章）\cite{hoDenoisingDiffusionProbabilistic2020,rombachHighResolutionImageSynthesis2022,songScoreBasedGenerativeModeling2021}。
