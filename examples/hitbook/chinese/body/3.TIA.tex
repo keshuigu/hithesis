@@ -64,8 +64,6 @@
 
 \section{攻击目标}
 
-\section{攻击目标}
-
 基于模板(Template)匹配的识别模型, 主要应用于人脸识别、指纹识别等生物特征识别系统。此类模型用户的原始数据如人脸图像 $x$ , 经过特征提取网络 $F(\cdot)$ 得到特征模板 $t = F(x)$, 并存储于数据库, 这里的 $t$ 称为模板信息。在需要进行身份验证时, 用户给出新的输入图像 $x'$ ; 识别系统会比对此次输入的图像与数据库中的特征模板的匹配程度, 从而判断用户身份。以常见的余弦相似度为例, 模板匹配的判定准则为:
 \[
   d(F(x'), t) = \frac{F(x') \cdot t}{\| F(x') \|_2 \| t \|_2}
@@ -104,54 +102,6 @@ $$x^* = \arg\min_{x'}Sim(F(x'), t)$$
   \item 使用较小学习率与较短训练步数（例如数百到上千步），并以识别器在验证集上的相似度作为早停准则；
   \item 可在微调时采用数据增强（轻微姿态/光照扰动）以提升鲁棒性，但应避免破坏身份特征。
 \end{itemize}
-
-\subsection{超参数表示与示例}
-下面给出一组用于论文中基线复现的经验超参数（作为起点，视资源与数据规模调整）：
-\begin{center}
-\begin{tabular}{l l}
-\hline
-参数 & 建议值 \\
-\hline
-图像尺寸 (H x W) & $256\times256$ \\
-隐空间维度 & 与 VAE 编码器有关（示例: 64x64x4） \\
-基础训练 batch size & 64 (多 GPU 下) \\
-微调 batch size & 8--32 \\
-基础训练学习率 (AdamW) & $2\times10^{-4}$ \\
-微调学习率 (LoRA / head) & $1\times10^{-5}\sim5\times10^{-4}$ \\
-LoRA 秩 $r$ & 8--32 \\
-LoRA 缩放 $\alpha$ & 8--32 \\
-采样步数 (推理) & 18--100 (取决于加速方法) \\
-EDM 权重函数 $w(\sigma)$ & 使用文献推荐的调度\cite{karras2022elucidating} \\
-随机种子 & 固定 (例如 42) \\
-\hline
-\end{tabular}
-\end{center}
-
-\subsection{实现注意事项与复现命令示例}
-框架与依赖：推荐使用 PyTorch >=1.11、diffusers/edm 的实现或项目内自有 EDM 实现；使用 mixed precision (AMP) 以节省显存并提速；建议记录 CUDA/cuDNN 版本与 GPU 型号。
-
-检查点管理：在微调时保存 LoRA 参数与训练元信息（所改层、秩 $r$、$\alpha$、训练步数、验证相似度），并提供脚本将 LoRA 合并入主权重以便推理（或在加载时直接加载 LoRA 模块）。
-
-数据预处理：严格记录人脸对齐/裁剪步骤（关键点对齐、归一化区间）；对比实验需保证识别器输入与训练/测试阶段一致。
-
-示例训练命令（伪码）：
-\begin{verbatim}
-python train_edm.py \
-  --config configs/edm_tia.yaml \
-  --dataset /path/to/faces \
-  --batch-size 64 \
-  --lr 2e-4 \
-  --work-dir /exp/edm_tia_base
-\end{verbatim}
-
-微调（LoRA）示例：
-\begin{verbatim}
-python finetune_lora.py \
-  --ckpt /exp/edm_tia_base/checkpoint.pt \
-  --data /path/to/faces \
-  --out_dir /exp/edm_tia_finetune \
-  --r 16 --alpha 16 --lr 1e-4 --steps 1000
-\end{verbatim}
 
 \section{损失函数设计与采样引导策略}
 
@@ -213,40 +163,6 @@ python finetune_lora.py \
 
 综合策略：对多数场景，采用 CFG 作为主导（低成本且稳定），并在白盒或可查询情形下结合轻量的能量/投影步以进一步提高识别一致性。
 
-\subsection{采样伪代码（带嵌入引导）}
-下面给出一个简化的采样伪代码，展示如何在 EDM/隐空间采样中加入 CFG 与投影步：
-
-\begin{verbatim}
-z_T = N(0,I)
-for i = T..1:
-  # predict noise for cond and uncond
-  eps_cond = eps_theta(z_i, sigma_i, cond=t)
-  eps_uncond = eps_theta(z_i, sigma_i, cond=None)
-  # classifier-free guidance
-  eps = eps_uncond + s * (eps_cond - eps_uncond)
-  # one EDM/score step to get z_{i-1}
-  z_{i-1} = edm_step(z_i, eps, sigma_i, sigma_{i-1})
-  # optional projection: reduce embedding loss
-  for k in 1..K_proj:
-    x_ = D(z_{i-1})
-    g = grad_x L_id(x_, t)
-    x_ = x_ - eta * g / (||g|| + eps)
-    z_{i-1} = E(x_)
-end
-\end{verbatim}
-注意：投影步应在隐空间/像素域之间保持一致的编码器/解码器，以避免引入编码偏差。
-
-\subsection{数值稳定性与实现细节}
-- 梯度归一化：对识别器梯度做 L2 归一化或按条目裁剪，避免少数步长造成的巨大像素破坏。\
-- 学习率/步长选择：CFG 的 scale 与投影步长 $\eta$ 的选择对视觉质量影响显著，建议先固定 CFG 在 1\~3 范围内，投影步长设置在 1e-3\~1e-2，并观察识别相似度与 FID 的权衡曲线。\
-- 计算成本考量：投影步会显著增加每步的成本（因需额外一次前向/反向通过识别器），在查询预算或实时场景下需谨慎使用。\
-- LoRA 微调结合：若使用 LoRA 微调，识别一致性损失既可用于微调期间优化 LoRA 参数，也可在推理时用作投影目标；保存 LoRA 权重便于复现实验并减小部署开销。
-
-\subsection{建议的超参数（供复现与对比）}
-简要建议：$\lambda_{id}^{\max}=0.5$、$\lambda_{perc}=0.1$、$\lambda_{adv}=0$（如不使用对抗训练）、CFG scale $s=1.5$、投影步 $K_{proj}=1$, $\eta=5\times10^{-3}$，采样步数 50 或使用 EDM 二阶采样器做 18 步的折中试验。
-
-本节给出的损失体系与采样引导策略为第3章方法实现提供了可操作的细节：训练端以 EDM 基线 + 嵌入一致性微调为主，推理端以 CFG 为主并在有条件的白盒场景中辅以轻量投影/能量引导以提升识别一致性。
-
 \section{算法概览与完整伪代码}
 为便于实现与复现，本小节给出端到端的算法概览（训练 + 微调 + 推理），并以伪代码方式列出关键步骤。原文中关于各个损失项、调度与采样的理论推导保留，下面的伪代码用于桥接理论与工程实现。
 
@@ -304,26 +220,7 @@ infer(template, ckpt_or_lora):
 \end{verbatim}
 
 % 注意：上面伪代码为高层次说明，具体实现参见项目脚本与配置文件。
-\section{实验设计与消融计划}
-为系统评估方法的鲁棒性与普适性，建议至少包含以下对比与消融实验：
-\begin{itemize}
-  \item 基线对比：无条件 EDM（或 LDM）采样、CFG、能量引导、LoRA 微调四种主要策略的横向对比；
-  \item 消融维度：guidance scale、LoRA 秩 $r$、LoRA 是否与 attention head 结合、采样步数、投影步 $K_{proj}$ 的影响；
-  \item 数据维度：在不同数据偏差下（种族/年龄/光照）评估攻击成功率与失败模式；
-  \item 查询预算敏感性：在黑盒-可查询场景下评估随着查询次数 $Q$ 增加的性能曲线；
-  \item 防御有效性测试：评估模板扰动（量化/签名/噪声注入）、差分隐私训练对攻击成功率的降低效果。
-\end{itemize}
 
-每个实验应至少报告：平均余弦相似度、TAR@FAR、top-1/5、FID/LPIPS、平均采样步数与平均单样本耗时。并提供成功/失败样本的可视化集合。
-
-\section{伦理、合规与防御建议}
-在开展模板逆向研究时，必须严格遵守伦理与法律约束：
-\begin{itemize}
-  \item 数据使用合规：仅使用具有明确许可的公开数据集或已获得被试同意的数据；在论文中列明数据来源与许可条款；
-  \item 受试者隐私保护：对发布的示例图像进行脱敏或仅展示合成图像的低分辨率缩略图；避免发布能直接识别真实个人的高分辨率重建；
-  \item 风险披露：在论文与代码库中明确讨论潜在滥用风险并提供缓解建议（模板加密、签名化模板、差分隐私训练）；
-  \item 防御建议：建议服务端对模板存储采用签名化/哈希检测、对外部查询设置严格速率限制与认证、并考虑模板变换或随机化以降低可逆性。
-\end{itemize}
 
 \section{本章小结}
 本章给出了面向人脸模板逆向重建的完整方法框架：从问题形式化、损失设计到 LoRA 微调与采样引导策略，再到工程化配方与复现实验建议均有覆盖。核心原则是“先构建高质量生成先验，再做目标化微调/引导”，以在可控资源下取得识别一致性与视觉质量的平衡。后续第4章与第5章将基于本章给出的协议完成具体实验、对比分析与报告。

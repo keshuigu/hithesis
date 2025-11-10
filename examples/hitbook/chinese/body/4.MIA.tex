@@ -73,7 +73,7 @@ $$\arg\max_z\; F(G_{\phi}(z))_{y_t} - \lambda\,\mathcal{R}(z),$$
 \end{itemize}
 
 综合目标：
-$$\mathcal{L} = \lambda_{cls}\mathcal{L}_{cls} + \lambda_{perc}\mathcal{L}_{perc} + \lambda_{reg}\mathcal{L}_{reg} + \lambda_{adv}\mathcal{L}_{adv}.$$ 
+$$\mathcal{L} = \lambda_{cls}\mathcal{L}_{cls} + \lambda_{perc}\mathcal{L}_{perc} + \lambda_{reg}\mathcal{L}_{reg} + \lambda_{adv}\mathcal{L}_{adv}.$$
 
 在白盒情形下，可直接反向传播分类损失到生成器参数或潜在；在黑盒情形下，可使用基于评分的估计、近似梯度（ZSGrad）或查询-高效的进化/贝叶斯优化方法。
 
@@ -106,86 +106,6 @@ $$\mathcal{L} = \lambda_{cls}\mathcal{L}_{cls} + \lambda_{perc}\mathcal{L}_{perc
 
 \subsection{合并、部署与可重复性}
 训练完成后可选择将 LoRA 权重合并进 base checkpoint 以便部署，或保留增量以便快速切换不同目标。每次微调都应保存训练命令、环境信息、随机种子与中间检查点以保证可重复性。
-
-\section{实验设计（概览）}
-本章后续的实验将包括：少样本微调（1/5/10-shot）对比、白盒与黑盒场景下的成功率对比、以及与梯度优化与无微调生成器的基线比较。评价指标按第~\ref{sec:mia_objectives} 节制定。
-
-\subsection{方法细化与比较矩阵}
-为便于系统比较，我们将在实验中实现并对比下列方法（实现细节见各自子节）：
-\begin{enumerate}
-	\item 优化式潜在反演（Optimization in latent）：固定生成器 $G$，在潜在空间 $z$ 上用梯度/进化搜索最大化分类器响应；适用于白盒/可查询得分情形。
-	\item 黑盒估计（Query-based estimation）：在得分/标签黑盒下使用 NES/SPSA/ZSGrad 进行近似梯度估计，结合潜在优化或像素域优化；评测查询效率与性能曲线。
-	\item LoRA 微调（Adaptation-based）：对生成器应用 LoRA 增量并以分类器损失 + 感知损失训练；适合低查询或无查询但可微调先验的情形。
-	\item 混合方案（Init+Adapt）：先用优化式方法找到良好 $z$ 初始化，再以少量 LoRA 步微调生成器以放大成功样本空间。
-\end{enumerate}
-
-对于每种方法，我们会报告：平均 top-1 置信度、TAR@FAR 曲线、FID/LPIPS、样本多样性与平均查询/时间成本。
-
-\subsection{查询高效算法与实现建议}
-在黑盒情形下，查询预算是关键限制。建议在实现时考虑：
-\begin{itemize}
-	\item NES / Natural Evolution Strategies：用高斯扰动进行黑盒梯度估计，易于并行化；对高维像素空间代价高，但在低维潜在空间中表现良好。\
-	\item SPSA / Simultaneous Perturbation：每次仅需两次查询估计梯度，适合极低查询预算场景；需对扰动尺度与平滑参数仔细调优。\
-	\item ZSGrad（zero-shot gradient）与代理模型：通过在外部数据上训练代理分类器近似目标分类器，或用迁移学习减少实际查询需求。\
-	\item 贝叶斯优化 / 进化算法：在预算非常紧张时可采用基于代理的全局搜索（但对响应面平滑性敏感）。
-\end{itemize}
-
-实现建议：优先在潜在空间而不是像素空间做黑盒搜索；在每轮搜索中保留 top-k 候选并对其局部优化以提高样本质量与多样性。
-
-\subsection{防御与缓解措施（工程化建议）}
-对抗模型反演的实用防御包括：
-\begin{itemize}
-	\item 模板/模型输出保护：对外返回的嵌入/分数进行量化、添加噪声或签名化以降低可逆性。\
-	\item 差分隐私训练：在训练阶段对梯度或输出进行 DP 处理，可在保护隐私的同时降低模型 utility（需权衡）。\
-	\item 查询策略与速率限制：对外部查询施加认证、速率限制与异常检测，以防止大规模黑盒攻击。\
-	\item 可疑合成检测：开发用于检测合成/反演生成图像的鉴别器或水印检测方法，作为后验防护层。\
-\end{itemize}
-
-在论文讨论中应同时给出防御成本（对模型精度、延迟的影响）与可行性建议。
-
-\subsection{可复现性清单与超参数表（示例）}
-为保证实验可复现，请在每次实验记录并发布以下信息：
-\begin{itemize}
-	\item 代码/脚本版本（commit id）、运行命令、配置文件（YAML/JSON）；\
-	\item 依赖环境（Python/PyTorch 版本、CUDA/cuDNN、关键库版本）；\
-	\item 随机种子、硬件规格（GPU 型号、显存）、每次实验的 wall-clock 时间与平均单样本耗时；\
-	\item 完整的超参数表（见示例表）。
-\end{itemize}
-
-示例超参数表：
-\begin{center}
-\begin{tabular}{l l}
-\hline
-参数 & 建议值 \\
-\hline
-潜在维度 (LDM) & 64x64x4 \\
-LoRA 秩 $r$ & 4,8,16 \\
-LoRA 缩放 $\alpha$ & 8,16 \\
-微调 lr & $1\times10^{-5}\sim5\times10^{-4}$ \\
-黑盒查询预算 $Q$ & 100--10k \\
-投影步长 $\eta$ & $1\times10^{-3}\sim5\times10^{-3}$ \\
-CFG scale (若适用) & 1.0--6.0 \\
-采样步数 & 18, 50, 100 \\
-\hline
-\end{tabular}
-\end{center}
-
-\subsection{示例复现命令}
-示例训练/微调与推理命令（基于仓库 scripts/）：
-\begin{verbatim}
-# LoRA 微调针对分类器反演
-python scripts/finetune_lora_mia.py --ckpt checkpoints/edm_base.pt \
-	--target_class 123 --out_dir experiments/mia_lora_r16 \
-	--r 16 --alpha 16 --lr 1e-4 --steps 2000
-
-# 黑盒潜在优化（SPSA/NES）示例
-python scripts/optimize_latent_blackbox.py --model checkpoints/edm_base.pt \
-	--target_class 123 --method NES --budget 2000 --out_dir experiments/mia_nes
-
-# 推理/采样
-python scripts/infer_mia.py --ckpt experiments/mia_lora_r16/checkpoint.pt \
-	--target_class 123 --steps 50 --cfg_scale 2.0 --proj_steps 1
-\end{verbatim}
 
 \section{本章小结}
 本章系统地讨论了面向分类模型的模型反演问题，提出了基于生成式先验与识别器引导相结合的两类方案（优化引导与微调适配），并详细说明了基于 LoRA 的参数高效微调策略与实验设计要点。下一章将实现并报告具体实验结果与消融研究。

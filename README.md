@@ -421,3 +421,150 @@ Please contact me if I missed to add any sponsor. Thank you so much.
 | 2024-04-10 | csat      | WeChat          |
 | 2024-04-14 | Cen       | WeChat          |
 | 2025-03-10 |  xw       |Alipay           |
+
+# CONTENT TMP
+我将先写一个小型任务清单以跟踪进度，然后开始撰写学术性中文段落，内容涵盖两类人脸识别模型的技术细节、优缺点与攻防含义，最后给出可直接粘贴的论文用段落。现在我先创建/更新 todo 列表。
+
+已创建 3 个待办事项
+
+## 进展简短说明
+已创建任务清单并把“草拟两类人脸识别模型的详尽介绍”标为进行中。下面给出学术性、可直接粘贴到论文中的中文介绍段落（包含数学表达与关键术语），并在末尾提供一段简短的插入建议与可选的 LaTeX 处理提示。
+
+## 两类人脸识别模型的学术性介绍（可直接粘贴）
+
+在实际的人脸识别系统研究与部署中，现有模型通常可归为两大类：一类以“特征提取 + 模板匹配”为主（以下简称模板匹配型）；另一类是在基础特征之上增加分类头以直接输出身份类别（以下简称分类头型）。这两类体系在训练目标、推理流程、开放/封闭集适应性以及隐私/攻击面上存在显著差异，理解这些差异对于后续的逆向重建与防御策略设计至关重要。
+
+1. 模板匹配型（Feature embedding + matching）
+模板匹配型系统由两部分组成：一个学习得到的特征提取器 f(·; θ)（通常为深度卷积网络或其变体）与一个相似性度量或距离函数 s(·,·)。对于任一输入人脸图像 x，特征提取器产生向量嵌入 e = f(x; θ) ∈ R^d，称为模板或特征向量。系统在登记（enrollment）阶段把每个被识别对象的模板存入数据库；在验证/识别阶段，将待测图像 x' 的嵌入 e' 与数据库中的模板集合 {e_i} 通过相似性度量比较，常见的度量包括欧氏距离 ||e' − e_i||_2、余弦相似度 cos(e', e_i) = e'·e_i/(||e'||·||e_i||) 等。基于阈值 τ 的决策可实现一对一验证（verification）或一对多识别（identification）：
+- 验证：接受当 s(e', e_owner) ≥ τ（或距离 ≤ τ）；
+- 识别：返回使 s(e', e_i) 最大的索引 i，或返回“未知”若最大相似度低于阈值（开放集识别）。
+
+模板匹配型模型的训练通常采用度量学习（metric learning）范式，以直接优化嵌入空间中同类样本的紧凑性和异类样本的可分性。常见损失包括对比损失（contrastive loss）、三元组损失（triplet loss）以及带角度/余弦间隔的软最大化变体（如 ArcFace、CosFace、SphereFace），其目标可抽象为最小化/最大化嵌入间的距离或角度差异，从而使相似性的几何含义在向量空间中成立。模板匹配型的优点在于天然支持开放集识别（可对未见过的身份进行比对），且嵌入易于索引和大规模检索；但缺点包括对模板存储与保护的要求高（模板泄露即带来隐私风险），且当嵌入维度或分布发生域漂移时性能易受影响。
+
+2. 分类头型（Feature extractor + classification head）
+分类头型模型在结构上通常由共享的特征提取器 g(·; θ) 与一个线性或非线性分类头 h(·; φ) 组成，整体可表示为 ŷ = h(g(x; θ); φ)，输出为对预定义身份集合 {1,…,C} 的概率分布或置信分数，常以 softmax+交叉熵作为训练目标：
+p = softmax(W · g(x; θ) + b),
+L = −∑_{k} 1[y=k] log p_k.
+此类模型在封闭集识别（closed-set）任务上表现优秀，尤其在训练集中每个身份都有充足样本时能学习到对类别判别特别敏感的判别边界。训练过程直接将识别问题视作多类分类问题，因此在推理时可以直接从模型输出得到类别标签与置信度。
+
+分类头型的局限主要在于其对开放集情形的适应能力较弱：若请求识别的身份在训练集中不存在，模型往往会错误地将其归入最相近的训练类别（过度自信的预测）。此外，从隐私角度讲，分类头模型的类别输出（尤其是当返回 logits 或概率向量而非仅标签时）为攻击者提供了丰富信息，使得基于类别信息的反演攻击（model inversion attack，MIA）更易实现；在白盒或可查询 logits 的条件下，攻击者可通过优化或生成模型反向合成高置信度属于某类别的输入样本，从而导致隐私泄露。
+
+3. 对比与联系（实用视角）
+- 访问接口与攻击面：模板匹配型在攻击上主要被模板逆向重建（template inversion）或从嵌入反推原始图像；攻击者若能获取或查询到特征向量/特征提取器，则可构成强威胁；分类头型在 logits/概率可查询时则更易受到模型反演（MIA）攻击。两者在白盒、灰盒（仅能查询中间特征或 logits）、黑盒（仅得到标签）情形下的脆弱性与可行攻击方法有所不同。
+- 训练目标的影响：度量学习驱动的嵌入（模板匹配型）更强调局部相似性结构与一般化到未见身份的能力；交叉熵驱动的分类头更强调训练集内类间判别。为了兼得优点，实务中常见混合策略：在主分支训练 embedding（用于检索），并在其上叠加分类头作辅助监督；或在分类训练后抽取中间特征作为可用于检索的嵌入。
+- 系统工程考量：模板匹配型易于扩展到百万级数据库（借助索引结构与近似最近邻检索），而分类头型在身份数量非常大或动态变化时维护成本高（需频繁微调或增量学习）。
+
+4. 对隐私与防御的含义（与本论文工作的关联）
+理解上述体系差异能帮助明确攻击目标与防御方向：对模板匹配型，应重视模板加密/模糊化、可逆性降低与基于特征空间的对抗鲁棒性；对分类头型，应控制模型输出信息量（例如仅返回标签或对 logits 做热力学抑制）、采用差分隐私训练或引入抗反演的正则化（例如信息瓶颈）。在本论文中，针对模板逆向重建（TIA）工作的核心在于如何在已知或可查询嵌入/特征的条件下，利用高质量生成先验恢复出既具有视觉逼真性又在特征空间上与真实样本一致的图像；而针对分类模型的模型反演（MIA），则侧重于在仅给定类别标签或有限输出信息的情况下，结合生成模型与标签嵌入实现条件化重建。因此，区分这两类模型的技术细节与可访问接口是构建攻击方法与评估隐私泄露风险的基础。
+
+5. 简短的“合同式”说明（便于论文中后续实验设计说明）
+- 输入/输出：输入为人脸图像 x；模板匹配型输出为嵌入 e=f(x)（或相似性分数）；分类头型输出为类别概率/标签 ŷ。
+- 成功准则：在识别任务上，模板匹配型以真阳性率与误接受率在给定阈值下评估；分类头型以 Top-1/Top-k 精度与置信度校准评估。
+- 主要误差模式：域偏移（光照/姿态/年龄）、样本短缺导致的过拟合、对抗样本与遮挡/低分辨率造成的识别失败。
+
+6. 可能的补充与延伸（供论文后文引用或实验设计使用）
+- 可列举常用人脸嵌入训练方法（例如 ArcFace、CosFace）与检索加速方法（例如 FAISS、HNSW）；
+- 讨论开放集识别技术（例如阈值拒识、重识别校验）和增量/持续学习在分类头型中的应用；
+- 提到模板保护技术（cancelable biometrics、homomorphic encryption、secure sketch）作为防御方向。
+
+## 插入建议（LaTeX 处理提示）
+- 上述文本已以学术论文段落风格撰写，直接粘贴到章节文件（如 `chap-methods.tex` 或 `introduction.tex`）中最为合适；如果要放入 `cover.tex` 的摘要或前言部分，请酌情压缩为 1–2 段。
+- 若希望在 LaTeX 中保留数学符号（例如向量 e、距离表达式），建议使用数学环境：inline math 用 $e=f(x)$、$||e-e'||_2$ 等。
+- 我可以把以上内容格式化为 LaTeX 段落（含 $...$ 数学标记）并直接插入指定文件；如果需要我也可以把特定句子压缩成 200–300 字的摘要版本以放入封面摘要处。
+
+## 后续（我接下来会做的事）
+- 我目前已完成草稿（任务 1），下一步将把该任务标记为完成并更新 todo 列表，然后按需进行语言校对与 LaTeX 格式化（任务 2 与 3）。请告诉我是否需要我直接把该段插入到某个具体的文件（例如 cover.tex 或论文章节文件），或需要我生成更短的摘要版本。
+
+
+
+我将先在仓库里快速查找常用的算法宏包（如 algorithm、algorithm2e、algorithmicx/algpseudocode）是否已在文档中被加载，这样我能给出与当前模板兼容的替换建议。随后我会给出一个具体的示例：把当前 verbatim 伪代码替换为使用 algorithm + algpseudocode 的 LaTeX 代码（带行号、注释与缩进），并说明若需要我可以直接替换该段并提交补丁。现在我去搜索已配置的宏包。
+
+搜索 `usepackage{algorithm` (`**/*.tex`)、3 结果的文本
+
+简短回答先行：
+- verbatim 是 LaTeX 的逐字（原样）文本环境，常用于显示代码或控制字符，不做语义解析，适合展示“原样代码/输出”；
+- 若要把伪代码变为学术论文常用的“algo”形式，应用 LaTeX 的算法环境（常见组合：algorithm + algorithmic 或 algorithm2e / algorithmicx+algpseudocode），这样可以获得行号、关键字高亮（IF/FOR/RETURN）、自动编号与 caption，便于引用与排版。下面我说明细节并给出可直接替换的示例（与你的模板兼容）。
+
+1) verbatim 是什么？
+- verbatim 环境（或 \verb）只是按原样渲染输入字符，不解释反斜杠等命令。它不会产生算法结构化语义（如行号、IF/FOR/RETURN）。目前你的文件中使用 verbatim 放的是高层伪代码块（供阅读），但对论文排版不够规范，也不便于交叉引用或自动编号。
+
+2) 推荐的 algo 环境（与本仓库兼容性）
+- 我在仓库中检查到你的模板已有 \usepackage{algorithm} 和 \usepackage{algorithmic}（见 report.tex 与 thesis.tex），因此最简单、兼容性最好的替换方案是使用 algorithm + algorithmic（这是标准且轻量的组合）。
+- 如果你喜欢更现代的伪代码语法和 \Comment，另一个常用选择是 algorithmicx + algpseudocode 或 algorithm2e，但这会要求在模板前言中加载相应包（我可以帮你添加）。
+
+3) 我把你 verbatim 中的三段伪代码（基础训练 / LoRA 微调 / 推理）转换为 algorithm + algorithmic 的形式示例，直接可拷贝到 `3.TIA.tex` 中替换原 verbatim 块：
+
+- 建议替换（中文注释版，行号启用）：
+
+\begin{algorithm}[htbp]
+\caption{基础训练（可跳过）}
+\label{alg:train_edm}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} 基础配置 base\_cfg, 数据加载器 D
+\STATE 初始化模型 $M \leftarrow$ EDM(cfg=base\_cfg)
+\FOR{epoch = 1 \TO E}
+  \FOR{batch \textbf{in} D}
+    \STATE loss $\leftarrow$ \texttt{edm\_loss}(batch)
+    \STATE loss.backward(); optimizer.step(); optimizer.zero\_grad()
+  \ENDFOR
+\ENDFOR
+\STATE 保存模型检查点
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[htbp]
+\caption{LoRA 微调（目标化）}
+\label{alg:finetune_lora}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} ckpt, 模板集合 T, 步数 $N\_steps$
+\STATE $M \leftarrow$ \texttt{load\_edm}(ckpt); \texttt{freeze}(M.parameters())
+\STATE $L \leftarrow$ \texttt{attach\_lora\_modules}(M, r, \alpha)
+\FOR{step = 1 \TO $N\_steps$}
+  \STATE $(x\_batch, t\_batch) \leftarrow$ \texttt{sample\_mini\_batch}(T)
+  \STATE loss\_edm $\leftarrow$ \texttt{edm\_loss\_on\_batch}(M, x\_batch)
+  \STATE $x\_{\hat{}} \leftarrow$ \texttt{decode\_latent}(M, z\_sample)
+  \STATE loss\_id $\leftarrow$ \texttt{id\_loss}(F(x\_{\hat{}}), t\_batch)
+  \STATE loss $\leftarrow$ loss\_edm + $\lambda\_\text{id}(\text{step})$*loss\_id + ...
+  \STATE loss.backward(); optimizer.step(); optimizer.zero\_grad()
+\ENDFOR
+\STATE 保存 LoRA 权重与元信息
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[htbp]
+\caption{推理（采样 + 可选投影）}
+\label{alg:infer}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} template, ckpt\_or\_lora, guidance scale $s$, proj\_enabled
+\STATE $M \leftarrow$ \texttt{load\_model}(ckpt\_or\_lora)
+\STATE $z\_T \leftarrow$ \texttt{sample\_noise()}
+\FOR{每个采样步 $i$ \textbf{in} schedule}
+  \STATE $\epsilon\_\text{uncond} \leftarrow$ \texttt{denoiser}(z\_i, cond=None)
+  \STATE $\epsilon\_\text{cond} \leftarrow$ \texttt{denoiser}(z\_i, cond=template)
+  \STATE $\epsilon \leftarrow \epsilon\_\text{uncond} + s\cdot(\epsilon\_\text{cond}-\epsilon\_\text{uncond})$
+  \STATE $z\_{i-1} \leftarrow$ \texttt{sampler\_step}(z\_i, \epsilon)
+  \IF{proj\_enabled}
+    \STATE $x \leftarrow$ \texttt{decode}(z\_{i-1})
+    \STATE $g \leftarrow \nabla\_x\ \texttt{id\_loss}(F(x),template)$
+    \STATE $x \leftarrow x - \eta\cdot \texttt{normalize}(g)$
+    \STATE $z\_{i-1} \leftarrow$ \texttt{encode}(x)
+  \ENDIF
+\ENDFOR
+\STATE \textbf{return} \texttt{decode}(z\_0)
+\end{algorithmic}
+\end{algorithm}
+
+（注：上面使用了 algorithm + algorithmic 的基本命令：\STATE、\FOR、\IF、\ENDFOR、\ENDIF。若想要注释行（// comment）样式，可用 \STATE \texttt{// 注释} 或 \STATE \quad\%\% 注释文本。）
+
+4) 细节与注意事项
+- 包加载：你的模板中应该已经加载了 \usepackage{algorithm} 和 \usepackage{algorithmic}；若没有，我可以帮你在主 tex 文件（如 thesis.tex）前言里添加。
+- 可读性：algorithmic 比较简洁但语法有限；若想使用 \Comment、\Require、\Ensure、带行内注释或更友好的关键字显示，建议切换到 algorithmicx+algpseudocode（需要把 preamble 的 \usepackage{algorithmic} 改为 \usepackage{algpseudocode}）或使用 algorithm2e（更灵活但风格不同）。我可以为你选定一种并做统一替换。
+- 引用：用 \label{alg:...} 可让你在文中用 \ref{alg:...} 引用算法编号。caption 放在 algorithm 环境中即可。
+
+5) 我可以现在帮你做哪一步？（选一项回复即可）
+A. 我把 verbatim 伪代码直接替换为上面给出的 algorithm+algorithmic 代码（我会在 `3.TIA.tex` 中替换原 verbatim 段），然后提交 patch。
+B. 我先把替换内容写成 patch 给你预览（不直接提交），你审阅后我再应用。
+C. 改为使用更强的 algpseudocode/algorithm2e 风格，并把 preamble 中的宏包统一修改（我会修改主 tex 的 preamble 并替换伪代码）。
+D. 仅给出示例，你手动替换（不需要我提交修改）。
+
+你想让我现在直接替换（选 A），还是先预览（选 B），或改用更强方案（选 C），或者你自己替换（D）？
