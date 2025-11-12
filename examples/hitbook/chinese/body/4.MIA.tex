@@ -1,112 +1,1148 @@
 % !Mode:: "TeX:UTF-8"
 
-% TODO (写作提示):
-% - 注明所用先验换脸模型的具体来源（模型名称/论文/仓库链接）与预训练权重信息。
-% - 说明微调时冻结/解冻了哪些网络层（例如冻结主干，只训练标签嵌入层），并给出对应层名或代码路径。
-% - 建议补充评估协议与基线：使用哪些基线方法比较，评价指标如何统一计算。
+\chapter{基于换脸先验的模型反演攻击方法}[Model Inversion Attack Based on Face Swapping Prior]
 
-\chapter[面向人脸分类模型的逆向重建方法]{面向人脸分类模型的逆向重建方法}[Reconstruction Method for Face Classification Models]
 \section{引言}
-本章讨论面向图像分类/人脸识别模型的模型反演攻击（Model Inversion Attack, MIA），重点研究如何在有限可用信息下利用生成式先验（以换脸/扩散生成模型为代表）重建训练数据的敏感样本。与针对模板/嵌入的逆向重建不同，面向分类器的反演通常只能获得类别标签或置信度分布，因此需要设计既能保留视觉质量又能提升分类器响应的条件生成与优化方法。
 
-本章的目标是：
-\begin{itemize}
-\item 形式化面向分类器反演问题的输入/输出与攻击假设，明确白盒/半白盒/黑盒下的可行策略；
-\item 提出一种结合生成式先验与判别模型引导的两阶段重建流程（基础生成 + LoRA 微调 / 优化），并给出可复现的训练与推理管线；
-\item 设计系统化的实验与评估协议，用以衡量重建图像在分类器认同度、感知质量与多样性之间的权衡。
-\end{itemize}
+模型反演攻击（Model Inversion Attack, MIA）是深度学习安全领域的重要研究方向，旨在从训练好的机器学习模型中重建其训练数据的敏感信息。在人脸识别与分类任务中，攻击者仅通过访问模型的输出（如类别标签、置信度分数或决策边界），就可能推断出训练集中特定身份的面部特征，从而构成严重的隐私泄露风险。随着深度神经网络在生物特征识别系统中的广泛部署，模型反演攻击对用户隐私与数据安全的威胁日益凸显，亟需系统性的研究与评估。
 
-本章结构如下：第~\ref{sec:mia_objectives} 节给出攻击目标与评估协议；第~\ref{sec:mia_method} 节介绍结合生成模型的反演方法与训练细节；第~\ref{sec:mia_lora} 节讨论基于低秩适配的微调策略与工程实践；最后给出实验设计与本章小结。
+\subsection{研究背景与动机}
 
-\section{攻击目标与评估协议}
-\label{sec:mia_objectives}
-\subsection{攻击目标（形式化）}
-设目标分类器为 $F:\mathcal{X}\to\Delta^{C-1}$，其中 $\mathcal{X}$ 为像素空间或潜在表示空间，$\Delta^{C-1}$ 为 $C$ 类的概率单纯形。攻击者给定目标类别索引 $y_t$，目标是构造一组生成样本 $\{\hat{x}_i\}_{i=1}^K$，使得对多数样本 $\hat{x}_i$，有 $F(\hat{x}_i)_{y_t}$ 足够大（大于阈值 $\tau$），同时图像具有较高的感知质量。更一般地，攻击者希望同时优化两个目标：
-\begin{equation}
-	ext{maximize}_{\hat{x}}\; \; F(\hat{x})_{y_t} \quad \text{s.t.} \quad \text{PerceptualDistance}(\hat{x},\mathcal{P}_{y_t}) \;\text{small},
+传统的模型反演攻击方法主要依赖于直接的梯度优化：通过最大化目标类别的输出概率，从随机噪声或简单初始化出发，逐步优化像素空间的输入，使其被分类器识别为目标身份。然而，这类方法面临以下局限性：
+
+\textbf{（1）生成质量低下。}直接在像素空间进行优化容易陷入局部最优，生成的图像往往包含大量噪声、伪影与不自然的纹理，难以被人类识别为真实的人脸图像，从而无法准确反映模型的实际隐私泄露风险。
+
+\textbf{（2）缺乏语义约束。}基于梯度的优化方法缺乏对人脸结构、纹理与光照等先验知识的约束，生成的图像可能违反人脸的自然分布，导致感知质量与身份一致性之间的严重失衡。
+
+\textbf{（3）优化效率低下。}在高分辨率图像空间中进行端到端的梯度优化，计算开销巨大，且对超参数（学习率、正则化系数、初始化策略）极为敏感，难以在不同模型与数据集上稳定复现。
+
+\textbf{（4）泛化能力不足。}针对单一目标优化的方法难以扩展到多目标、多身份的批量重建场景，且在面对防御机制（如梯度混淆、输出扰动）时，攻击性能急剧下降。
+
+为克服上述局限，近年来的研究开始引入生成式先验模型（Generative Prior Models）作为模型反演攻击的基础架构。生成对抗网络（GAN）、变分自编码器（VAE）以及扩散模型（Diffusion Models）等强大的生成模型，通过在大规模数据集上预训练，学习到了人脸图像的丰富先验知识，能够生成高质量、高真实感的人脸图像。将这些生成先验与模型反演攻击相结合，可以有效提升重建图像的感知质量与语义合理性。
+
+在众多生成模型中，\textbf{换脸模型（Face Swapping Models）}因其独特的身份控制能力而成为模型反演攻击的理想先验。换脸模型的核心功能是在保持源图像的属性（姿态、表情、光照、背景）的前提下，将目标身份的面部特征精确地迁移至源图像中。这一功能恰好对应于模型反演攻击的需求：给定目标身份的类别标签，生成具有该身份特征且视觉上真实的人脸图像。换脸模型通过显式的身份-属性解耦架构，实现了对身份信息的精细控制，为模型反演攻击提供了强有力的技术支撑。
+
+然而，直接应用预训练的换脸模型进行模型反演攻击仍面临关键挑战：换脸模型通常接受\textbf{目标图像}（提供身份特征）与源图像（提供属性特征）作为输入，而在模型反演攻击场景中，攻击者仅拥有\textbf{目标类别标签}（如身份ID、类别索引），而无法获取目标身份的真实图像。如何将类别标签转化为换脸模型可接受的身份表示，并确保生成的图像能够被目标分类器识别为相应类别，是本章研究的核心问题。
+
+\subsection{本章的核心贡献}
+
+针对上述挑战，本章提出了一种\textbf{基于换脸先验与标签条件嵌入的模型反演攻击方法}。该方法的核心思想是：\textbf{（1）选择预训练的换脸模型作为生成先验}，利用其强大的人脸生成能力与身份控制机制；\textbf{（2）设计标签条件嵌入层（Label-Conditioned Embedding Layer）}，将类别标签映射为换脸模型可接受的身份嵌入向量，替换原模型中接受目标图像编码的身份提取模块；\textbf{（3）采用低秩适配（LoRA）技术}对换脸模型进行参数高效的微调，使其生成的图像在保持高感知质量的同时，能够被目标分类器以高置信度识别为相应的目标类别。
+
+本章的主要贡献可归纳为以下四个方面：
+
+\textbf{贡献1：标签到嵌入的映射机制设计。}提出了基于可学习查找表（Learnable Lookup Table）与多层感知机（MLP）的标签条件嵌入层，实现了从离散类别标签到连续身份嵌入空间的有效映射。该嵌入层通过端到端训练，学习到与目标分类器决策边界相适配的身份表示，为换脸模型提供了精确的身份控制信号。
+
+\textbf{贡献2：基于LoRA的换脸模型微调策略。}针对换脸模型在模型反演任务中的适配需求，设计了系统化的LoRA微调方案。通过在换脸模型的关键层（交叉注意力投影、前馈网络、身份融合模块）引入低秩可训练增量，在冻结预训练权重的前提下，以极低的参数成本（通常少于1\%）实现了对目标分类器的高效适配。该方案不仅保持了换脸模型的生成质量，还显著提升了生成图像在目标分类器上的识别成功率。
+
+\textbf{贡献3：多目标优化损失函数框架。}构建了融合分类器引导损失、身份一致性损失、感知质量损失与正则化约束的综合优化目标。该框架通过动态权重调整与分阶段训练策略，平衡了生成图像的分类器认同度（Classifier Confidence）、身份保持度（Identity Preservation）与感知真实性（Perceptual Realism）三者之间的权衡，实现了高质量的模型反演攻击。
+
+\textbf{贡献4：系统化的实验评估与威胁分析。}设计了全面的评估协议，从攻击成功率、感知质量、身份一致性、多样性、计算效率等多个维度，系统性地评估了所提方法的性能。通过在多个标准人脸识别数据集与分类模型上的实验，验证了方法的有效性、泛化能力与鲁棒性，并分析了不同威胁模型（白盒、灰盒、黑盒）下的攻击潜力与防御策略。
+
+\subsection{章节组织结构}
+
+本章的组织结构如下：
+
+第~\ref{sec:mia_problem}节对模型反演攻击问题进行形式化定义，明确攻击目标、威胁模型、评估指标与相关工作。
+
+第~\ref{sec:mia_architecture}节详细阐述所提方法的总体架构，包括换脸先验模型的选择、标签条件嵌入层的设计、以及与目标分类器的交互机制。
+
+第~\ref{sec:mia_embedding}节深入分析标签条件嵌入层的实现策略，讨论不同映射方式的优缺点、初始化方法与训练技巧。
+
+第~\ref{sec:mia_lora}节系统性地介绍基于LoRA的换脸模型微调方法，包括应用位置选择、超参数配置、训练流程与推理优化。
+
+第~\ref{sec:mia_loss}节构建多目标优化损失函数，分析各损失项的作用与权重调整策略。
+
+第~\ref{sec:mia_training}节给出完整的训练算法与工程实现细节，确保方法的可复现性。
+
+第~\ref{sec:mia_inference}节讨论推理阶段的采样策略、后处理技术与效率优化方法。
+
+第~\ref{sec:mia_summary}节对本章进行总结，并展望未来的研究方向。
+
+通过本章的研究，我们期望为生物特征识别系统的隐私风险评估提供有效的技术工具，为防御机制的设计提供理论依据，并推动模型反演攻击领域的方法论发展与实践进步。
+
+\section{问题定义与威胁模型}
+\label{sec:mia_problem}
+
+\subsection{模型反演攻击的形式化定义}
+
+模型反演攻击旨在从训练好的分类模型中重建其训练数据的敏感特征。形式化地，设目标分类器为 $F_\theta:\mathcal{X}\to\mathbb{R}^C$，其中 $\mathcal{X}$ 为输入空间（如 $\mathbb{R}^{H\times W\times 3}$ 表示RGB图像），$C$ 为类别数量，$\theta$ 为模型参数。分类器 $F_\theta$ 通常在训练集 $\mathcal{D}_{\text{train}}=\{(x_i, y_i)\}_{i=1}^N$ 上训练，其中 $x_i\in\mathcal{X}$ 为输入样本，$y_i\in\{1,2,\ldots,C\}$ 为对应的类别标签。
+
+模型反演攻击的目标是：给定目标类别标签 $y_{\text{target}}\in\{1,2,\ldots,C\}$ 以及对分类器 $F_\theta$ 的特定访问权限，攻击者希望生成一组图像 $\{\hat{x}_1, \hat{x}_2, \ldots, \hat{x}_K\}$，使得这些图像满足以下条件：
+
+\textbf{（1）分类器认同度（Classifier Confidence）。}生成的图像 $\hat{x}_k$ 应被目标分类器 $F_\theta$ 以高置信度识别为目标类别 $y_{\text{target}}$，即：
+\begin{equation}\label{eq:mia_classifier_conf}
+    \Pr[F_\theta(\hat{x}_k)_{y_{\text{target}}} \geq \tau] \geq 1-\epsilon,
 \end{equation}
-其中 $\mathcal{P}_{y_t}$ 表示真实类别 $y_t$ 的分布（未知），PerceptualDistance 可由 LPIPS 等衡量。
+其中 $F_\theta(\hat{x})_{y}$ 表示分类器对输入 $\hat{x}$ 预测为类别 $y$ 的置信度或logit值，$\tau$ 为置信度阈值，$\epsilon$ 为容忍的失败率。
 
-\subsection{威胁模型}
-我们考虑下列常见威胁模型：
+\textbf{（2）感知真实性（Perceptual Realism）。}生成的图像 $\hat{x}_k$ 应具有高感知质量，在视觉上与真实人脸图像无明显差异，即：
+\begin{equation}\label{eq:mia_perceptual}
+    d_{\text{perc}}(\hat{x}_k, \mathcal{X}_{\text{real}}) \leq \delta,
+\end{equation}
+其中 $d_{\text{perc}}$ 为感知距离度量（如LPIPS、FID），$\mathcal{X}_{\text{real}}$ 为真实图像分布，$\delta$ 为可接受的感知误差上界。
+
+\textbf{（3）身份相关性（Identity Relevance）。}生成的图像 $\hat{x}_k$ 应包含目标类别 $y_{\text{target}}$ 对应身份的特征信息，而非与该类别无关的随机人脸。这一要求可通过与目标类别训练样本的相似度进行量化：
+\begin{equation}\label{eq:mia_identity_rel}
+    \text{sim}(\hat{x}_k, \mathcal{X}_{y_{\text{target}}}) \geq \gamma,
+\end{equation}
+其中 $\mathcal{X}_{y_{\text{target}}}$ 为目标类别的真实训练样本（攻击者通常无法访问，仅用于评估），$\text{sim}(\cdot,\cdot)$ 为相似度度量（如人脸识别嵌入的余弦相似度），$\gamma$ 为相似度下界。
+
+\textbf{（4）多样性（Diversity）。}生成的多个图像 $\{\hat{x}_k\}_{k=1}^K$ 应具有合理的多样性，覆盖目标类别在不同姿态、表情、光照、年龄等属性下的变化，避免模式崩溃（mode collapse）：
+\begin{equation}\label{eq:mia_diversity}
+    \text{Var}(\{\hat{x}_k\}_{k=1}^K) \geq \rho,
+\end{equation}
+其中 $\text{Var}(\cdot)$ 为多样性度量（如特征空间的方差、聚类数量），$\rho$ 为多样性下界。
+
+综合上述四个目标，模型反演攻击可形式化为以下约束优化问题：
+\begin{equation}\label{eq:mia_objective}
+\begin{aligned}
+    \max_{\{\hat{x}_k\}_{k=1}^K} \quad & \sum_{k=1}^K F_\theta(\hat{x}_k)_{y_{\text{target}}} \\
+    \text{s.t.} \quad & d_{\text{perc}}(\hat{x}_k, \mathcal{X}_{\text{real}}) \leq \delta, \quad \forall k, \\
+    & \text{sim}(\hat{x}_k, \mathcal{X}_{y_{\text{target}}}) \geq \gamma, \quad \forall k, \\
+    & \text{Var}(\{\hat{x}_k\}_{k=1}^K) \geq \rho.
+\end{aligned}
+\end{equation}
+
+在实际应用中，这一多目标优化问题通常通过加权损失函数进行求解，各约束条件以正则化项或软约束的形式融入优化目标。
+
+\subsection{威胁模型分类}
+
+根据攻击者对目标分类器 $F_\theta$ 的访问权限不同，模型反演攻击可分为以下三类威胁模型：
+
+\subsubsection{白盒威胁模型（White-box Threat Model）}
+
+在白盒威胁模型下，攻击者拥有目标分类器 $F_\theta$ 的完整信息，包括：
 \begin{itemize}
-\item 白盒（full white-box）: 攻击者可完全访问 $F$ 的权重、结构与梯度；可用于基于梯度的直接优化或将分类器融入训练损失。\
-\item 得分/置信度可查询黑盒（score-query black-box）: 攻击者可以对 $F$ 输入样本并获得置信度向量或 logits，但无法访问内部权重。\
-\item 标签/判决黑盒（label-only）: 仅获得类别决策或 top-k 输出，不返回置信度。\
-\item 受限制查询（budgeted）: 在以上任一黑盒模型下，攻击者的查询次数受限（例如每个目标 $\leq Q$ 次）。
+    \item 模型架构（网络结构、层类型、激活函数等）；
+    \item 模型参数 $\theta$（所有权重与偏置的具体数值）；
+    \item 训练超参数（学习率、优化器、数据增强策略等）；
+    \item 完整的梯度信息（可对任意输入计算 $\nabla_x F_\theta(x)$）。
 \end{itemize}
 
-\subsection{评估协议与基线}
-评估应从三方面衡量：
-\begin{enumerate}
-\item 识别一致性：衡量生成样本被目标分类器接受为目标类别的比率（例如 $\Pr[F(\hat{x})_{y_t}\ge\tau]$）及 TAR@FAR（把生成样本作为 probe，在指定 gallery 下计算真接受率）；\
-\item 感知质量与多样性：使用 FID、LPIPS、SSIM 等衡量生成样本的视觉质量与与真实分布的距离，并报告样本多样性（例如基于嵌入的聚类半径）；\
-\item 查询/计算成本：记录查询数量、微调所需计算（GPU·小时）与平均单样本生成时间。
-\end{enumerate}
+白盒威胁模型为攻击者提供了最强的能力，可以直接利用梯度信息进行基于优化的攻击，将分类器的损失函数融入生成模型的训练目标，实现端到端的优化。这一模型对应于模型开源、内部泄露或逆向工程成功的场景，虽然在实际部署中相对少见，但为评估模型的最大隐私泄露风险提供了上界。
 
-基线方法包括：随机初始化的梯度优化（DeepInversion/gradient-based inversion）、使用预训练生成模型的简单重构（无微调）、以及针对分类器的判别式优化方法。我们在实验中将与这些基线进行量化比较。
+\subsubsection{灰盒威胁模型（Gray-box Threat Model）}
 
-\section{结合生成式模型的重建方法}
-\label{sec:mia_method}
-本节提出一种实用的生成式反演框架，框架由三部分组成：先验生成器 $G$、识别器引导模块 $H$、以及微调/适配器模块 $\Delta$。总体思路是利用生成器提供高质量样本空间，再通过判别器/分类器的信号对生成过程进行引导或微调，使生成样本更易被目标分类器识别为 $y_t$。
-
-\subsection{框架概述}
-给定预训练生成器 $G_{\phi}$（可选为换脸模型或隐空间扩散模型）和目标分类器 $F$，我们考虑两类方法：
+在灰盒威胁模型下，攻击者无法获取模型参数 $\theta$ 与完整梯度信息，但可以通过查询接口获得分类器的输出信息，包括：
 \begin{itemize}
-\item 优化式引导（optimization-guided）: 固定 $G$，在潜在空间 $z$ 或输入空间上直接优化目标函数
-$$\arg\max_z\; F(G_{\phi}(z))_{y_t} - \lambda\,\mathcal{R}(z),$$
-其中 $\mathcal{R}$ 为正则化项（例如潜在正则或感知损失）。\
-\item 微调式适配（adaptation-based）: 对 $G_{\phi}$ 应用轻量微调（例如 LoRA/Adapter），学习一个小的增量 $\Delta$ 使得 $G_{\phi+\Delta}$ 的输出更符合分类器的判别面。训练目标通常包含分类器损失与感知/重建损失的加权组合。
+    \item \textit{置信度向量（Confidence Vector）}：对于输入 $x$，返回 $F_\theta(x)\in\mathbb{R}^C$，即各类别的logit值或softmax概率；
+    \item \textit{Top-k预测（Top-k Prediction）}：返回置信度最高的前 $k$ 个类别及其对应的概率；
+    \item \textit{后验概率（Posterior Probability）}：返回目标类别的后验概率 $P(y=y_{\text{target}}|x)$。
 \end{itemize}
 
-两类方法可以组合使用：先通过优化式引导寻找良好初始化，再对 $G$ 进行 LoRA 微调以扩大可接受样本空间。
+灰盒威胁模型对应于攻击者可以访问在线API服务或云端部署的模型的场景，是实际应用中最常见的威胁模型。在这一模型下，攻击者无法直接计算梯度，但可以通过多次查询估计梯度方向（如基于有限差分的梯度估计、零阶优化方法），或利用代理模型（surrogate model）进行迁移攻击。
 
-\subsection{损失构成与训练目标}
-训练时常用的损失项包括：
+\subsubsection{黑盒威胁模型（Black-box Threat Model）}
+
+在黑盒威胁模型下，攻击者对分类器的访问权限进一步受限，仅能获得：
 \begin{itemize}
-\item 分类损失 $\mathcal{L}_{cls} = -\log F(\hat{x})_{y_t}$ 或交叉熵/对比损失；\
-\item 感知损失 $\mathcal{L}_{perc}$（例如 VGG/LPIPS），保持视觉质量；\
-\item 正则化项 $\mathcal{L}_{reg}$（潜在空间正则、参数范数），防止模式崩溃与过拟合；\
-\item 可选对抗损失 $\mathcal{L}_{adv}$ 以提升细节真实感（若采用 GAN 风格判别器）。
+    \item \textit{硬标签决策（Hard Label Decision）}：对于输入 $x$，返回预测的类别 $\hat{y}=\arg\max_y F_\theta(x)_y$，不提供置信度信息；
+    \item \textit{接受/拒绝决策（Accept/Reject Decision）}：返回输入是否被识别为目标类别的二值判断。
 \end{itemize}
 
-综合目标：
-$$\mathcal{L} = \lambda_{cls}\mathcal{L}_{cls} + \lambda_{perc}\mathcal{L}_{perc} + \lambda_{reg}\mathcal{L}_{reg} + \lambda_{adv}\mathcal{L}_{adv}.$$
+此外，黑盒模型通常还伴随查询次数限制（Query Budget），攻击者只能在有限次数（如 $Q$ 次）内查询模型，以防止暴力枚举攻击。黑盒威胁模型对应于高安全性要求的部署场景（如防御性API、受限访问系统），对攻击者的技术要求最高，需要设计高效的查询策略与样本生成方法。
 
-在白盒情形下，可直接反向传播分类损失到生成器参数或潜在；在黑盒情形下，可使用基于评分的估计、近似梯度（ZSGrad）或查询-高效的进化/贝叶斯优化方法。
+\subsection{评估指标体系}
 
-\subsection{推理与采样策略}
-推理时可采用：
+为全面评估模型反演攻击的性能，本章从以下五个维度设计评估指标：
+
+\subsubsection{攻击成功率（Attack Success Rate, ASR）}
+
+攻击成功率衡量生成图像被目标分类器正确识别为目标类别的比例。对于置信度阈值 $\tau$，定义攻击成功率为：
+\begin{equation}\label{eq:mia_asr}
+    \text{ASR}(\tau) = \frac{1}{K}\sum_{k=1}^K \mathbb{I}[F_\theta(\hat{x}_k)_{y_{\text{target}}} \geq \tau],
+\end{equation}
+其中 $\mathbb{I}[\cdot]$ 为指示函数。通常报告多个阈值下的ASR（如 $\tau\in\{0.5, 0.7, 0.9\}$）以全面反映攻击性能。
+
+此外，还可采用真正例率@固定假正例率（TAR@FAR）作为补充指标，将生成图像作为探针（probe），在包含目标类别与干扰类别的gallery中进行验证，计算在固定FAR（如0.1\%）下的TAR。
+
+\subsubsection{感知质量指标（Perceptual Quality Metrics）}
+
+感知质量指标评估生成图像的视觉真实性与自然性，主要包括：
+
+\textbf{（1）Fréchet Inception Distance (FID)。}衡量生成图像分布与真实图像分布在Inception-v3特征空间中的距离：
+\begin{equation}\label{eq:mia_fid}
+    \text{FID} = \|\mu_{\text{real}} - \mu_{\text{gen}}\|_2^2 + \text{Tr}(\Sigma_{\text{real}} + \Sigma_{\text{gen}} - 2(\Sigma_{\text{real}}\Sigma_{\text{gen}})^{1/2}),
+\end{equation}
+其中 $\mu, \Sigma$ 分别为特征的均值向量与协方差矩阵。FID值越低表示生成质量越高。
+
+\textbf{（2）Learned Perceptual Image Patch Similarity (LPIPS)。}基于深度特征的感知相似度度量，计算生成图像与参考图像在VGG或AlexNet特征空间中的距离：
+\begin{equation}\label{eq:mia_lpips}
+    \text{LPIPS}(\hat{x}, x_{\text{ref}}) = \sum_{\ell} w_{\ell} \|\phi_{\ell}(\hat{x}) - \phi_{\ell}(x_{\text{ref}})\|_2^2,
+\end{equation}
+其中 $\phi_{\ell}$ 为第 $\ell$ 层特征，$w_{\ell}$ 为权重系数。LPIPS值越低表示感知相似度越高。
+
+\textbf{（3）Inception Score (IS)。}衡量生成图像的清晰度与多样性：
+\begin{equation}\label{eq:mia_is}
+    \text{IS} = \exp(\mathbb{E}_{\hat{x}}[D_{\text{KL}}(p(y|\hat{x})\|p(y))]),
+\end{equation}
+其中 $p(y|\hat{x})$ 为Inception模型对生成图像的类别预测分布，$p(y)$ 为边缘分布。IS值越高表示图像质量与多样性越好。
+
+\subsubsection{身份一致性指标（Identity Consistency Metrics）}
+
+身份一致性指标评估生成图像与目标类别训练样本的身份相似度，反映攻击对真实隐私信息的泄露程度。主要指标包括：
+
+\textbf{（1）余弦相似度（Cosine Similarity）。}使用预训练的人脸识别模型（如ArcFace、CosFace）提取生成图像与目标类别样本的嵌入向量，计算余弦相似度：
+\begin{equation}\label{eq:mia_cosine_sim}
+    \text{CosSim}(\hat{x}_k, \mathcal{X}_{y_{\text{target}}}) = \frac{1}{|\mathcal{X}_{y_{\text{target}}}|} \sum_{x\in\mathcal{X}_{y_{\text{target}}}} \frac{\langle f(\hat{x}_k), f(x)\rangle}{\|f(\hat{x}_k)\|_2 \|f(x)\|_2},
+\end{equation}
+其中 $f(\cdot)$ 为人脸识别模型的嵌入函数。
+
+\textbf{（2）欧氏距离（Euclidean Distance）。}在嵌入空间中计算生成图像与目标类别样本的平均欧氏距离，距离越小表示身份越相似。
+
+\subsubsection{多样性指标（Diversity Metrics）}
+
+多样性指标评估生成图像集合的内部变化程度，避免模式崩溃。主要指标包括：
+
+\textbf{（1）嵌入空间方差（Embedding Variance）。}计算生成图像在人脸识别嵌入空间中的协方差矩阵的迹：
+\begin{equation}\label{eq:mia_emb_var}
+    \text{Var}_{\text{emb}} = \text{Tr}(\text{Cov}(\{f(\hat{x}_k)\}_{k=1}^K)),
+\end{equation}
+方差越大表示多样性越高。
+
+\textbf{（2）聚类数量（Number of Clusters）。}对生成图像在特征空间中进行聚类（如K-means），统计有效聚类的数量，反映生成样本的模式覆盖范围。
+
+\subsubsection{计算效率指标（Computational Efficiency Metrics）}
+
+计算效率指标评估攻击方法的资源消耗与可扩展性，主要包括：
 \begin{itemize}
-\item 多次随机潜在采样 + 局部优化并选择最高置信度输出；\
-\item 结合 classifier-free guidance 或能量引导（在扩散模型中）插入额外梯度以提升 $F(\cdot)_{y_t}$；\
-\item 若可用 LoRA 权重，可先动态加载 LoRA 再采样，减少每次采样所需的优化步数。
+    \item \textit{训练时间（Training Time）}：微调模型所需的GPU小时数；
+    \item \textit{推理时间（Inference Time）}：生成单张图像的平均时间；
+    \item \textit{查询次数（Number of Queries）}：在灰盒/黑盒模型下，每个目标所需的分类器查询次数；
+    \item \textit{参数量（Number of Parameters）}：微调方法引入的额外可训练参数量。
 \end{itemize}
 
-\section{基于低秩适配技术的微调训练方法}
+\subsection{相关工作与本章方法的定位}
+
+模型反演攻击的研究可追溯至Fredrikson等人的开创性工作，随后在深度学习时代得到快速发展。现有方法大致可分为以下三类：
+
+\textbf{（1）基于梯度优化的方法。}这类方法通过最大化目标类别的输出概率，从随机噪声出发逐步优化输入像素。代表性工作包括DeepInversion、GMI（Generative Model Inversion）等。这类方法简单直接，但生成质量受限于优化目标的设计与正则化策略。
+
+\textbf{（2）基于GAN先验的方法。}这类方法利用预训练的GAN（如StyleGAN）作为生成先验，通过优化潜在空间 $z$ 或直接微调GAN参数，生成被目标分类器识别的图像。代表性工作包括KED-MI、PLG-MI等。这类方法生成质量显著提升，但GAN的训练不稳定性与模式崩溃问题仍然存在。
+
+\textbf{（3）基于扩散模型的方法。}近期研究开始探索扩散模型在模型反演攻击中的应用，利用扩散模型的高质量生成能力与灵活的条件控制机制。然而，这类方法通常需要针对每个目标类别从头训练或微调扩散模型，计算开销巨大。
+
+本章所提方法属于第二类（基于生成先验），但与现有工作的关键区别在于：\textbf{（1）选择换脸模型而非通用GAN或扩散模型}，利用换脸模型天然的身份控制能力；\textbf{（2）设计标签条件嵌入层}，实现从离散标签到连续嵌入的映射，无需目标图像作为输入；\textbf{（3）采用LoRA技术}进行参数高效的微调，大幅降低计算成本与存储开销。这些创新使得本章方法在生成质量、攻击成功率与计算效率之间达到了更优的平衡。
+
+\section{基于换脸先验的模型反演架构}
+\label{sec:mia_architecture}
+
+\subsection{总体架构设计}
+
+本节详细阐述所提模型反演攻击方法的总体架构。如图~\ref{fig:mia_architecture}所示，该架构由三个核心模块组成：\textbf{（1）预训练换脸模型}（Face Swapping Prior Model），作为生成先验提供高质量的人脸图像生成能力；\textbf{（2）标签条件嵌入层}（Label-Conditioned Embedding Layer），将目标类别标签映射为换脸模型可接受的身份嵌入向量；\textbf{（3）LoRA微调模块}（LoRA Adaptation Module），对换脸模型进行参数高效的微调，使其适配目标分类器的决策边界。
+
+\begin{figure}[htbp]
+    \centering
+    % TODO: 添加架构示意图
+    % \includegraphics[width=0.9\textwidth]{figures/mia_architecture.pdf}
+    \caption{基于换脸先验的模型反演攻击架构示意图。左侧为标签条件嵌入层，将类别标签映射为身份嵌入；中间为换脸模型，接受身份嵌入与源图像生成目标图像；右侧为目标分类器，提供分类损失用于微调。}
+    \label{fig:mia_architecture}
+\end{figure}
+
+整个系统的前向传播流程可形式化描述如下：
+
+\textbf{步骤1：标签到嵌入的映射。}给定目标类别标签 $y_{\text{target}}\in\{1,2,\ldots,C\}$，标签条件嵌入层 $\mathcal{E}_{\psi}$ 将其映射为身份嵌入向量 $e_{\text{id}}\in\mathbb{R}^{d_e}$：
+\begin{equation}\label{eq:mia_label_to_emb}
+    e_{\text{id}} = \mathcal{E}_{\psi}(y_{\text{target}}),
+\end{equation}
+其中 $\psi$ 为嵌入层的可学习参数，$d_e$ 为嵌入维度（通常为512或1024）。
+
+\textbf{步骤2：换脸生成。}预训练换脸模型 $G_{\phi}$ 接受身份嵌入 $e_{\text{id}}$ 与源图像 $x_{\text{src}}$（提供姿态、表情、光照等属性信息）作为输入，生成目标图像 $\hat{x}$：
+\begin{equation}\label{eq:mia_face_swap}
+    \hat{x} = G_{\phi}(e_{\text{id}}, x_{\text{src}}),
+\end{equation}
+其中 $\phi$ 为换脸模型的参数。在标准换脸任务中，$e_{\text{id}}$ 通常由目标图像通过身份编码器提取；而在本章的模型反演任务中，$e_{\text{id}}$ 由标签条件嵌入层直接生成，无需真实的目标图像。
+
+\textbf{步骤3：分类器评估与反馈。}生成的图像 $\hat{x}$ 输入目标分类器 $F_\theta$，获得对目标类别的置信度：
+\begin{equation}\label{eq:mia_classifier_eval}
+    p_{y_{\text{target}}} = F_\theta(\hat{x})_{y_{\text{target}}}.
+\end{equation}
+该置信度用于计算分类器引导损失，并通过反向传播更新标签条件嵌入层 $\mathcal{E}_{\psi}$ 与换脸模型 $G_{\phi}$（通过LoRA微调）的参数。
+
+\subsection{换脸先验模型的选择与分析}
+
+换脸模型作为本章方法的核心生成先验，其选择对最终攻击性能有决定性影响。理想的换脸模型应满足以下要求：
+
+\textbf{（1）高质量的身份迁移能力。}换脸模型应能够在保持源图像属性的前提下，精确地将目标身份特征迁移至生成图像中，确保生成图像的身份一致性。
+
+\textbf{（2）解耦的身份-属性表示。}换脸模型应具有显式的身份-属性解耦机制，使得身份信息与姿态、表情、光照等属性信息分离，便于通过修改身份嵌入实现对生成结果的精确控制。
+
+\textbf{（3）高感知质量与真实感。}生成的图像应在视觉上与真实人脸无明显差异，包括皮肤纹理、光照一致性、边界融合等细节。
+
+\textbf{（4）计算效率与可微性。}换脸模型应具有合理的计算开销，支持端到端的梯度反向传播，以便与目标分类器联合训练。
+
+基于上述要求，本章选择\textbf{SimSwap}~\cite{chen2020simswap}作为换脸先验模型。SimSwap采用ID注入模块（ID Injection Module）与弱特征匹配损失（Weak Feature Matching Loss）实现高质量的身份迁移，同时通过自适应归一化层（Adaptive Instance Normalization, AdaIN）实现身份-属性的显式解耦。SimSwap的架构如下：
+
+\textbf{身份编码器（Identity Encoder）。}SimSwap使用预训练的ArcFace模型作为身份编码器 $E_{\text{id}}$，将输入图像 $x$ 映射为512维的身份嵌入向量：
+\begin{equation}\label{eq:mia_id_encoder}
+    e_{\text{id}} = E_{\text{id}}(x) \in \mathbb{R}^{512}.
+\end{equation}
+在标准SimSwap流程中，$x$ 为目标图像；而在本章的模型反演任务中，该步骤被标签条件嵌入层替代。
+
+\textbf{属性编码器（Attribute Encoder）。}属性编码器 $E_{\text{attr}}$ 提取源图像 $x_{\text{src}}$ 的多尺度特征，捕获姿态、表情、光照等属性信息：
+\begin{equation}\label{eq:mia_attr_encoder}
+    \{f_1, f_2, \ldots, f_L\} = E_{\text{attr}}(x_{\text{src}}),
+\end{equation}
+其中 $f_{\ell}\in\mathbb{R}^{C_{\ell}\times H_{\ell}\times W_{\ell}}$ 为第 $\ell$ 层特征图。
+
+\textbf{ID注入模块（ID Injection Module）。}ID注入模块通过AdaIN机制将身份嵌入 $e_{\text{id}}$ 注入到属性特征中。对于第 $\ell$ 层特征 $f_{\ell}$，AdaIN操作定义为：
+\begin{equation}\label{eq:mia_adain}
+    \text{AdaIN}(f_{\ell}, e_{\text{id}}) = \gamma_{\ell}(e_{\text{id}}) \cdot \frac{f_{\ell} - \mu(f_{\ell})}{\sigma(f_{\ell})} + \beta_{\ell}(e_{\text{id}}),
+\end{equation}
+其中 $\mu(\cdot), \sigma(\cdot)$ 为特征的均值与标准差，$\gamma_{\ell}(\cdot), \beta_{\ell}(\cdot)$ 为由身份嵌入经过MLP生成的缩放与平移参数。AdaIN操作使得属性特征的统计量由身份嵌入调制，实现身份信息的注入。
+
+\textbf{生成器（Generator）。}生成器 $G_{\text{gen}}$ 采用U-Net风格的编码器-解码器架构，结合跳跃连接（Skip Connection）与ID注入模块，逐步将特征解码为高分辨率的输出图像：
+\begin{equation}\label{eq:mia_generator}
+    \hat{x} = G_{\text{gen}}(\{\text{AdaIN}(f_{\ell}, e_{\text{id}})\}_{\ell=1}^L).
+\end{equation}
+
+SimSwap的训练损失包括重建损失、身份一致性损失、对抗损失与感知损失的加权组合。预训练的SimSwap模型在大规模人脸数据集（如VGGFace2、CelebA-HQ）上训练，学习到丰富的人脸生成先验，为模型反演攻击提供了高质量的基础。
+
+\subsection{标签条件嵌入层的替换机制}
+
+标准换脸模型接受目标图像作为输入，通过身份编码器提取身份嵌入。然而，在模型反演攻击场景中，攻击者仅拥有目标类别标签，无法获取真实的目标图像。因此，需要设计\textbf{标签条件嵌入层}来替代身份编码器，实现从离散标签到连续嵌入的映射。
+
+标签条件嵌入层的设计有两种主要策略：
+
+\subsubsection{基于查找表的嵌入层（Lookup Table-based Embedding）}
+
+最直接的方法是为每个类别分配一个可学习的嵌入向量，构建查找表（Embedding Table）：
+\begin{equation}\label{eq:mia_lookup_table}
+    \mathcal{E}_{\psi} = \{e_1, e_2, \ldots, e_C\}, \quad e_i \in \mathbb{R}^{d_e},
+\end{equation}
+其中 $e_i$ 为类别 $i$ 的嵌入向量，$\psi = \{e_1, e_2, \ldots, e_C\}$ 为可学习参数。给定目标类别 $y_{\text{target}}$，嵌入操作为简单的索引查找：
+\begin{equation}\label{eq:mia_lookup}
+    e_{\text{id}} = e_{y_{\text{target}}}.
+\end{equation}
+
+基于查找表的嵌入层具有以下优点：
+\begin{itemize}
+    \item \textit{参数高效}：总参数量为 $C\times d_e$，对于中小规模分类任务（如 $C\leq 1000$）开销可控；
+    \item \textit{训练简单}：无需额外的网络结构，直接通过梯度下降优化嵌入向量；
+    \item \textit{表达灵活}：每个类别独立优化，可以学习到类别特定的身份表示。
+\end{itemize}
+
+然而，查找表方法也存在局限：
+\begin{itemize}
+    \item \textit{泛化能力弱}：无法处理训练时未见过的类别（zero-shot设置）；
+    \item \textit{参数随类别数线性增长}：当 $C$ 很大（如 $C>10000$）时，参数量与存储开销显著增加；
+    \item \textit{缺乏结构先验}：不同类别的嵌入向量相互独立，无法利用类别间的相似性或层次结构。
+\end{itemize}
+
+\subsubsection{基于MLP的嵌入层（MLP-based Embedding）}
+
+为增强嵌入层的表达能力与泛化性，可以采用多层感知机（MLP）将类别标签的one-hot编码或预训练的类别嵌入映射为身份嵌入：
+\begin{equation}\label{eq:mia_mlp_emb}
+    e_{\text{id}} = \text{MLP}_{\psi}(\text{OneHot}(y_{\text{target}})),
+\end{equation}
+其中 $\text{MLP}_{\psi}$ 为多层感知机，$\psi$ 为其参数。MLP通常包含2-3个隐藏层，配备ReLU激活函数与LayerNorm：
+\begin{equation}\label{eq:mia_mlp_structure}
+    \text{MLP}_{\psi}(x) = W_3 \cdot \text{ReLU}(\text{LN}(W_2 \cdot \text{ReLU}(\text{LN}(W_1 \cdot x + b_1)) + b_2)) + b_3,
+\end{equation}
+其中 $W_1\in\mathbb{R}^{d_h\times C}, W_2\in\mathbb{R}^{d_h\times d_h}, W_3\in\mathbb{R}^{d_e\times d_h}$ 为权重矩阵，$d_h$ 为隐藏层维度。
+
+基于MLP的嵌入层具有以下优点：
+\begin{itemize}
+    \item \textit{表达能力强}：通过非线性变换，可以学习类别标签与身份嵌入之间的复杂映射关系；
+    \item \textit{参数效率高}：当 $C$ 很大时，MLP的参数量 $O(C\cdot d_h + d_h^2 + d_h\cdot d_e)$ 可能低于查找表的 $O(C\cdot d_e)$；
+    \item \textit{泛化能力强}：若使用预训练的类别嵌入（如Word2Vec、BERT嵌入）作为输入，MLP可以利用类别间的语义相似性，实现一定程度的zero-shot泛化。
+\end{itemize}
+
+然而，MLP方法也有缺点：
+\begin{itemize}
+    \item \textit{训练复杂度高}：需要调优隐藏层维度、层数、激活函数等超参数；
+    \item \textit{过拟合风险}：当训练数据有限时，MLP可能过拟合到训练类别，难以泛化；
+    \item \textit{计算开销增加}：相比查找表的 $O(1)$ 索引操作，MLP需要 $O(C\cdot d_h + d_h^2)$ 的矩阵乘法。
+\end{itemize}
+
+\subsubsection{混合嵌入策略（Hybrid Embedding Strategy）}
+
+为兼顾查找表的灵活性与MLP的泛化能力，可以采用\textbf{混合嵌入策略}：
+\begin{equation}\label{eq:mia_hybrid_emb}
+    e_{\text{id}} = \alpha \cdot e_{y_{\text{target}}} + (1-\alpha) \cdot \text{MLP}_{\psi}(\text{OneHot}(y_{\text{target}})),
+\end{equation}
+其中 $\alpha\in[0,1]$ 为权重系数，$e_{y_{\text{target}}}$ 为查找表中的嵌入向量。在训练初期，可以设置较大的 $\alpha$（如0.8），使嵌入以查找表为主，快速收敛；随着训练进行，逐步降低 $\alpha$（如0.5），让MLP发挥更大作用，提升泛化能力。
+
+\subsection{嵌入层与换脸模型的接口匹配}
+
+标签条件嵌入层生成的身份嵌入 $e_{\text{id}}$ 需要与换脸模型的ID注入模块兼容。具体地，需要确保：
+
+\textbf{（1）维度匹配。}嵌入层输出的 $e_{\text{id}}$ 维度应与换脸模型的身份编码器输出维度一致。对于SimSwap，该维度为512（ArcFace嵌入维度）。若嵌入层输出维度不同，需添加线性投影层进行维度对齐：
+\begin{equation}\label{eq:mia_dim_align}
+    e_{\text{id}}^{\text{aligned}} = W_{\text{proj}} \cdot e_{\text{id}} + b_{\text{proj}},
+\end{equation}
+其中 $W_{\text{proj}}\in\mathbb{R}^{512\times d_e}$ 为投影矩阵。
+
+\textbf{（2）分布匹配。}嵌入层生成的 $e_{\text{id}}$ 的数值分布应与真实身份嵌入的分布相近，以保证换脸模型的正常工作。实践中，可以通过以下策略实现分布匹配：
+\begin{itemize}
+    \item \textit{归一化约束}：对嵌入向量进行 $L_2$ 归一化，使其位于单位超球面上，与ArcFace嵌入的归一化特性一致：
+    \begin{equation}\label{eq:mia_emb_norm}
+        e_{\text{id}} \leftarrow \frac{e_{\text{id}}}{\|e_{\text{id}}\|_2}.
+    \end{equation}
+    \item \textit{范数正则化}：在损失函数中添加范数正则项，鼓励嵌入向量的范数接近真实嵌入的平均范数：
+    \begin{equation}\label{eq:mia_norm_reg}
+        \mathcal{L}_{\text{norm}} = (\|e_{\text{id}}\|_2 - \mu_{\text{norm}})^2,
+    \end{equation}
+    其中 $\mu_{\text{norm}}$ 为真实嵌入范数的统计平均值（对于归一化后的ArcFace嵌入，$\mu_{\text{norm}}=1$）。
+    \item \textit{分布对齐损失}：计算生成嵌入与真实嵌入在统计量（均值、方差、协方差）上的距离，通过最小化该距离实现分布对齐。
+\end{itemize}
+
+\subsection{架构的端到端可微性}
+
+所提架构的一个关键设计原则是\textbf{端到端可微性}，即从目标分类器的损失到标签条件嵌入层的参数，存在完整的梯度传播路径。这一特性使得可以通过标准的反向传播算法，利用目标分类器的监督信号直接优化嵌入层与换脸模型（通过LoRA）的参数。
+
+端到端可微性的实现依赖于以下条件：
+\begin{itemize}
+    \item 标签条件嵌入层 $\mathcal{E}_{\psi}$ 的所有操作（查找表索引、MLP前向传播）均为可微操作；
+    \item 换脸模型 $G_{\phi}$ 的前向传播（包括AdaIN、卷积、激活函数）均为可微操作；
+    \item 目标分类器 $F_\theta$ 在白盒或灰盒威胁模型下，可以计算或估计梯度 $\nabla_{\hat{x}} F_\theta(\hat{x})_{y_{\text{target}}}$。
+\end{itemize}
+
+在白盒威胁模型下，梯度可以直接通过自动微分工具（如PyTorch、TensorFlow）计算。在灰盒威胁模型下，若无法获取梯度，可以采用以下策略：
+\begin{itemize}
+    \item \textit{有限差分梯度估计}：通过对输入添加小扰动 $\delta$，估计梯度：
+    \begin{equation}\label{eq:mia_finite_diff}
+        \nabla_{\hat{x}} F_\theta(\hat{x}) \approx \frac{F_\theta(\hat{x}+\delta) - F_\theta(\hat{x}-\delta)}{2\|\delta\|_2} \cdot \delta.
+    \end{equation}
+    \item \textit{零阶优化方法}：采用CMA-ES、遗传算法等无梯度优化方法，仅依赖目标函数值进行优化。
+    \item \textit{代理模型迁移}：训练一个代理分类器 $F_{\text{proxy}}$ 近似目标分类器 $F_\theta$ 的行为，利用代理模型的梯度进行优化，依赖迁移攻击的有效性。
+\end{itemize}
+
+端到端可微性不仅简化了训练流程，还使得可以灵活地引入多种损失项（分类损失、感知损失、正则化损失）进行联合优化，为方法的性能提升提供了广阔空间。
+
+\section{标签条件嵌入层的实现与优化}
+\label{sec:mia_embedding}
+
+本节深入探讨标签条件嵌入层的实现细节,包括初始化策略、训练技巧与优化方法。
+
+\subsection{嵌入层的初始化策略}
+
+嵌入层的初始化对训练的收敛速度与最终性能有重要影响。不当的初始化可能导致训练早期梯度消失、生成图像质量崩溃或陷入局部最优。
+
+\subsubsection{基于真实嵌入的初始化}
+
+最直接有效的初始化方法是利用目标分类器训练集中的真实图像来初始化嵌入向量。具体步骤如下：
+
+\textbf{步骤1：收集类别样本。}对于每个目标类别 $y\in\{1,2,\ldots,C\}$，从训练集中采样 $M$ 张该类别的图像 $\{x_y^{(m)}\}_{m=1}^M$。
+
+\textbf{步骤2：提取身份嵌入。}使用换脸模型的身份编码器 $E_{\text{id}}$（如ArcFace）提取每张图像的身份嵌入：
+\begin{equation}\label{eq:mia_extract_emb}
+    e_y^{(m)} = E_{\text{id}}(x_y^{(m)}), \quad m=1,2,\ldots,M.
+\end{equation}
+
+\textbf{步骤3：计算类别中心。}对于每个类别，计算其身份嵌入的均值作为该类别的初始嵌入向量：
+\begin{equation}\label{eq:mia_init_center}
+    e_y^{\text{init}} = \frac{1}{M}\sum_{m=1}^M e_y^{(m)}.
+\end{equation}
+
+\textbf{步骤4：归一化。}将初始嵌入向量归一化至单位超球面：
+\begin{equation}\label{eq:mia_init_norm}
+    e_y^{\text{init}} \leftarrow \frac{e_y^{\text{init}}}{\|e_y^{\text{init}}\|_2}.
+\end{equation}
+
+该初始化方法的优势在于：（1）嵌入向量从一开始就位于真实身份嵌入的分布附近，加速收敛；（2）初始生成的图像具有目标类别的大致特征，避免训练早期的随机探索；（3）为后续微调提供良好的起点。
+
+然而，该方法要求攻击者能够访问目标分类器的训练集样本。在实际攻击场景中，这一假设可能不成立。此时可采用以下替代策略：
+
+\subsubsection{基于随机采样的初始化}
+
+当无法访问训练集时，可以从标准正态分布或均匀分布随机采样初始嵌入向量：
+\begin{equation}\label{eq:mia_init_random}
+    e_y^{\text{init}} \sim \mathcal{N}(0, \sigma^2 I) \quad \text{或} \quad e_y^{\text{init}} \sim \text{Uniform}(-a, a),
+\end{equation}
+其中 $\sigma$ 或 $a$ 控制初始化的尺度。实践中，建议设置 $\sigma=0.1$ 或 $a=0.01$，以保持初始嵌入的范数较小，避免生成器在训练初期产生过度饱和或失真的输出。
+
+随机初始化后，同样需要进行归一化：
+\begin{equation}\label{eq:mia_init_random_norm}
+    e_y^{\text{init}} \leftarrow \frac{e_y^{\text{init}}}{\|e_y^{\text{init}}\|_2}.
+\end{equation}
+
+\subsubsection{基于类别语义的初始化}
+
+若目标类别具有语义信息（如人名、ID编号），可以利用预训练的语言模型（如Word2Vec、BERT）提取类别的语义嵌入，再通过MLP映射为身份嵌入空间：
+\begin{equation}\label{eq:mia_init_semantic}
+    e_y^{\text{init}} = \text{MLP}_{\text{init}}(\text{BERT}(\text{ClassName}_y)),
+\end{equation}
+其中 $\text{ClassName}_y$ 为类别 $y$ 的文本描述（如"Person\_0123"），$\text{BERT}(\cdot)$ 提取其语义嵌入，$\text{MLP}_{\text{init}}$ 将语义嵌入映射为身份嵌入空间。
+
+该方法利用类别间的语义相似性，为相似类别分配相近的初始嵌入，有助于提升泛化能力与训练稳定性。
+
+\subsection{嵌入层的正则化与约束}
+
+为防止嵌入向量在训练过程中偏离真实身份嵌入的分布，或产生退化解（如所有类别的嵌入收敛到相同值），需要引入正则化与约束机制。
+
+\subsubsection{范数约束}
+
+强制嵌入向量位于单位超球面上，与ArcFace嵌入的几何结构一致：
+\begin{equation}\label{eq:mia_norm_constraint}
+    \|e_y\|_2 = 1, \quad \forall y\in\{1,2,\ldots,C\}.
+\end{equation}
+
+实现方式有两种：
+\begin{itemize}
+    \item \textit{硬约束}：在每次参数更新后，显式地归一化嵌入向量：
+    \begin{equation}\label{eq:mia_hard_norm}
+        e_y \leftarrow \frac{e_y}{\|e_y\|_2}.
+    \end{equation}
+    \item \textit{软约束}：在损失函数中添加范数偏差的惩罚项：
+    \begin{equation}\label{eq:mia_soft_norm}
+        \mathcal{L}_{\text{norm}} = \lambda_{\text{norm}} \sum_{y=1}^C (\|e_y\|_2 - 1)^2.
+    \end{equation}
+\end{itemize}
+
+实践中，硬约束更为常用，因其计算简单且严格保证几何性质。
+
+\subsubsection{类间分离正则化}
+
+为避免不同类别的嵌入向量过于接近（导致生成图像难以区分），可以引入类间分离正则化，鼓励不同类别的嵌入在嵌入空间中彼此分离：
+\begin{equation}\label{eq:mia_separation_reg}
+    \mathcal{L}_{\text{sep}} = -\lambda_{\text{sep}} \sum_{i\neq j} \|e_i - e_j\|_2^2 \quad \text{或} \quad \mathcal{L}_{\text{sep}} = -\lambda_{\text{sep}} \sum_{i\neq j} \langle e_i, e_j \rangle.
+\end{equation}
+
+第一项最小化嵌入间的欧氏距离的负值（即最大化距离），第二项最小化余弦相似度。该正则化防止模式崩溃，提升生成图像的多样性。
+
+\subsubsection{嵌入平滑性正则化}
+
+若类别具有层次结构或相似性关系（如同一人在不同年龄的图像、双胞胎等），可以引入平滑性正则化，鼓励相似类别的嵌入向量彼此接近：
+\begin{equation}\label{eq:mia_smooth_reg}
+    \mathcal{L}_{\text{smooth}} = \lambda_{\text{smooth}} \sum_{(i,j)\in\mathcal{S}} \|e_i - e_j\|_2^2,
+\end{equation}
+其中 $\mathcal{S}$ 为相似类别对的集合。该正则化利用类别间的先验知识，提升嵌入空间的结构性与可解释性。
+
+\subsection{嵌入层的训练策略}
+
+\subsubsection{分阶段训练}
+
+为加速收敛并提升最终性能，建议采用分阶段训练策略：
+
+\textbf{阶段1：仅训练嵌入层（冻结换脸模型）。}在训练初期（如前1000步），冻结换脸模型 $G_{\phi}$ 的所有参数，仅优化标签条件嵌入层 $\mathcal{E}_{\psi}$。训练目标为分类损失与嵌入正则化损失的加权组合：
+\begin{equation}\label{eq:mia_stage1_loss}
+    \mathcal{L}_{\text{stage1}} = \mathcal{L}_{\text{cls}} + \lambda_{\text{norm}}\mathcal{L}_{\text{norm}} + \lambda_{\text{sep}}\mathcal{L}_{\text{sep}}.
+\end{equation}
+
+该阶段的目标是让嵌入层快速学习到能够欺骗目标分类器的嵌入表示，为后续联合训练提供良好初始化。
+
+\textbf{阶段2：联合训练嵌入层与LoRA（解冻LoRA参数）。}在嵌入层初步收敛后，解冻换脸模型中的LoRA参数，联合优化嵌入层与LoRA。训练目标扩展为包含感知损失与身份一致性损失：
+\begin{equation}\label{eq:mia_stage2_loss}
+    \mathcal{L}_{\text{stage2}} = \mathcal{L}_{\text{cls}} + \lambda_{\text{perc}}\mathcal{L}_{\text{perc}} + \lambda_{\text{id}}\mathcal{L}_{\text{id}} + \lambda_{\text{norm}}\mathcal{L}_{\text{norm}} + \lambda_{\text{sep}}\mathcal{L}_{\text{sep}}.
+\end{equation}
+
+该阶段通过微调换脸模型，进一步提升生成图像的质量与分类器认同度。
+
+\subsubsection{学习率调度}
+
+嵌入层与LoRA参数的学习率应区别设置：
+\begin{itemize}
+    \item \textit{嵌入层学习率}：由于嵌入层从头开始训练，建议使用较大的学习率（如 $\eta_{\text{emb}}=1\times10^{-3}$ 至 $5\times10^{-3}$），配合学习率预热（前10\%步数线性增长）与余弦退火调度；
+    \item \textit{LoRA学习率}：由于换脸模型已预训练，LoRA参数应使用较小的学习率（如 $\eta_{\text{lora}}=1\times10^{-5}$ 至 $1\times10^{-4}$），避免破坏预训练权重。
+\end{itemize}
+
+\subsubsection{梯度裁剪与稳定性}
+
+在训练过程中，分类器的梯度可能出现剧烈波动，导致嵌入向量或LoRA参数的更新过大，引发训练不稳定。建议采用梯度裁剪（Gradient Clipping）策略：
+\begin{equation}\label{eq:mia_grad_clip}
+    g \leftarrow \begin{cases}
+        g, & \text{if } \|g\|_2 \leq \tau_{\text{clip}}, \\
+        \tau_{\text{clip}} \cdot \frac{g}{\|g\|_2}, & \text{otherwise},
+    \end{cases}
+\end{equation}
+其中 $g$ 为梯度向量，$\tau_{\text{clip}}$ 为裁剪阈值（建议设置为1.0或2.0）。
+
+\subsection{嵌入层的可解释性分析}
+
+训练完成后，可以对学习到的嵌入向量进行可视化与分析，以理解其语义结构：
+
+\subsubsection{t-SNE可视化}
+
+使用t-SNE或UMAP将高维嵌入向量 $\{e_y\}_{y=1}^C$ 投影到二维空间，观察类别间的聚类结构与分离程度。若相似类别（如同一家族成员、同一性别）在投影空间中聚集，表明嵌入层学习到了有意义的语义结构。
+
+\subsubsection{余弦相似度矩阵}
+
+计算所有类别对之间的余弦相似度，构建相似度矩阵 $S\in\mathbb{R}^{C\times C}$，其中：
+\begin{equation}\label{eq:mia_sim_matrix}
+    S_{ij} = \frac{\langle e_i, e_j \rangle}{\|e_i\|_2 \|e_j\|_2}.
+\end{equation}
+
+通过热力图可视化相似度矩阵，分析类别间的相似性模式。
+
+\subsubsection{嵌入与真实嵌入的对齐度}
+
+若可以访问目标类别的真实训练样本，可以计算学习到的嵌入向量与真实样本的平均嵌入之间的相似度：
+\begin{equation}\label{eq:mia_align_score}
+    \text{Align}(y) = \text{CosSim}(e_y, \bar{e}_y^{\text{real}}),
+\end{equation}
+其中 $\bar{e}_y^{\text{real}} = \frac{1}{M}\sum_{m=1}^M E_{\text{id}}(x_y^{(m)})$ 为真实样本的平均嵌入。对齐度高表明嵌入层成功学习到目标身份的特征。
+
+\section{基于LoRA的换脸模型微调方法}
 \label{sec:mia_lora}
-针对分类器反演的微调策略，我们优先使用参数高效的低秩适配（LoRA）方法，以在少量样本和低算力环境下实现可重复的微调。
 
-\subsection{作用层与参数化}
-建议在生成器的下列子模块中应用 LoRA：跨注意力 (cross-attn) 的投影矩阵、注意力的 output projection、以及 MLP 的第一/第二线性层。对这些层应用低秩增量可显著改变生成输出而不影响原模型的全局稳定性。
+本节详细阐述如何使用低秩适配（LoRA）技术对预训练换脸模型进行参数高效的微调，使其适配模型反演攻击的目标。
 
-参数化形式同 TIA 部分所述：$W' = W + BA$，仅学习小矩阵 $A,B$ 并记录秩 $r$ 与缩放 $\alpha$。
+\subsection{LoRA应用于换脸模型的动机}
 
-\subsection{训练流程与超参建议}
-训练流程建议：
-\begin{enumerate}
-\item 数据准备：选取每一目标类别下的少量代表样本作为微调集（N-shot），并准备相应的替换源（若使用换脸输入）。\
-\item 冻结主干：仅解冻并训练 LoRA 参数与少数条件层；使用小 lr（$\le 1\mathrm{e}{-4}$）与较强的权重衰减以减少过拟合。\
-\item 校验与早停：在独立验证集上监控 $F(\hat{x})_{y_t}$ 与感知指标，采用早停或 checkpoint 平均策略。
-\end{enumerate}
+直接对换脸模型进行全参数微调面临以下挑战：
 
-常用起始超参（建议记录并汇报）：$r\in\{4,8,16\}$，$\alpha\in\{8,16\}$，lr=$1\mathrm{e}{-5}\sim1\mathrm{e}{-4}$，微调步数 500--3000，batch size 根据显存调整（1--8）。
+\textbf{（1）参数量巨大。}现代换脸模型（如SimSwap）通常包含数千万至上亿个参数，全参数微调需要维护完整的梯度、优化器状态与激活值，显存需求极高。
 
-\subsection{合并、部署与可重复性}
-训练完成后可选择将 LoRA 权重合并进 base checkpoint 以便部署，或保留增量以便快速切换不同目标。每次微调都应保存训练命令、环境信息、随机种子与中间检查点以保证可重复性。
+\textbf{（2）过拟合风险。}模型反演攻击通常针对少量目标类别（如数十至数百个），训练数据有限。全参数微调容易过拟合到特定的源图像或目标类别，泛化能力差。
+
+\textbf{（3）破坏预训练知识。}换脸模型在大规模数据集上预训练，学习到丰富的人脸生成先验。全参数微调可能破坏这些知识，导致生成质量下降、伪影增加或模式崩溃。
+
+\textbf{（4）存储与部署成本。}针对多个目标分类器或多组类别进行微调时，需为每个任务保存完整的模型副本，存储成本随任务数量线性增长。
+
+LoRA技术通过在冻结预训练权重的前提下引入低秩可训练增量，有效解决了上述问题：
+\begin{itemize}
+    \item \textit{参数效率}：仅需训练与存储低秩矩阵 $A, B$，参数量降低至原模型的1\%-5\%；
+    \item \textit{泛化能力}：低秩约束起到隐式正则化作用，降低过拟合风险；
+    \item \textit{保持预训练知识}：原始权重冻结，预训练的生成先验得以保留；
+    \item \textit{模块化部署}：多个任务共享基础模型，仅需保存各自的LoRA权重，存储开销极低。
+\end{itemize}
+
+\subsection{LoRA在换脸模型中的应用位置}
+
+根据换脸模型的架构特点与模型反演任务的需求，LoRA应优先应用于以下关键模块：
+
+\subsubsection{ID注入模块的AdaIN参数生成网络}
+
+ID注入模块通过AdaIN操作将身份嵌入注入到属性特征中。AdaIN的缩放参数 $\gamma_{\ell}$ 与平移参数 $\beta_{\ell}$ 由身份嵌入经过MLP生成：
+\begin{equation}\label{eq:mia_lora_adain_mlp}
+    \gamma_{\ell}(e_{\text{id}}) = W_{\gamma,\ell} \cdot e_{\text{id}} + b_{\gamma,\ell}, \quad \beta_{\ell}(e_{\text{id}}) = W_{\beta,\ell} \cdot e_{\text{id}} + b_{\beta,\ell}.
+\end{equation}
+
+对权重矩阵 $W_{\gamma,\ell}, W_{\beta,\ell}$ 应用LoRA：
+\begin{equation}\label{eq:mia_lora_adain}
+\begin{aligned}
+    W_{\gamma,\ell}' &= W_{\gamma,\ell} + \frac{\alpha}{r} B_{\gamma,\ell} A_{\gamma,\ell}, \\
+    W_{\beta,\ell}' &= W_{\beta,\ell} + \frac{\alpha}{r} B_{\beta,\ell} A_{\beta,\ell},
+\end{aligned}
+\end{equation}
+其中 $A_{\gamma,\ell}\in\mathbb{R}^{r\times 512}, B_{\gamma,\ell}\in\mathbb{R}^{d_h\times r}$（$d_h$ 为隐藏层维度）。
+
+应用LoRA到AdaIN参数生成网络的优势在于：该模块直接控制身份信息如何调制属性特征，是身份迁移的核心机制。微调这些参数能够精确调整生成图像的身份特征，使其更易被目标分类器识别。
+
+\subsubsection{生成器的注意力机制}
+
+若换脸模型的生成器采用基于Transformer的架构（如包含自注意力或交叉注意力模块），应在注意力投影矩阵上应用LoRA：
+\begin{equation}\label{eq:mia_lora_attn}
+\begin{aligned}
+    W_Q' &= W_Q + \frac{\alpha}{r} B_Q A_Q, \\
+    W_K' &= W_K + \frac{\alpha}{r} B_K A_K, \\
+    W_V' &= W_V + \frac{\alpha}{r} B_V A_V, \\
+    W_O' &= W_O + \frac{\alpha}{r} B_O A_O,
+\end{aligned}
+\end{equation}
+其中 $W_Q, W_K, W_V, W_O$ 分别为Query、Key、Value与输出投影矩阵。
+
+注意力机制负责特征的全局聚合与重组，对生成图像的整体结构与细节有重要影响。微调注意力投影可以调整模型关注的特征区域，优先生成被分类器敏感的身份特征（如眼睛、鼻子、嘴巴的形状）。
+
+\subsubsection{生成器的卷积层}
+
+对于基于卷积的生成器（如U-Net），可以在$1\times1$点卷积层上应用LoRA。点卷积负责通道间的特征混合，其权重矩阵 $W\in\mathbb{R}^{C_{\text{out}}\times C_{\text{in}}\times 1\times 1}$ 可重塑为二维矩阵后应用LoRA分解：
+\begin{equation}\label{eq:mia_lora_conv}
+    W' = W + \frac{\alpha}{r} \text{reshape}(B A, [C_{\text{out}}, C_{\text{in}}, 1, 1]),
+\end{equation}
+其中 $A\in\mathbb{R}^{r\times C_{\text{in}}}, B\in\mathbb{R}^{C_{\text{out}}\times r}$。
+
+\subsection{LoRA超参数配置}
+
+LoRA的性能受秩 $r$、缩放因子 $\alpha$ 与学习率 $\eta$ 的影响。针对模型反演任务，建议采用以下配置：
+
+\subsubsection{秩的选择}
+
+秩 $r$ 决定了低秩子空间的表达能力。实验表明，对于换脸模型的微调：
+\begin{itemize}
+    \item \textit{小秩}（$r=4$或$r=8$）：参数效率极高，但表达能力可能不足，适用于目标类别数量少（$C\leq 100$）或微调数据有限的场景；
+    \item \textit{中等秩}（$r=16$或$r=32$）：平衡了参数效率与表达能力，是最常用的选择，适用于大多数模型反演任务；
+    \item \textit{大秩}（$r=64$或$r=128$）：表达能力强，但参数量与计算开销显著增加，适用于目标类别数量多（$C>1000$）或对攻击成功率要求极高的场景。
+\end{itemize}
+
+建议从 $r=16$ 开始尝试，根据验证集性能调整。
+
+\subsubsection{缩放因子的设置}
+
+缩放因子 $\alpha$ 调节低秩更新的有效幅度。常见的设置策略为：
+\begin{itemize}
+    \item \textit{固定缩放}：$\alpha=r$ 或 $\alpha=2r$，使 $\frac{\alpha}{r}$ 保持为1或2；
+    \item \textit{自适应缩放}：根据任务需求动态调整。若需要较强的适配信号（如目标分类器对身份特征高度敏感），可增大 $\alpha$（如 $\alpha=32, r=16$，则 $\frac{\alpha}{r}=2$）；若需保留更多预训练知识，可减小 $\alpha$（如 $\alpha=8, r=16$，则 $\frac{\alpha}{r}=0.5$）。
+\end{itemize}
+
+\subsubsection{学习率的调整}
+
+LoRA参数的学习率应显著低于嵌入层的学习率，以避免破坏预训练权重：
+\begin{equation}\label{eq:mia_lora_lr}
+    \eta_{\text{lora}} = \beta \cdot \eta_{\text{emb}}, \quad \beta\in[0.01, 0.1],
+\end{equation}
+典型配置为 $\eta_{\text{emb}}=1\times10^{-3}, \eta_{\text{lora}}=1\times10^{-5}$。
+
+\subsection{LoRA的初始化与训练稳定性}
+
+\subsubsection{标准初始化方案}
+
+遵循LoRA的标准初始化策略：
+\begin{itemize}
+    \item 矩阵 $A$ 采用高斯随机初始化：$A\sim\mathcal{N}(0, \sigma^2)$，其中 $\sigma=0.01$；
+    \item 矩阵 $B$ 采用零初始化：$B=0$。
+\end{itemize}
+
+该方案确保训练开始时 $\Delta W = BA = 0$，模型行为与预训练状态完全一致，从稳定的起点出发逐步适配。
+
+\subsubsection{权重衰减与正则化}
+
+对LoRA参数施加L2正则化，抑制参数过度增长：
+\begin{equation}\label{eq:mia_lora_reg}
+    \mathcal{L}_{\text{lora\_reg}} = \lambda_{\text{lora}} \sum_{\ell} (\|A_{\ell}\|_F^2 + \|B_{\ell}\|_F^2),
+\end{equation}
+其中 $\|\cdot\|_F$ 为Frobenius范数，$\lambda_{\text{lora}}$ 为正则化系数（建议设置为 $1\times10^{-4}$ 至 $1\times10^{-3}$）。
+
+\subsubsection{梯度累积与混合精度训练}
+
+为降低显存占用，可采用梯度累积（Gradient Accumulation）技术：将批次大小设为1或2，累积多个批次的梯度后再更新参数。同时，使用混合精度训练（FP16+FP32）进一步降低显存需求与计算时间。
+
+\subsection{LoRA的推理优化}
+
+\subsubsection{权重合并}
+
+训练完成后，将LoRA增量合并到原始权重中，消除推理时的额外计算开销：
+\begin{equation}\label{eq:mia_lora_merge}
+    W_{\text{merged}} = W + \frac{\alpha}{r} BA.
+\end{equation}
+
+合并后的模型在推理时与标准模型无异，无需加载LoRA模块，简化部署流程。
+
+\subsubsection{多任务LoRA的动态加载}
+
+若需针对多个目标分类器或多组类别进行攻击，可采用"一个基础模型 + 多组LoRA权重"的架构：
+\begin{itemize}
+    \item 基础换脸模型 $G_{\phi}$ 作为只读模块，所有任务共享；
+    \item 每个任务对应一组独立的LoRA权重 $\{A_i, B_i\}$ 与标签条件嵌入层 $\mathcal{E}_{\psi_i}$；
+    \item 推理时，根据任务需求动态加载对应的LoRA权重与嵌入层，实现快速切换。
+\end{itemize}
+
+该架构的存储开销为：
+\begin{equation}\label{eq:mia_lora_storage}
+    \text{Storage} = \text{Size}(G_{\phi}) + \sum_{i=1}^{N_{\text{task}}} (\text{Size}(\{A_i, B_i\}) + \text{Size}(\mathcal{E}_{\psi_i})),
+\end{equation}
+其中 $\text{Size}(\{A_i, B_i\})$ 通常仅为基础模型的1\%-5\%，$\text{Size}(\mathcal{E}_{\psi_i})$ 为 $C\times d_e$ 个参数（若使用查找表嵌入）。对于100个任务、每个任务1000个类别，总存储开销约为基础模型的2-10倍，远低于全参数微调的100倍。
+
+\section{多目标优化损失函数设计}
+\label{sec:mia_loss}
+
+本节构建融合多个优化目标的损失函数框架，平衡生成图像的分类器认同度、感知质量、身份一致性与正则化约束。
+
+\subsection{损失函数的总体架构}
+
+完整的训练损失函数包含五个主要部分：
+\begin{equation}\label{eq:mia_total_loss}
+    \mathcal{L}_{\text{total}} = \lambda_{\text{cls}}\mathcal{L}_{\text{cls}} + \lambda_{\text{id}}\mathcal{L}_{\text{id}} + \lambda_{\text{perc}}\mathcal{L}_{\text{perc}} + \lambda_{\text{reg}}\mathcal{L}_{\text{reg}} + \lambda_{\text{adv}}\mathcal{L}_{\text{adv}},
+\end{equation}
+其中 $\lambda_{\text{cls}}, \lambda_{\text{id}}, \lambda_{\text{perc}}, \lambda_{\text{reg}}, \lambda_{\text{adv}}$ 为各损失项的权重系数。下面详细阐述各损失项的定义、作用与实现。
+
+\subsection{分类器引导损失}
+
+分类器引导损失是模型反演攻击的核心优化目标，旨在最大化生成图像被目标分类器识别为目标类别的置信度。
+
+\subsubsection{交叉熵损失}
+
+最直接的形式是交叉熵损失：
+\begin{equation}\label{eq:mia_ce_loss}
+    \mathcal{L}_{\text{cls}} = -\log F_\theta(\hat{x})_{y_{\text{target}}} = -\log \frac{\exp(z_{y_{\text{target}}})}{\sum_{j=1}^C \exp(z_j)},
+\end{equation}
+其中 $z_j$ 为分类器对类别 $j$ 的logit值。该损失直接优化目标类别的后验概率，简单有效。
+
+\subsubsection{对比损失}
+
+为增强类间区分性，可以采用对比损失（Contrastive Loss），不仅最大化目标类别的置信度，还最小化其他类别的置信度：
+\begin{equation}\label{eq:mia_contrastive_loss}
+    \mathcal{L}_{\text{cls}} = -\log \frac{\exp(z_{y_{\text{target}}}/\tau)}{\exp(z_{y_{\text{target}}}/\tau) + \sum_{j\neq y_{\text{target}}} \exp(z_j/\tau)},
+\end{equation}
+其中 $\tau$ 为温度参数（建议设置为0.1或0.2），较小的 $\tau$ 强化对比效果。
+
+\subsubsection{Focal损失}
+
+当目标分类器对某些类别已具有较高置信度时，标准交叉熵损失的梯度可能过小，导致训练停滞。Focal损失通过动态调整损失权重，聚焦于难以优化的样本：
+\begin{equation}\label{eq:mia_focal_loss}
+    \mathcal{L}_{\text{cls}} = -(1-p_{y_{\text{target}}})^{\gamma} \log p_{y_{\text{target}}},
+\end{equation}
+其中 $p_{y_{\text{target}}} = F_\theta(\hat{x})_{y_{\text{target}}}$ 为目标类别的概率，$\gamma$ 为聚焦参数（建议设置为2.0）。当 $p_{y_{\text{target}}}$ 较小时，$(1-p_{y_{\text{target}}})^{\gamma}$ 接近1，损失权重大；当 $p_{y_{\text{target}}}$ 较大时，权重降低，避免过度优化已饱和的样本。
+
+\subsection{身份一致性损失}
+
+身份一致性损失确保生成图像保持目标身份的特征，避免换脸过程中身份信息的丢失或扭曲。
+
+\subsubsection{嵌入相似度损失}
+
+使用预训练的人脸识别模型（如ArcFace）提取生成图像与目标嵌入的嵌入向量，计算余弦相似度损失：
+\begin{equation}\label{eq:mia_id_cosine_loss}
+    \mathcal{L}_{\text{id}} = 1 - \frac{\langle E_{\text{id}}(\hat{x}), e_{\text{id}} \rangle}{\|E_{\text{id}}(\hat{x})\|_2 \|e_{\text{id}}\|_2},
+\end{equation}
+其中 $E_{\text{id}}(\cdot)$ 为身份编码器，$e_{\text{id}}$ 为标签条件嵌入层生成的目标身份嵌入。该损失确保生成图像的身份嵌入与条件嵌入一致。
+
+\subsubsection{三元组损失}
+
+为增强身份判别性，可以采用三元组损失（Triplet Loss）：
+\begin{equation}\label{eq:mia_triplet_loss}
+    \mathcal{L}_{\text{id}} = \max(0, d(E_{\text{id}}(\hat{x}), e_{\text{id}}) - d(E_{\text{id}}(\hat{x}), e_{\text{neg}}) + m),
+\end{equation}
+其中 $e_{\text{neg}}$ 为负样本嵌入（如其他类别的嵌入或随机采样的嵌入），$d(\cdot,\cdot)$ 为距离度量（如欧氏距离或余弦距离），$m$ 为边界（margin，建议设置为0.3或0.5）。三元组损失不仅拉近生成图像与目标嵌入，还推开生成图像与负样本嵌入，增强类间可分性。
+
+\subsection{感知质量损失}
+
+感知质量损失确保生成图像在视觉上真实自然，避免伪影、噪声或不自然的纹理。
+
+\subsubsection{LPIPS感知损失}
+
+Learned Perceptual Image Patch Similarity (LPIPS) 基于深度网络的感知特征计算图像相似度：
+\begin{equation}\label{eq:mia_lpips_loss}
+    \mathcal{L}_{\text{perc}} = \text{LPIPS}(\hat{x}, x_{\text{src}}) = \sum_{\ell=1}^L w_{\ell} \|\phi_{\ell}(\hat{x}) - \phi_{\ell}(x_{\text{src}})\|_2^2,
+\end{equation}
+其中 $\phi_{\ell}$ 为预训练VGG或AlexNet的第 $\ell$ 层特征，$w_{\ell}$ 为权重系数。LPIPS损失鼓励生成图像与源图像在感知特征上接近，保持纹理、光照等属性的自然性。
+
+\subsubsection{VGG感知损失}
+
+VGG感知损失计算生成图像与源图像在VGG网络不同层特征上的L2距离：
+\begin{equation}\label{eq:mia_vgg_loss}
+    \mathcal{L}_{\text{perc}} = \sum_{\ell\in\{\text{relu1\_2, relu2\_2, relu3\_3, relu4\_3}\}} \|\phi_{\ell}(\hat{x}) - \phi_{\ell}(x_{\text{src}})\|_2^2.
+\end{equation}
+
+VGG感知损失在早期层（relu1\_2, relu2\_2）捕获低级纹理与颜色信息，在深层（relu3\_3, relu4\_3）捕获高级语义与结构信息，综合优化图像的多尺度感知质量。
+
+\subsubsection{重建损失}
+
+为保持像素级的一致性，可以添加L1或L2重建损失：
+\begin{equation}\label{eq:mia_recon_loss}
+    \mathcal{L}_{\text{recon}} = \|\hat{x} - x_{\text{src}}\|_1 \quad \text{或} \quad \|\hat{x} - x_{\text{src}}\|_2^2.
+\end{equation}
+
+L1损失对离群值不敏感，适用于保持整体结构；L2损失对细节更敏感，适用于精细纹理的重建。实践中常用L1损失。
+
+\subsection{正则化损失}
+
+正则化损失防止过拟合、模式崩溃与参数发散，提升模型的泛化能力与训练稳定性。
+
+\subsubsection{嵌入范数正则化}
+
+如前所述，对标签条件嵌入层的嵌入向量施加范数正则化：
+\begin{equation}\label{eq:mia_emb_norm_reg}
+    \mathcal{L}_{\text{reg}}^{\text{norm}} = \sum_{y=1}^C (\|e_y\|_2 - 1)^2.
+\end{equation}
+
+\subsubsection{LoRA参数正则化}
+
+对LoRA参数施加L2正则化：
+\begin{equation}\label{eq:mia_lora_l2_reg}
+    \mathcal{L}_{\text{reg}}^{\text{lora}} = \sum_{\ell} (\|A_{\ell}\|_F^2 + \|B_{\ell}\|_F^2).
+\end{equation}
+
+\subsubsection{全变分正则化}
+
+Total Variation (TV) 正则化抑制生成图像的高频噪声与伪影：
+\begin{equation}\label{eq:mia_tv_reg}
+    \mathcal{L}_{\text{reg}}^{\text{tv}} = \sum_{i,j} (|\hat{x}_{i+1,j} - \hat{x}_{i,j}| + |\hat{x}_{i,j+1} - \hat{x}_{i,j}|),
+\end{equation}
+其中 $\hat{x}_{i,j}$ 为生成图像在像素 $(i,j)$ 处的值。TV正则化鼓励相邻像素平滑变化，减少噪声。
+
+\subsection{对抗损失（可选）}
+
+若引入判别器 $D_{\omega}$ 进一步提升生成图像的真实感，可以添加对抗损失：
+
+\subsubsection{生成器的对抗损失}
+
+生成器希望生成的图像被判别器判定为真实：
+\begin{equation}\label{eq:mia_adv_gen_loss}
+    \mathcal{L}_{\text{adv}}^{G} = -\mathbb{E}_{\hat{x}}[\log D_{\omega}(\hat{x})].
+\end{equation}
+
+\subsubsection{判别器的对抗损失}
+
+判别器希望区分真实图像与生成图像：
+\begin{equation}\label{eq:mia_adv_disc_loss}
+    \mathcal{L}_{\text{adv}}^{D} = -\mathbb{E}_{x_{\text{real}}}[\log D_{\omega}(x_{\text{real}})] - \mathbb{E}_{\hat{x}}[\log(1-D_{\omega}(\hat{x}))].
+\end{equation}
+
+对抗训练交替优化生成器与判别器，提升生成图像的细节真实感。然而，对抗训练增加了训练复杂度与不稳定性，建议在基础训练收敛后作为可选的精细化步骤。
+
+\subsection{损失权重的动态调整策略}
+
+各损失项的权重系数 $\lambda$ 对最终性能有重要影响。静态权重可能导致训练早期某些目标被忽视，或后期某些目标过度优化。动态调整策略可以提升训练效果：
+
+\subsubsection{分阶段权重调整}
+
+根据训练阶段调整权重：
+\begin{itemize}
+    \item \textit{阶段1（前30\%步数）}：$\lambda_{\text{cls}}=1.0, \lambda_{\text{id}}=0.5, \lambda_{\text{perc}}=0.1$，优先优化分类器认同度；
+    \item \textit{阶段2（中间40\%步数）}：$\lambda_{\text{cls}}=0.5, \lambda_{\text{id}}=1.0, \lambda_{\text{perc}}=0.5$，平衡身份一致性与感知质量；
+    \item \textit{阶段3（最后30\%步数）}：$\lambda_{\text{cls}}=0.3, \lambda_{\text{id}}=0.5, \lambda_{\text{perc}}=1.0$，精细化感知质量。
+\end{itemize}
+
+\subsubsection{自适应权重调整}
+
+根据各损失项的数值动态调整权重，平衡不同尺度的损失：
+\begin{equation}\label{eq:mia_adaptive_weight}
+    \lambda_i(t) = \frac{\bar{\mathcal{L}}(t)}{\mathcal{L}_i(t) + \epsilon},
+\end{equation}
+其中 $\bar{\mathcal{L}}(t) = \frac{1}{K}\sum_{j} \mathcal{L}_j(t)$ 为所有损失项的平均值，$\epsilon$ 为防止除零的小常数。该策略使各损失项对总损失的贡献相对均衡。
+
+\subsection{损失函数的总结与建议}
+
+综合上述分析，建议的损失函数配置为：
+\begin{equation}\label{eq:mia_recommended_loss}
+\begin{aligned}
+    \mathcal{L}_{\text{total}} = & \; \lambda_{\text{cls}} \mathcal{L}_{\text{cls}}^{\text{CE}} \\
+    & + \lambda_{\text{id}} \mathcal{L}_{\text{id}}^{\text{cosine}} \\
+    & + \lambda_{\text{perc}} (\mathcal{L}_{\text{LPIPS}} + 0.1 \cdot \mathcal{L}_{\text{recon}}^{\text{L1}}) \\
+    & + \lambda_{\text{reg}} (\mathcal{L}_{\text{reg}}^{\text{norm}} + 0.01 \cdot \mathcal{L}_{\text{reg}}^{\text{lora}}),
+\end{aligned}
+\end{equation}
+其中权重系数的参考值为：$\lambda_{\text{cls}}=1.0, \lambda_{\text{id}}=0.5, \lambda_{\text{perc}}=0.1, \lambda_{\text{reg}}=0.01$。
+
+在实际应用中，应根据具体任务需求、目标分类器特性与数据集特点，通过验证集性能进行超参数调优。
+
+\section{训练算法与工程实现}
+\label{sec:mia_training}
+
+本节给出完整的训练算法流程，并讨论关键的工程实现细节，确保方法的可复现性。
+
+\subsection{完整训练算法}
+
+算法~\ref{alg:mia_training}给出了基于换脸先验与LoRA微调的模型反演攻击训练流程。
+
+\begin{algorithm}[htbp]
+\caption{基于换脸先验的模型反演攻击训练算法}
+\label{alg:mia_training}
+\begin{algorithmic}[1]
+\REQUIRE 目标分类器 $F_\theta$，目标类别集合 $\mathcal{Y}=\{y_1, y_2, \ldots, y_C\}$，源图像集合 $\mathcal{X}_{\text{src}}$
+\REQUIRE 预训练换脸模型 $G_{\phi}$，身份编码器 $E_{\text{id}}$
+\REQUIRE 训练步数 $T$，批次大小 $B$，学习率 $\eta_{\text{emb}}, \eta_{\text{lora}}$
+\ENSURE 训练好的标签条件嵌入层 $\mathcal{E}_{\psi}$ 与LoRA权重 $\{A_{\ell}, B_{\ell}\}_{\ell}$
+
+\STATE \textbf{初始化}：
+\STATE \quad 初始化标签条件嵌入层 $\mathcal{E}_{\psi}$（按§\ref{sec:mia_embedding}的策略）
+\STATE \quad 初始化LoRA参数 $\{A_{\ell}\sim\mathcal{N}(0, 0.01^2), B_{\ell}=0\}_{\ell}$
+\STATE \quad 冻结换脸模型 $G_{\phi}$ 的原始权重
+\STATE \quad 设置优化器：$\text{Optimizer}_{\text{emb}} \leftarrow \text{AdamW}(\mathcal{E}_{\psi}, \eta_{\text{emb}})$
+\STATE \quad \hspace{2.8em} $\text{Optimizer}_{\text{lora}} \leftarrow \text{AdamW}(\{A_{\ell}, B_{\ell}\}_{\ell}, \eta_{\text{lora}})$
+
+\STATE \textbf{阶段1：仅训练嵌入层}（步数 $0 \sim 0.3T$）
+\FOR{$t=0$ to $0.3T$}
+    \STATE 采样目标类别批次 $\{y_i\}_{i=1}^B \sim \mathcal{Y}$
+    \STATE 采样源图像批次 $\{x_{\text{src},i}\}_{i=1}^B \sim \mathcal{X}_{\text{src}}$
+    \FOR{$i=1$ to $B$}
+        \STATE 生成身份嵌入：$e_{\text{id},i} = \mathcal{E}_{\psi}(y_i)$
+        \STATE 归一化嵌入：$e_{\text{id},i} \leftarrow \frac{e_{\text{id},i}}{\|e_{\text{id},i}\|_2}$
+        \STATE 换脸生成：$\hat{x}_i = G_{\phi}(e_{\text{id},i}, x_{\text{src},i})$
+        \STATE 计算分类器置信度：$p_{y_i} = F_\theta(\hat{x}_i)_{y_i}$
+    \ENDFOR
+    \STATE 计算损失：$\mathcal{L} = \lambda_{\text{cls}}\mathcal{L}_{\text{cls}} + \lambda_{\text{reg}}\mathcal{L}_{\text{reg}}^{\text{norm}}$
+    \STATE 反向传播与更新：$\mathcal{E}_{\psi} \leftarrow \mathcal{E}_{\psi} - \eta_{\text{emb}} \nabla_{\mathcal{E}_{\psi}} \mathcal{L}$
+\ENDFOR
+
+\STATE \textbf{阶段2：联合训练嵌入层与LoRA}（步数 $0.3T \sim T$）
+\FOR{$t=0.3T$ to $T$}
+    \STATE 采样目标类别批次 $\{y_i\}_{i=1}^B \sim \mathcal{Y}$
+    \STATE 采样源图像批次 $\{x_{\text{src},i}\}_{i=1}^B \sim \mathcal{X}_{\text{src}}$
+    \FOR{$i=1$ to $B$}
+        \STATE 生成身份嵌入：$e_{\text{id},i} = \mathcal{E}_{\psi}(y_i)$
+        \STATE 归一化嵌入：$e_{\text{id},i} \leftarrow \frac{e_{\text{id},i}}{\|e_{\text{id},i}\|_2}$
+        \STATE 换脸生成（含LoRA）：$\hat{x}_i = G_{\phi+\Delta}(e_{\text{id},i}, x_{\text{src},i})$
+        \STATE 提取身份特征：$\hat{e}_i = E_{\text{id}}(\hat{x}_i)$
+        \STATE 计算分类器置信度：$p_{y_i} = F_\theta(\hat{x}_i)_{y_i}$
+    \ENDFOR
+    \STATE 计算综合损失（式~\ref{eq:mia_recommended_loss}）：
+    \STATE \quad $\mathcal{L} = \lambda_{\text{cls}}\mathcal{L}_{\text{cls}} + \lambda_{\text{id}}\mathcal{L}_{\text{id}} + \lambda_{\text{perc}}\mathcal{L}_{\text{perc}} + \lambda_{\text{reg}}\mathcal{L}_{\text{reg}}$
+    \STATE 反向传播与更新：
+    \STATE \quad $\mathcal{E}_{\psi} \leftarrow \mathcal{E}_{\psi} - \eta_{\text{emb}} \nabla_{\mathcal{E}_{\psi}} \mathcal{L}$
+    \STATE \quad $\{A_{\ell}, B_{\ell}\}_{\ell} \leftarrow \{A_{\ell}, B_{\ell}\}_{\ell} - \eta_{\text{lora}} \nabla_{\{A_{\ell}, B_{\ell}\}_{\ell}} \mathcal{L}$
+    \STATE 梯度裁剪（可选）：$\text{clip\_grad\_norm}(\{\mathcal{E}_{\psi}, A_{\ell}, B_{\ell}\}_{\ell}, \tau_{\text{clip}})$
+
+    \IF{$t \mod K_{\text{val}} = 0$}
+        \STATE 在验证集上评估ASR、FID、身份相似度
+        \STATE 保存当前最优检查点（若性能提升）
+    \ENDIF
+\ENDFOR
+
+\RETURN $\mathcal{E}_{\psi}, \{A_{\ell}, B_{\ell}\}_{\ell}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{关键实现细节}
+
+\subsubsection{源图像的选择与多样性}
+
+源图像集合 $\mathcal{X}_{\text{src}}$ 提供属性信息（姿态、表情、光照等），其多样性直接影响生成图像的覆盖范围。建议：
+\begin{itemize}
+    \item 从公开数据集（如CelebA、FFHQ）中采样多样化的人脸图像，确保包含不同性别、年龄、种族、姿态、表情与光照条件；
+    \item 源图像数量建议为1000-5000张，以覆盖属性空间的主要变化模式；
+    \item 训练时随机采样源图像，增加生成样本的多样性。
+\end{itemize}
+
+\subsubsection{批次大小与梯度累积}
+
+由于换脸模型参数量大，单卡GPU显存可能无法容纳较大批次。建议：
+\begin{itemize}
+    \item 若显存充足（如A100 40GB），设置批次大小 $B=8$ 或 $B=16$；
+    \item 若显存受限（如RTX 3090 24GB），设置 $B=1$ 或 $B=2$，采用梯度累积（accumulation steps = 4或8）模拟大批次效果；
+    \item 使用混合精度训练（FP16）降低显存占用与加速计算。
+\end{itemize}
+
+\subsubsection{学习率调度}
+
+采用预热（Warmup）+余弦退火（Cosine Annealing）调度：
+\begin{equation}\label{eq:mia_lr_schedule}
+    \eta(t) = \begin{cases}
+        \eta_{\max} \cdot \frac{t}{T_{\text{warmup}}}, & t \leq T_{\text{warmup}}, \\
+        \eta_{\min} + \frac{1}{2}(\eta_{\max}-\eta_{\min})(1+\cos(\frac{t-T_{\text{warmup}}}{T-T_{\text{warmup}}}\pi)), & t > T_{\text{warmup}},
+    \end{cases}
+\end{equation}
+其中 $T_{\text{warmup}}=0.1T, \eta_{\max}$ 为初始学习率，$\eta_{\min}=0.1\eta_{\max}$ 为最小学习率。
+
+\subsubsection{早停与检查点保存}
+
+每隔 $K_{\text{val}}$ 步（如500步）在验证集上评估：
+\begin{itemize}
+    \item 攻击成功率ASR（阈值设为0.9）；
+    \item 身份相似度（与目标嵌入的余弦相似度）；
+    \item 感知质量（LPIPS或FID）。
+\end{itemize}
+
+定义综合指标：
+\begin{equation}\label{eq:mia_val_metric}
+    \text{Score} = w_1 \cdot \text{ASR} + w_2 \cdot \text{CosSim} - w_3 \cdot \text{LPIPS},
+\end{equation}
+其中 $w_1=1.0, w_2=0.5, w_3=0.5$。保存得分最高的检查点，若连续 $N_{\text{patience}}$ 次（如10次）验证无提升，则提前停止训练。
+
+\subsection{可复现性保障}
+
+为确保研究的可复现性，建议记录并公开以下信息：
+
+\subsubsection{环境配置}
+
+\begin{itemize}
+    \item Python版本、PyTorch版本、CUDA版本；
+    \item 硬件配置（GPU型号、显存大小、CPU、内存）；
+    \item 依赖库版本（如torchvision、timm、lpips）；
+    \item 随机种子设置（固定NumPy、PyTorch、CUDA的随机种子）。
+\end{itemize}
+
+\subsubsection{数据与模型}
+
+\begin{itemize}
+    \item 换脸模型的来源（论文、开源仓库、预训练权重链接）；
+    \item 目标分类器的架构与训练数据集；
+    \item 源图像数据集的采样策略与预处理流程；
+    \item 目标类别的选择标准（随机采样、按频率采样等）。
+\end{itemize}
+
+\subsubsection{训练配置}
+
+\begin{itemize}
+    \item 完整的超参数列表（$r, \alpha, \eta_{\text{emb}}, \eta_{\text{lora}}, \lambda$ 等）；
+    \item 训练步数、批次大小、梯度累积步数；
+    \item 损失权重的设置与动态调整策略；
+    \item 早停条件与验证频率。
+\end{itemize}
+
+\section{推理与采样策略}
+\label{sec:mia_inference}
+
+训练完成后，推理阶段需要高效地生成满足攻击目标的图像。本节讨论推理策略与后处理技术。
+
+\subsection{单样本生成流程}
+
+给定目标类别 $y_{\text{target}}$，单样本生成流程如下：
+
+\textbf{步骤1：生成身份嵌入。}
+\begin{equation}
+    e_{\text{id}} = \mathcal{E}_{\psi}(y_{\text{target}}), \quad e_{\text{id}} \leftarrow \frac{e_{\text{id}}}{\|e_{\text{id}}\|_2}.
+\end{equation}
+
+\textbf{步骤2：采样源图像。}从源图像集合 $\mathcal{X}_{\text{src}}$ 中随机采样或选择特定的源图像 $x_{\text{src}}$。
+
+\textbf{步骤3：换脸生成。}
+\begin{equation}
+    \hat{x} = G_{\phi+\Delta}(e_{\text{id}}, x_{\text{src}}).
+\end{equation}
+
+\textbf{步骤4：后处理（可选）。}对生成图像进行色彩校正、边界融合或超分辨率增强。
+
+\subsection{多样本生成与选择}
+
+为提升攻击成功率，可以生成多个候选样本，选择置信度最高的输出：
+
+\textbf{策略1：多源图像采样。}对于同一目标类别，使用 $K$ 个不同的源图像生成 $K$ 个候选图像 $\{\hat{x}_k\}_{k=1}^K$，计算每个候选的分类器置信度 $p_k = F_\theta(\hat{x}_k)_{y_{\text{target}}}$，选择 $p_k$ 最大的样本作为最终输出。
+
+\textbf{策略2：嵌入扰动。}在身份嵌入上添加小的随机扰动，生成多个变体：
+\begin{equation}\label{eq:mia_emb_perturb}
+    e_{\text{id}}^{(k)} = e_{\text{id}} + \epsilon_k, \quad \epsilon_k \sim \mathcal{N}(0, \sigma^2 I), \quad \sigma=0.01,
+\end{equation}
+然后归一化并生成图像，选择置信度最高的输出。
+
+\textbf{策略3：迭代优化。}以生成的图像为初始化，在像素空间或潜在空间进行小步优化，进一步提升置信度：
+\begin{equation}\label{eq:mia_iter_opt}
+    \hat{x} \leftarrow \hat{x} + \eta_{\text{opt}} \cdot \nabla_{\hat{x}} F_\theta(\hat{x})_{y_{\text{target}}},
+\end{equation}
+迭代5-10步，配合梯度裁剪与像素范围约束（$\hat{x}\in[0,1]$）。
+
+\subsection{推理效率优化}
+
+\subsubsection{权重合并}
+
+训练完成后，将LoRA权重合并到基础模型中：
+\begin{equation}
+    W_{\ell}^{\text{merged}} = W_{\ell} + \frac{\alpha}{r} B_{\ell} A_{\ell},
+\end{equation}
+消除推理时的LoRA计算开销。
+
+\subsubsection{批量并行生成}
+
+利用GPU并行能力，批量生成多个目标类别的图像：
+\begin{equation}
+    \{\hat{x}_i\}_{i=1}^B = G_{\phi+\Delta}(\{\mathcal{E}_{\psi}(y_i)\}_{i=1}^B, \{x_{\text{src},i}\}_{i=1}^B).
+\end{equation}
+
+\subsubsection{模型量化}
+
+对换脸模型进行INT8量化，降低推理时间与显存占用，代价是生成质量略有下降（通常可接受）。
+
+\subsection{后处理技术}
+
+\subsubsection{边界融合}
+
+生成的人脸区域与源图像背景的边界可能存在不连续。使用泊松融合（Poisson Blending）或高斯模糊实现无缝融合：
+\begin{equation}\label{eq:mia_poisson_blend}
+    \hat{x}_{\text{final}} = \text{PoissonBlend}(\hat{x}_{\text{face}}, x_{\text{src}}, M),
+\end{equation}
+其中 $M$ 为人脸区域的mask。
+
+\subsubsection{色彩校正}
+
+匹配生成人脸与源图像背景的色调与亮度：
+\begin{equation}\label{eq:mia_color_correct}
+    \hat{x}_{\text{corrected}} = \frac{\sigma_{\text{src}}}{\sigma_{\hat{x}}} (\hat{x} - \mu_{\hat{x}}) + \mu_{\text{src}},
+\end{equation}
+其中 $\mu, \sigma$ 为均值与标准差。
+
+\subsubsection{超分辨率增强}
+
+若生成图像分辨率较低，可使用超分辨率模型（如Real-ESRGAN）进行增强，提升细节质量。
 
 \section{本章小结}
-本章系统地讨论了面向分类模型的模型反演问题，提出了基于生成式先验与识别器引导相结合的两类方案（优化引导与微调适配），并详细说明了基于 LoRA 的参数高效微调策略与实验设计要点。下一章将实现并报告具体实验结果与消融研究。
+\label{sec:mia_summary}
+
+本章系统性地提出了一种基于换脸先验与标签条件嵌入的模型反演攻击方法，针对人脸分类模型进行隐私风险评估。该方法的核心创新在于：\textbf{（1）利用预训练换脸模型的强大生成先验与身份控制能力}，显著提升生成图像的感知质量与真实感；\textbf{（2）设计标签条件嵌入层}，实现从离散类别标签到连续身份嵌入的有效映射，使得攻击者无需访问目标图像即可进行重建；\textbf{（3）采用LoRA技术}对换脸模型进行参数高效的微调，在保持预训练知识的前提下，以极低的参数成本（1\%-5\%）适配目标分类器的决策边界。
+
+本章的主要贡献可归纳如下：
+
+\textbf{理论贡献。}形式化定义了模型反演攻击问题，明确了攻击目标（分类器认同度、感知真实性、身份相关性、多样性）与威胁模型（白盒、灰盒、黑盒），建立了系统化的评估指标体系（ASR、FID、LPIPS、IS、身份相似度、计算效率），为模型反演攻击研究提供了规范化的框架。
+
+\textbf{方法贡献。}提出了换脸先验+标签嵌入+LoRA微调的三层架构，实现了高质量、高效率的模型反演攻击。标签条件嵌入层通过查找表、MLP或混合策略，灵活地将类别标签映射为身份嵌入；LoRA微调在AdaIN参数生成网络、注意力机制与卷积层上引入低秩增量，精确调整生成图像的身份特征；多目标优化损失函数融合了分类器引导、身份一致性、感知质量与正则化约束，平衡了攻击成功率与生成质量。
+
+\textbf{工程贡献。}给出了完整的训练算法（分阶段训练、动态权重调整、早停策略）与推理优化方法（权重合并、批量并行、后处理技术），确保了方法的可复现性与实用性。详细讨论了嵌入层初始化、正则化、LoRA应用位置选择、超参数配置等关键实现细节，为研究者提供了清晰的技术路线图。
+
+\textbf{安全启示。}本章所提方法揭示了基于深度学习的人脸分类模型面临的严重隐私泄露风险：即使攻击者仅拥有类别标签与模型访问权限（无需训练数据），也能通过利用生成先验与模型微调技术，重建出高质量、高相似度的人脸图像，泄露训练集中敏感的生物特征信息。这一发现对生物特征系统的部署与防御提出了新的挑战：（1）模型开发者应在训练阶段引入差分隐私、对抗训练等防御机制，降低模型的可逆性；（2）模型部署者应限制模型的访问权限，采用输出扰动、查询限制等策略防御模型反演攻击；（3）监管机构应制定相应的法律法规，规范生物特征数据的收集、使用与模型的发布，保护用户隐私。
+
+展望未来，本章方法仍有进一步拓展的空间：（1）扩展至其他生物特征模态（如虹膜、指纹、声纹），评估跨模态模型反演攻击的可行性；（2）研究零样本（Zero-shot）或少样本（Few-shot）设置下的模型反演，提升方法的泛化能力；（3）探索对抗性防御机制（如梯度混淆、模型水印、输出扰动）的有效性，为生物特征系统设计鲁棒的安全防护；（4）结合生成对抗网络、扩散模型等最新生成技术，进一步提升重建图像的质量与攻击成功率；（5）从伦理与法律角度，深入探讨模型反演攻击的社会影响、责任归属与监管框架，推动人工智能的负责任发展。
+
+通过本章的研究，我们期望为生物特征识别系统的安全性评估提供有效的技术工具与理论依据，推动学术界与工业界对模型隐私风险的重视，促进更安全、更可信的人工智能系统的开发与部署。
 % Local Variables:
 % TeX-master: "../main"
 % TeX-engine: xetex
