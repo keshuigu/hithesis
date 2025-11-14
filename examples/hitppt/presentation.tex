@@ -1,0 +1,749 @@
+% !Mode:: "TeX:UTF-8"
+\documentclass[aspectratio=169,12pt]{beamer}
+
+% 使用主题
+\usetheme{Madrid}
+\usecolortheme{default}
+
+% 中文支持
+\usepackage{xeCJK}
+\setCJKmainfont{Noto Serif CJK SC}[
+  BoldFont=Noto Serif CJK SC Bold,
+  ItalicFont=Noto Serif CJK SC,
+]
+\setCJKsansfont{Noto Sans CJK SC}[
+  BoldFont=Noto Sans CJK SC Bold,
+]
+\setCJKmonofont{Noto Sans Mono CJK SC}
+
+% 其他宏包
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{tikz}
+\usetikzlibrary{positioning,shapes,arrows}
+
+% 设置
+\setbeamertemplate{navigation symbols}{}  % 隐藏导航符号
+\setbeamertemplate{caption}[numbered]     % 图表编号
+\setbeamertemplate{footline}[frame number] % 页码
+
+% 标题信息
+\title[人脸识别逆向重建方法研究]{面向人脸识别模型的逆向重建方法研究}
+\subtitle{博士学位论文答辩}
+\author[俞磊]{
+  答辩人：俞磊\\
+  导师：王莘 教授
+}
+\institute[哈工大]{
+  哈尔滨工业大学\\
+  计算学部\\
+  网络空间安全
+}
+\date{\today}
+
+\begin{document}
+
+%% 标题页
+\begin{frame}
+\titlepage
+\end{frame}
+
+%% 目录页
+\begin{frame}
+\frametitle{目录}
+\tableofcontents
+\end{frame}
+
+%% ============================================================
+%% 第一部分：研究背景与动机
+%% ============================================================
+\section{研究背景与动机}
+
+\begin{frame}
+\frametitle{研究背景}
+\begin{columns}[T]
+  \column{0.5\textwidth}
+  \textbf{人脸识别技术的广泛应用}
+  \begin{itemize}
+    \item 身份验证
+    \item 访问控制
+    \item 移动支付
+    \item 安防监控
+  \end{itemize}
+
+  \vspace{0.5cm}
+  \textbf{深度学习的突破}
+  \begin{itemize}
+    \item 特征提取能力强
+    \item 识别准确率高
+    \item 泛化性能优异
+  \end{itemize}
+
+  \column{0.5\textwidth}
+  \begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{figures/face_recognition_apps.png}
+    \caption{人脸识别应用场景}
+  \end{figure}
+\end{columns}
+\end{frame}
+
+\begin{frame}
+\frametitle{隐私安全问题}
+\begin{alertblock}{核心问题}
+人脸识别系统在提供便捷服务的同时，面临着严重的\textbf{隐私泄露风险}
+\end{alertblock}
+
+\vspace{0.5cm}
+
+\begin{columns}[T]
+  \column{0.5\textwidth}
+  \textbf{模板泄露风险}
+  \begin{itemize}
+    \item 特征模板存储不安全
+    \item 数据库可能被攻击
+    \item 模板包含敏感信息
+  \end{itemize}
+
+  \column{0.5\textwidth}
+  \textbf{模型隐私风险}
+  \begin{itemize}
+    \item 模型记忆训练数据
+    \item API接口暴露信息
+    \item 输出可被恶意利用
+  \end{itemize}
+\end{columns}
+
+\vspace{0.5cm}
+\begin{block}{研究必要性}
+需要评估系统的隐私泄露程度，为安全部署提供指导
+\end{block}
+\end{frame}
+
+\begin{frame}
+\frametitle{两类隐私威胁}
+\begin{columns}[T]
+  \column{0.5\textwidth}
+  \begin{block}{模板逆向攻击 (TIA)}
+  \textbf{攻击目标：}已泄露的特征模板\\
+  \textbf{攻击目的：}重建可识别的人脸图像\\
+  \textbf{威胁场景：}数据库泄露
+  \end{block}
+
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/tia_pipeline.png}
+    \caption{TIA攻击流程}
+  \end{figure}
+
+  \column{0.5\textwidth}
+  \begin{block}{模型反演攻击 (MIA)}
+  \textbf{攻击目标：}训练好的分类模型\\
+  \textbf{攻击目的：}重建训练数据特征\\
+  \textbf{威胁场景：}API查询
+  \end{block}
+
+  \begin{figure}
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/mia_pipeline.png}
+    \caption{MIA攻击流程}
+  \end{figure}
+\end{columns}
+\end{frame}
+
+\begin{frame}
+\frametitle{现有方法的局限性}
+\begin{table}
+\centering
+\small
+\caption{现有攻击方法的主要问题}
+\begin{tabular}{lll}
+\toprule
+\textbf{类别} & \textbf{代表方法} & \textbf{主要局限} \\
+\midrule
+TIA方法 & GAN Inversion & 视觉质量差、训练不稳定 \\
+        & NBNet & 身份一致性有限 \\
+\midrule
+MIA方法 & GMI & 攻击成功率低 \\
+        & BREP-MI & 生成多样性不足 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{0.5cm}
+\begin{exampleblock}{改进方向}
+\begin{itemize}
+  \item 引入更强大的生成先验（扩散模型、换脸模型）
+  \item 设计高效的微调策略（参数高效）
+  \item 建立全面的评估体系
+\end{itemize}
+\end{exampleblock}
+\end{frame}
+
+%% ============================================================
+%% 第二部分：研究内容
+%% ============================================================
+\section{研究内容与方法}
+
+\begin{frame}
+\frametitle{研究内容概览}
+\begin{figure}
+\centering
+\begin{tikzpicture}[
+  node distance=1.5cm,
+  box/.style={rectangle, draw, fill=blue!20, text width=3cm, text centered, rounded corners, minimum height=1cm},
+  arrow/.style={->, >=stealth, thick}
+]
+  \node[box] (problem) {问题形式化};
+  \node[box, below of=problem] (tia) {TIA方法设计};
+  \node[box, below of=tia] (mia) {MIA方法设计};
+  \node[box, below of=mia] (exp) {实验验证与分析};
+
+  \draw[arrow] (problem) -- (tia);
+  \draw[arrow] (tia) -- (mia);
+  \draw[arrow] (mia) -- (exp);
+\end{tikzpicture}
+\caption{研究技术路线}
+\end{figure}
+\end{frame}
+
+\subsection{TIA方法：基于扩散模型}
+
+\begin{frame}
+\frametitle{TIA方法架构}
+\begin{figure}
+  \centering
+  \includegraphics[width=0.9\textwidth]{figures/tia_architecture.png}
+  \caption{基于扩散模型的TIA方法架构}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{生成先验：}明晰扩散模型（EDM）
+  \item \textbf{条件引导：}交叉注意力 + Classifier-free guidance
+  \item \textbf{微调策略：}LoRA参数高效微调（r=8）
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\frametitle{TIA关键技术}
+\begin{columns}[T]
+  \column{0.5\textwidth}
+  \textbf{1. 条件注入机制}
+  \begin{itemize}
+    \item 目标模板嵌入
+    \item 交叉注意力融合
+    \item 引导强度调节
+  \end{itemize}
+
+  \vspace{0.3cm}
+  \textbf{2. LoRA微调}
+  \begin{itemize}
+    \item 仅微调8.4M参数（5.9\%）
+    \item 性能接近全参数微调
+    \item 计算成本降低60-70\%
+  \end{itemize}
+
+  \column{0.5\textwidth}
+  \textbf{3. 损失函数设计}
+  \begin{equation*}
+  \mathcal{L} = \mathcal{L}_{\text{denoise}} + 0.5\mathcal{L}_{\text{id}} + 0.01\mathcal{L}_{\text{reg}}
+  \end{equation*}
+
+  \vspace{0.3cm}
+  其中：
+  \begin{itemize}
+    \item $\mathcal{L}_{\text{denoise}}$: 去噪损失
+    \item $\mathcal{L}_{\text{id}}$: 身份一致性损失
+    \item $\mathcal{L}_{\text{reg}}$: 正则化损失
+  \end{itemize}
+\end{columns}
+\end{frame}
+
+\subsection{MIA方法：基于换脸先验}
+
+\begin{frame}
+\frametitle{MIA方法架构}
+\begin{figure}
+  \centering
+  \includegraphics[width=0.9\textwidth]{figures/mia_architecture.png}
+  \caption{基于换脸先验的MIA方法架构}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{生成先验：}换脸模型（SimSwap）
+  \item \textbf{身份编码：}基于textual inversion的可学习嵌入
+  \item \textbf{微调策略：}编码器+解码器联合微调（r=16）
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\frametitle{MIA关键技术}
+\begin{block}{核心创新}
+首次将换脸模型的身份解耦能力应用于模型反演任务
+\end{block}
+
+\vspace{0.5cm}
+
+\begin{columns}[T]
+  \column{0.5\textwidth}
+  \textbf{身份嵌入学习}
+  \begin{itemize}
+    \item 512维可学习向量
+    \item 直接在特征空间优化
+    \item 相比文本嵌入提升14.1\%
+  \end{itemize}
+
+  \column{0.5\textwidth}
+  \textbf{LoRA层级选择}
+  \begin{itemize}
+    \item 同时微调编码器和解码器
+    \item 秩r=16, α=32
+    \item 适配特征提取和图像生成
+  \end{itemize}
+\end{columns}
+
+\vspace{0.5cm}
+
+\begin{exampleblock}{对抗训练增强}
+引入鉴别器进一步提升生成真实性，Top-1准确率从82\%提升至84\%
+\end{exampleblock}
+\end{frame}
+
+%% ============================================================
+%% 第三部分：实验结果
+%% ============================================================
+\section{实验结果与分析}
+
+\begin{frame}
+\frametitle{实验配置}
+\begin{columns}[T]
+  \column{0.5\textwidth}
+  \textbf{数据集}
+  \begin{itemize}
+    \item CelebA-HQ (30K)
+    \item LFW (13K)
+    \item MegaFace (100K)
+    \item VGGFace2 (3.3M)
+  \end{itemize}
+
+  \vspace{0.3cm}
+  \textbf{基准方法}
+  \begin{itemize}
+    \item TIA: NBNet, DeepInversion
+    \item MIA: BREP-MI, GMI
+  \end{itemize}
+
+  \column{0.5\textwidth}
+  \textbf{评估指标}
+  \begin{itemize}
+    \item 识别一致性：TAR@FAR, Top-k Acc
+    \item 视觉质量：FID, LPIPS, IS
+    \item 身份保持度：余弦相似度
+    \item 生成多样性：Div-LPIPS
+  \end{itemize}
+
+  \vspace{0.3cm}
+  \textbf{统计分析}
+  \begin{itemize}
+    \item 5次重复实验
+    \item 配对t检验（p<0.01）
+    \item 效应量分析（Cohen's d）
+  \end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}
+\frametitle{TIA实验结果}
+\begin{table}
+\centering
+\footnotesize
+\caption{TIA方法定量性能对比（LFW测试集）}
+\vspace{-0.2cm}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{方法} & \textbf{TAR@FAR} & \textbf{FID↓} & \textbf{LPIPS↓} & \textbf{IS↑} \\
+\midrule
+GAN Inversion & 0.54 & 41.2 & 0.398 & 3.67 \\
+DeepInversion & 0.61 & 38.9 & 0.376 & 3.82 \\
+NBNet & 0.73 & 32.1 & 0.342 & 4.15 \\
+\midrule
+TIA (无微调) & 0.43 & 45.1 & 0.401 & 3.48 \\
+TIA (LoRA) & \textbf{0.92} & \textbf{22.3} & \textbf{0.313} & \textbf{4.58} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{-0.1cm}
+\begin{block}{关键发现}
+\begin{itemize}
+  \item TAR@FAR提升\textbf{26\%} (0.73→0.92)，FID降低\textbf{30\%}
+  \item LoRA微调效果显著：TAR@FAR从43\%→92\% (相对提升\textbf{114\%})
+\end{itemize}
+\end{block}
+\end{frame}
+
+\begin{frame}
+\frametitle{TIA定性结果}
+\begin{figure}
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/tia_qualitative.png}
+  \caption{TIA生成示例：真实图像、NBNet、TIA (LoRA r=8)}
+\end{figure}
+
+\vspace{-0.4cm}
+\begin{itemize}
+  \item TIA图像真实感更强，面部细节清晰
+  \item 光照合理，身份特征保持准确
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\frametitle{MIA实验结果}
+\begin{table}
+\centering
+\footnotesize
+\caption{MIA方法定量性能对比（VGGFace2测试集）}
+\vspace{-0.2cm}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{方法} & \textbf{Top-1↑} & \textbf{Top-5↑} & \textbf{FID↓} & \textbf{Div↑} \\
+\midrule
+GMI & 0.42 & 0.68 & 48.7 & 0.287 \\
+PLGMI & 0.61 & 0.81 & 38.1 & 0.318 \\
+BREP-MI & 0.68 & 0.85 & 35.4 & 0.329 \\
+\midrule
+MIA (文本) & 0.64 & 0.82 & 39.5 & 0.358 \\
+MIA (身份) & 0.73 & 0.88 & 33.7 & 0.372 \\
+MIA (LoRA) & \textbf{0.82} & \textbf{0.93} & \textbf{27.2} & \textbf{0.394} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{-0.1cm}
+\begin{block}{关键发现}
+\begin{itemize}
+  \item Top-1准确率提升\textbf{20.6\%} (0.68→0.82)，FID降低\textbf{23.2\%}
+  \item 生成多样性提升\textbf{19.8\%}，同时保持高质量
+\end{itemize}
+\end{block}
+\end{frame}
+
+\begin{frame}
+\frametitle{MIA定性结果}
+\begin{figure}
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/mia_qualitative.png}
+  \caption{MIA生成示例：真实图像、BREP-MI、MIA (LoRA r=16)}
+\end{figure}
+
+\vspace{-0.4cm}
+\begin{itemize}
+  \item 面部特征重建准确（眼睛、鼻子、嘴唇）
+  \item 多样性合理，避免模式崩溃
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\frametitle{消融研究：LoRA秩的影响}
+\begin{columns}[T]
+  \column{0.5\textwidth}
+  \begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{figures/ablation_lora_rank.png}
+    \caption{不同LoRA秩的性能对比}
+  \end{figure}
+
+  \column{0.5\textwidth}
+  \textbf{TIA方法}
+  \begin{itemize}
+    \item r=4: TAR@FAR=0.84
+    \item r=8: TAR@FAR=0.92 ✓
+    \item r=16: TAR@FAR=0.93
+  \end{itemize}
+
+  \vspace{0.3cm}
+  \textbf{MIA方法}
+  \begin{itemize}
+    \item r=8: Top-1=0.78
+    \item r=16: Top-1=0.82 ✓
+    \item r=32: Top-1=0.83
+  \end{itemize}
+\end{columns}
+
+\vspace{0.3cm}
+\begin{block}{结论}
+TIA最佳秩r=8，MIA最佳秩r=16，继续增大秩收益递减但成本显著增加
+\end{block}
+\end{frame}
+
+\begin{frame}
+\frametitle{跨识别器泛化能力}
+\begin{table}
+\centering
+\small
+\caption{TIA在不同识别器下的性能}
+\begin{tabular}{lccc}
+\toprule
+\textbf{训练/测试识别器} & \textbf{TAR@FAR(1e-3)} & \textbf{相对下降} \\
+\midrule
+ArcFace / ArcFace & 0.92 ± 0.01 & -- \\
+ArcFace / CosFace & 0.78 ± 0.02 & 15\% \\
+ArcFace / AdaFace & 0.81 ± 0.02 & 12\% \\
+\midrule
+多识别器联合训练 / ArcFace & 0.90 ± 0.01 & 2\% \\
+多识别器联合训练 / CosFace & 0.86 ± 0.02 & 7\% \\
+多识别器联合训练 / AdaFace & 0.87 ± 0.01 & 5\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{exampleblock}{改进策略}
+通过多识别器联合训练，可显著提升跨识别器泛化性
+\end{exampleblock}
+\end{frame}
+
+%% ============================================================
+%% 第四部分：主要贡献
+%% ============================================================
+\section{主要贡献与创新}
+
+\begin{frame}
+\frametitle{主要贡献}
+\begin{enumerate}
+  \item<1->  \textbf{威胁建模系统化}
+  \begin{itemize}
+    \item 首次明确区分并形式化TIA与MIA两类攻击
+    \item 建立统一的威胁建模框架
+  \end{itemize}
+
+  \item<2-> \textbf{方法创新}
+  \begin{itemize}
+    \item 首个基于扩散模型的TIA方法
+    \item 首个利用换脸先验的MIA方法
+    \item 系统应用LoRA参数高效微调技术
+  \end{itemize}
+
+  \item<3-> \textbf{实验贡献}
+  \begin{itemize}
+    \item 建立全面的多维度评估体系
+    \item 提供开源实现与可复现性保障
+    \item 系统化的消融研究和泛化评估
+  \end{itemize}
+
+  \item<4-> \textbf{理论洞见}
+  \begin{itemize}
+    \item 揭示生成先验的决定性作用
+    \item 验证参数高效微调的有效性
+    \item 分析身份特征与视觉质量的内在联系
+  \end{itemize}
+\end{enumerate}
+\end{frame}
+
+\begin{frame}
+\frametitle{核心创新点}
+\begin{block}{1. 生成先验的创新选择}
+\begin{itemize}
+  \item 扩散模型用于TIA：强大的生成能力 + 训练稳定性
+  \item 换脸模型用于MIA：天然的身份解耦和保持能力
+\end{itemize}
+\end{block}
+
+\begin{block}{2. 参数高效微调的系统应用}
+\begin{itemize}
+  \item TIA：仅5.9\%参数，TAR@FAR提升114\%
+  \item MIA：同时微调编码器和解码器，Top-1提升20.6\%
+  \item 计算成本降低60-70\%，显存需求减少50-60\%
+\end{itemize}
+\end{block}
+
+\begin{block}{3. 条件引导机制的精细设计}
+\begin{itemize}
+  \item TIA：交叉注意力 + Classifier-free guidance
+  \item MIA：基于textual inversion的身份嵌入学习
+\end{itemize}
+\end{block}
+\end{frame}
+
+\begin{frame}
+\frametitle{实验方法论贡献}
+\begin{columns}[T]
+  \column{0.5\textwidth}
+  \textbf{评估体系}
+  \begin{itemize}
+    \item 识别一致性指标
+    \item 视觉质量指标
+    \item 身份保持与多样性
+  \end{itemize}
+
+  \vspace{0.2cm}
+  \textbf{统计分析}
+  \begin{itemize}
+    \item 配对t检验
+    \item 效应量分析
+    \item 多重比较校正
+  \end{itemize}
+
+  \column{0.5\textwidth}
+  \textbf{消融研究}
+  \begin{itemize}
+    \item LoRA秩选择
+    \item 采样步数与引导强度
+    \item 嵌入策略与层级选择
+  \end{itemize}
+
+  \vspace{0.2cm}
+  \textbf{泛化评估}
+  \begin{itemize}
+    \item 跨数据集测试
+    \item 跨识别器测试
+  \end{itemize}
+\end{columns}
+
+\vspace{0.3cm}
+\begin{exampleblock}{开源贡献}
+所有代码、配置、评估脚本已开源，确保可复现性
+\end{exampleblock}
+\end{frame}
+
+%% ============================================================
+%% 第五部分：总结与展望
+%% ============================================================
+\section{总结与展望}
+
+\begin{frame}
+\frametitle{研究成果总结}
+\begin{block}{核心发现}
+即使被认为安全的特征模板和深度模型，在面对精心设计的攻击时仍可能泄露大量隐私信息
+\end{block}
+
+\vspace{0.3cm}
+
+\begin{columns}[T]
+  \column{0.5\textwidth}
+  \textbf{TIA方法}
+  \begin{itemize}
+    \item TAR@FAR: 92\%
+    \item 相比NBNet提升26\%
+    \item FID降低30\%
+  \end{itemize}
+
+  \column{0.5\textwidth}
+  \textbf{MIA方法}
+  \begin{itemize}
+    \item Top-1 Acc: 82\%
+    \item 相比BREP-MI提升20.6\%
+    \item FID降低23.2\%
+  \end{itemize}
+\end{columns}
+
+\vspace{0.5cm}
+
+\begin{exampleblock}{实践意义}
+\begin{itemize}
+  \item 可作为安全评估工具，帮助识别系统漏洞
+  \item 建立了标准化评估基准和可复现实验平台
+  \item 为后续研究提供了方法论指导
+\end{itemize}
+\end{exampleblock}
+\end{frame}
+
+\begin{frame}
+\frametitle{研究局限}
+\begin{alertblock}{当前局限}
+\begin{enumerate}
+  \item \textbf{数据代表性}：主要基于高质量公开数据集，在野外低质量数据上的泛化能力有待验证
+
+  \item \textbf{计算资源需求}：尽管引入LoRA降低成本，但训练推理仍需较大计算资源（10-20 GPU小时/实验）
+
+  \item \textbf{可解释性不足}：主要从实证角度验证有效性，对深层机制缺乏充分理论解释
+
+  \item \textbf{跨架构泛化}：针对特定识别器优化的方法在其他识别器上性能下降15-17\%
+\end{enumerate}
+\end{alertblock}
+\end{frame}
+
+\begin{frame}
+\frametitle{未来研究方向}
+\begin{columns}[T]
+  \column{0.5\textwidth}
+  \textbf{1. 扩展到更真实场景}
+  \begin{itemize}
+    \item 野外低质量数据
+    \item 跨年龄、跨姿态、跨光照
+    \item 视频人脸识别
+    \item 其他生物特征
+  \end{itemize}
+
+  \vspace{0.3cm}
+  \textbf{2. 提升效率与泛化}
+  \begin{itemize}
+    \item 代理模型迁移攻击
+    \item 少样本/零样本反演
+    \item 模型蒸馏、剪枝、量化
+    \item 使用更大预训练模型
+  \end{itemize}
+
+  \column{0.5\textwidth}
+  \textbf{3. 增强可解释性}
+  \begin{itemize}
+    \item 分析扩散时间步贡献
+    \item 可视化特征空间演化
+    \item 识别关键身份区域
+    \item 建立可解释映射模型
+  \end{itemize}
+
+  \vspace{0.3cm}
+  \textbf{4. 伦理与理论深化}
+  \begin{itemize}
+    \item 隐私风险量化框架
+    \item 法律法规研究
+    \item 隐私影响评估工具
+    \item 攻击成功率理论界
+    \item 博弈论分析框架
+  \end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}
+\frametitle{结束语}
+\begin{block}{研究意义}
+本研究通过系统性的理论分析、方法创新和实验验证，揭示了人脸识别系统面临的严重隐私威胁，为构建更安全、更可信的生物识别系统提供了重要参考。
+\end{block}
+
+\vspace{0.5cm}
+
+\begin{alertblock}{未来展望}
+隐私保护是一个持续演进的过程。随着生成模型技术的不断进步，攻击方法也会变得更加强大和隐蔽。安全社区需要保持警惕，在隐私保护与系统可用性之间寻求动态平衡。
+\end{alertblock}
+
+\vspace{0.5cm}
+
+\begin{exampleblock}{呼吁}
+研究人员、系统开发者、政策制定者和用户应共同关注人脸识别技术的隐私风险，在技术创新的同时加强伦理约束与法律监管。
+\end{exampleblock}
+\end{frame}
+
+%% 致谢页
+\begin{frame}
+\frametitle{}
+\begin{center}
+{\Huge 感谢各位老师和专家的聆听！}
+
+\vspace{1cm}
+
+{\Large 欢迎批评指正}
+
+\vspace{2cm}
+
+\begin{tabular}{ll}
+答辩人：& 俞磊 \\
+导师：& 王莘 教授 \\
+单位：& 哈尔滨工业大学 计算学部 \\
+\end{tabular}
+\end{center}
+\end{frame}
+
+\end{document}
