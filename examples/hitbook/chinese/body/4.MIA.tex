@@ -382,55 +382,80 @@ LoRA采用标准初始化策略:矩阵 $A$ 采用高斯随机初始化 $A\sim\ma
 
 \section{多目标优化损失函数设计}
 \label{sec:mia_loss}
+本节基于 Diff-MI~\cite{li2024diffmi} 的设计思想，对原有的简单均方（MSE）感知与重建项进行替换与扩展。主要改动包括：
 
-本节构建融合多个优化目标的损失函数框架，平衡生成图像的分类器认同度、感知质量、身份一致性与正则化约束。
+- 引入扩散先验的噪声预测损失（diffusion prior loss）用于微调基于扩散的换脸主干，以保持扩散模型的数学性质；
+- 将分类器引导损失由单纯的交叉熵/均方替换为论文中建议的 top-k 改进的 max-margin 损失，并结合 p-reg 特征空间正则项；
+- 保留感知损失，但将其表述为基于深度特征的感知距离（LPIPS/加权特征差异），避免直接在像素空间使用裸 MSE。
 
-\subsection{损失函数的总体架构}
+\subsection{总体损失架构}
 
-完整的训练损失函数包含多个部分：
-\begin{equation}\label{eq:mia_total_loss}
-    \mathcal{L}_{\text{total}} = \lambda_{\text{cls}}\mathcal{L}_{\text{cls}} + \lambda_{\text{id}}\mathcal{L}_{\text{id}} + \lambda_{\text{perc}}\mathcal{L}_{\text{perc}} + \lambda_{\text{reg}}\mathcal{L}_{\text{reg}},
+在上述思想指导下，我们采用下列分项损失：
+\begin{equation}\label{eq:mia_total_loss_new}
+    \mathcal{L}_{\text{total}} = \lambda_{\text{prior}}\mathcal{L}_{\text{prior}} + \lambda_{\text{cls}}\mathcal{L}_{\text{cls}} + \lambda_{\text{id}}\mathcal{L}_{\text{id}} + \lambda_{\text{perc}}\mathcal{L}_{\text{perc}} + \lambda_{\text{reg}}\mathcal{L}_{\text{reg}}.
 \end{equation}
-其中 $\lambda_{\text{cls}}, \lambda_{\text{id}}, \lambda_{\text{perc}}, \lambda_{\text{reg}}$ 为各损失项的权重系数。
 
-\subsection{分类器引导损失}
+下面逐项定义各损失。
 
-分类器引导损失是模型反演攻击的核心优化目标,旨在最大化生成图像被目标分类器识别为目标类别的置信度。最直接的形式是交叉熵损失：
-\begin{equation}\label{eq:mia_ce_loss}
-    \mathcal{L}_{\text{cls}} = -\log F_\theta(\hat{x})_{y_{\text{target}}},
+\subsection{扩散先验损失（Diffusion Prior Loss）}
+
+当以 REFace 的潜在扩散主干作为生成先验并在其上应用 LoRA 微调时，应保证微调不会破坏扩散模型对噪声的预测能力。因此在微调过程中加入扩散先验损失：
+\begin{equation}\label{eq:mia_prior_loss}
+    \mathcal{L}_{\text{prior}} = \mathbb{E}_{z_0,\epsilon\sim\mathcal{N}(0,I),t}\left[\left\|\epsilon - \epsilon_{\theta}(z_t, t, e_{\text{id}})\right\|_2^2\right],
 \end{equation}
-其中 $F_\theta(\hat{x})_{y_{\text{target}}}$ 为目标类别的后验概率。该损失直接优化目标类别的置信度。
+其中 $z_t=\sqrt{\bar{\alpha}_t}z_0+\sqrt{1-\bar{\alpha}_t}\epsilon$ 为潜在空间的扩散扰动，$\epsilon_{\theta}$ 为 U-Net 的噪声预测网络。该项在微调阶段（尤其是对 U-Net 局部层或 LoRA 参数）保证生成先验一致性，减少因微调造成的先验畸变。
 
-\subsection{身份一致性损失}
+\subsection{改进的分类器引导损失（top-k + p-reg）}
 
-身份一致性损失确保生成图像保持目标身份特征。使用预训练的人脸识别模型提取嵌入向量,计算余弦相似度损失：
+参考 Diff-MI 的改进项，我们用 top-k max-margin 损失替换简单的交叉熵/均方：
+\begin{equation}\label{eq:mia_topk}
+    \mathcal{L}_{\text{top-k}}(x,y,k) = -\ell_y(x) + \max_{\text{k\ best } j\neq y}\; \ell_j(x),
+\end{equation}
+其中 $\ell_j(\cdot)$ 表示分类器的 logit（非归一化输出），右侧为对除目标类外前 $k$ 个最高 logit 的最大值（top-k maxes）。该设计比硬 max 更好地利用分类器的软标签信息，减缓梯度消失并提升判别性。
+
+同时加入 p-reg 特征空间正则化以约束生成样本在分类器倒数第二层特征空间内接近类别中心：
+\begin{equation}\label{eq:mia_preg}
+    \mathcal{L}_{\text{p-reg}}(p_x,y) = \left\|p_x - p_{\text{reg},y}\right\|_2^2,
+\end{equation}
+其中 $p_x$ 为样本 $x$ 在分类器 penultimate 层的激活，$p_{\text{reg},y}$ 为通过伪标签或公共数据预估的类别特征中心（参见论文中基于 pseudo-label 的估计方法）。
+
+于是我们将分类损失定义为：
+\begin{equation}\label{eq:mia_cls_new}
+    \mathcal{L}_{\text{cls}} = \mathcal{L}_{\text{top-k}} + \alpha\,\mathcal{L}_{\text{p-reg}},
+\end{equation}
+其中 $\alpha$ 为 p-reg 正则权重（经验上取 0.5~1.0 作为起点，章节实验中可调优）。
+
+\subsection{身份一致性损失（Identity Loss）}
+
+保持原有基于人脸识别嵌入的余弦相似度损失：
 \begin{equation}\label{eq:mia_id_cosine_loss}
-    \mathcal{L}_{\text{id}} = 1 - \frac{\langle E_{\text{id}}(\hat{x}), e_{\text{id}} \rangle}{\|E_{\text{id}}(\hat{x})\|_2 \|e_{\text{id}}\|_2},
+    \mathcal{L}_{\text{id}} = 1 - \frac{\langle E_{\text{id}}(\hat{x}), e_{\text{id}} \rangle}{\|E_{\text{id}}(\hat{x})\|_2 \|e_{\text{id}}\|_2}.
 \end{equation}
-其中 $E_{\text{id}}(\cdot)$ 为身份编码器,$e_{\text{id}}$ 为标签条件嵌入层生成的目标身份嵌入。
 
-\subsection{感知质量损失}
+\subsection{感知质量损失（Perceptual Loss）}
 
-感知质量损失确保生成图像在视觉上真实自然。采用基于深度网络的感知特征计算图像相似度：
-\begin{equation}\label{eq:mia_lpips_loss}
-    \mathcal{L}_{\text{perc}} = \sum_{\ell=1}^L w_{\ell} \|\phi_{\ell}(\hat{x}) - \phi_{\ell}(x_{\text{src}})\|_2^2,
+感知损失不再采用像素空间的裸 MSE，而是采用基于深度特征的 LPIPS 或加权特征差异：
+\begin{equation}\label{eq:mia_lpips_loss_new}
+    \mathcal{L}_{\text{perc}} = \sum_{\ell=1}^L w_{\ell} \left\|\phi_{\ell}(\hat{x}) - \phi_{\ell}(x_{\text{src}})\right\|_2^2,
 \end{equation}
-其中 $\phi_{\ell}$ 为预训练网络的第 $\ell$ 层特征。该损失鼓励生成图像与源图像在感知特征上接近,保持纹理、光照等属性的自然性。
+其中 $\phi_{\ell}$ 为预训练感知网络（如 VGG 或 AlexNet）的第 $\ell$ 层特征，$w_{\ell}$ 为层权重。实际实现时建议直接使用 LPIPS 度量作为 $\mathcal{L}_{\text{perc}}$，其在主观感知与数值指标上均表现更好。
 
-\subsection{正则化损失}
+\subsection{正则化与 LoRA 项}
 
-正则化损失防止过拟合与参数发散：
-\begin{equation}\label{eq:mia_reg_total}
-    \mathcal{L}_{\text{reg}} = \sum_{y=1}^C (\|e_y\|_2 - 1)^2 + \lambda_{\text{lora}} \sum_{\ell} (\|A_{\ell}\|_F^2 + \|B_{\ell}\|_F^2),
+正则化项保持对嵌入范数与 LoRA 参数的约束：
+\begin{equation}\label{eq:mia_reg_total_new}
+    \mathcal{L}_{\text{reg}} = \sum_{y=1}^C (\|e_y\|_2 - 1)^2 + \lambda_{\text{lora}} \sum_{\ell} (\|A_{\ell}\|_F^2 + \|B_{\ell}\|_F^2).
 \end{equation}
-其中第一项为嵌入范数约束,第二项为LoRA参数的L2正则化。
 
-\subsection{损失函数配置}
+\subsection{训练与采样阶段的应用说明}
 
-综合上述损失项,总损失函数为：
-\begin{equation}\label{eq:mia_total_loss}
-    \mathcal{L}_{\text{total}} = \lambda_{\text{cls}} \mathcal{L}_{\text{cls}} + \lambda_{\text{id}} \mathcal{L}_{\text{id}} + \lambda_{\text{perc}} \mathcal{L}_{\text{perc}} + \lambda_{\text{reg}} \mathcal{L}_{\text{reg}}.
-\end{equation}
+为兼顾先验保真与攻击效果，我们建议采用分阶段训练策略：
+- 阶段1（嵌入预训练）：冻结换脸主干，仅训练标签嵌入与小量 LoRA 参数，主要优化 $\mathcal{L}_{\text{cls}} + \lambda_{\text{id}}\mathcal{L}_{\text{id}} + \lambda_{\text{perc}}\mathcal{L}_{\text{perc}}$；此阶段可适当减弱 $\mathcal{L}_{\text{prior}}$ 权重。
+- 阶段2（微调保真）：开启 LoRA 参数更多层的训练，并加入 $\mathcal{L}_{\text{prior}}$ 以保持扩散先验，同时以 $\mathcal{L}_{\text{cls}}$ 引导攻击性增强。微调时 LoRA 学习率宜低于嵌入层学习率（例如 $\beta\in[0.01,0.1]$ 的比例）。
+
+在推理（攻击）阶段，可沿用论文的 IIR/迭代重建策略，将训练得到的 target-specific 条件扩散模型与上文的 $\mathcal{L}_{\text{cls}}$ 结合，用 PGD 等方法进一步提升最终样本的分类器置信度（参考 Diff-MI 的 step-2）。
+
+本节的改动保持了感知质量与身份一致性的设计思路，但用更鲁棒且对扩散模型友好的先验损失与改进分类损失替代了原先可能的简单 MSE 方案，从而在准确率与生成质量之间取得更好的平衡。
 
 \section{训练与推理流程}
 \label{sec:mia_training}
