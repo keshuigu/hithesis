@@ -1,0 +1,1012 @@
+374
+
+IEEE TRANSACTIONS ON BIOMETRICS, BEHAVIOR, AND IDENTITY SCIENCE, VOL. 6, NO. 3, JULY 2024
+
+Template Inversion Attack Using Synthetic Face
+Images Against Real Face Recognition Systems
+Hatef Otroshi Shahreza , Graduate Student Member, IEEE, and Sébastien Marcel
+
+Abstract—In this paper, we use synthetic data and propose
+a new method for template inversion attacks against face
+recognition systems. We use synthetic data to train a face
+reconstruction model to generate high-resolution (i.e., 1024 ×
+1024) face images from facial templates. To this end, we use
+a face generator network to generate synthetic face images
+and extract their facial templates using the face recognition
+model as our training set. Then, we use the synthesized dataset
+to learn a mapping from facial templates to the intermediate
+latent space of the same face generator network. We propose
+our method for both whitebox and blackbox TI attacks. Our
+experiments show that the trained model with synthetic data
+can be used to reconstruct face images from templates extracted
+from real face images. In our experiments, we compare our
+method with previous methods in the literature in attacks against
+different state-of-the-art face recognition models on four different
+face datasets, including the MOBIO, LFW, AgeDB, and IJB-C
+datasets, demonstrating the effectiveness of our proposed method
+on real face recognition datasets. Experimental results show our
+method outperforms previous methods on high-resolution 2D
+face reconstruction from facial templates and achieve competitive
+results with SOTA face reconstruction methods. Furthermore,
+we conduct practical presentation attacks using the generated
+face images in digital replay attacks against real face recognition
+systems, showing the vulnerability of face recognition systems to
+presentation attacks based on our TI attack (with synthetic train
+data) on real face datasets.
+Index Terms—Face recognition, face reconstruction, real face
+image, synthetic face image, template inversion.
+
+I. I NTRODUCTION
+UTOMATED face recognition (FR) systems are spreading worldwide and are increasingly present in our
+everyday lives, with applications from unlocking a smartphone
+to border control checkpoints, etc. Typically, in state-of-the-art
+(SOTA) FR systems a deep neural network is used to extract
+some features (also called “embeddings” or “templates”) from
+face images. These features are stored in the systems’ database
+
+A
+
+Manuscript received 17 July 2023; revised 28 November 2023, 10 January
+2024, and 27 February 2024; accepted 12 April 2024. Date of publication
+22 April 2024; date of current version 19 July 2024. This work was
+supported by the H2020 TReSPAsS-ETN Marie Sklodowska-Curie Early
+Training Network under Grant 860813. This article was recommended for
+publication by Associate Editor Z. Zhang upon evaluation of the reviewers’
+comments. (Corresponding author: Hatef Otroshi Shahreza.)
+Hatef Otroshi Shahreza is with the Biometrics Security and Privacy Group,
+Idiap Research Institute, 1920 Martigny, Switzerland, and also with the School
+of Engineering, École Polytechnique Fédérale de Lausanne, 1015 Lausanne,
+Switzerland (e-mail: hatef.otroshi@epfl.ch).
+Sébastien Marcel is with the Biometrics Security and Privacy Group, Idiap
+Research Institute, 1920 Martigny, Switzerland, and also with the School of
+Criminal Justice, Université de Lausanne, 1015 Lausanne, Switzerland.
+Digital Object Identifier 10.1109/TBIOM.2024.3391759
+
+Fig. 1. Sample real face images from the LFW dataset (first row) and their
+reconstructed images (second row) using from facial templates extracted by
+ArcFace. The values below each image show the cosine similarity between
+the corresponding templates of original and reconstructed face images. The
+decision threshold corresponding to FMR = 10−3 is 0.24 on the LFW dataset.
+
+during the registration stage and are later used for recognition.
+Thereby, the facial features can represent the face in a
+compressed space, and thus have important information about
+the face of each subject.
+With the growth of FR systems for authentication and
+security applications, different types of attacks against FR
+systems are studied in the literature [1], [2], [3], [4], [5], [6],
+[7]. Among different potential attacks against FR systems,
+template inversion (TI) can put both the security and privacy
+of users in jeopardy. In a TI attack, an adversary gains access
+to a facial template and aims to invert it to reconstruct the
+underlying face image. Reconstructing the underlying face
+image can reveal privacy-sensitive information about subjects.
+Moreover, the adversary can use the reconstructed face image
+to enter the system, and thus cause a security threat against
+the FR system.
+On the other side, the recent growth in the development
+of generative models and synthetic data has created new
+problems and perspectives in the research landscape of FR
+systems [8]. In this paper, we focus on TI attacks against
+FR systems and propose a new method to reconstruct highresolution (i.e., 1024×1024) face images from facial templates
+using synthetic data in our training. We use StyleGAN [9]
+as a face generator network to generate synthetic face images
+and extract their facial templates. During the generation of
+synthetic face images for our training dataset, we also keep the
+intermediate latent codes of StyleGAN when synthesizing each
+face image. Then, we learn a mapping from facial templates to
+the intermediate latent space of StyleGAN. The trained model
+with synthetic data can be used to reconstruct face images
+
+c 2024 IEEE. Personal use is permitted, but republication/redistribution requires IEEE permission.
+2637-6407 
+See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: Harbin Institute of Technology. Downloaded on May 14,2025 at 07:12:48 UTC from IEEE Xplore. Restrictions apply.
+
+OTROSHI SHAHREZA AND MARCEL: TEMPLATE INVERSION ATTACK USING SYNTHETIC FACE IMAGES
+
+from templates extracted from real face images. We propose
+our method for both whitebox (i.e., internal functioning and
+parameters of feature extractor are known) and blackbox (i.e.,
+the internal functioning of feature extractor is unknown) TI
+attacks. In our experiments, we compare our method with
+previous methods in the literature in terms of adversary’s
+success attack rate (SAR)1 in attacks against different state-ofthe-art face recognition models on four different face datasets,
+including the MOBIO [10], LFW [11], AgeDB [12], and IJBC [13] datasets. In addition, we perform practical presentation
+attacks using the generated face images in TI attacks against
+real FR systems. We conduct digital replay attacks and
+evaluate the vulnerability of FR systems to presentation attacks
+based on our TI attack (with synthetic train data) on real
+face datasets. Fig. 1 shows sample face images from the LFW
+dataset and their corresponding reconstructed face images in
+whitebox attack against ArcFace [14] templates.
+To elucidate the contributions of our paper, we list them
+hereunder:
+• We propose a method based on synthetic data to reconstruct high-resolution face images from facial templates
+in TI attacks against FR systems. To train the face
+reconstruction model is trained using synthetic data only
+and the reconstructed face images can be used in TI
+attacks against FR systems with real face images.
+• Our method can be used in whitebox and blackbox TI
+attacks against FR systems. Experimental results show
+our method outperforms previous methods on highresolution 2D face reconstruction from facial templates
+and achieves competitive results with SOTA face reconstruction methods.
+• We provide extensive experimental results on four different FR datasets, demonstrating the effectiveness of
+our face reconstruction method on real face images. We
+also conduct presentation attacks using reconstructed face
+images, which shows the vulnerability of face recognition
+systems to our TI attacks.
+The remainder of the paper is organized as follows.
+We first review the related work in Section II. Then, we
+describe our threat model and present our proposed method in
+Section III. We report our experimental results in Section IV
+and discuss our results. Finally, we conclude the paper in
+Section V.
+II. R ELATED W ORK
+Previous template inversion methods in the literature can
+be categorized into optimization-based and learning-based
+methods. While optimization-based methods are slow in the
+inference stage, they do not require training stage, and thus
+do not need training data. In contrast, learning-based methods are faster in the inference stage, but require training
+stage and training data. While most learning-based methods in the literature used real training data, synthetic data
+can be an alternative option, which eases the attack by
+eliminating the necessity for real training data for the adversary. From the adversary’s knowledge of the FR model, TI
+1 also referred to as attack success rate (ASR).
+
+375
+
+attacks can also be categorized into whitebox and blackbox
+attacks.
+In addition to the method basis and training data, previous
+works in the literature can be categorized based on the
+output resolution, i.e., low-resolution (e.g., 112 × 112) or
+high-resolution (e.g., 1024 × 1024) reconstructed face images.
+However, most works in the literature generate low-resolution
+face images [15], [16], [17], [18], [19], [20], [21]. In [15],
+an optimization-based method for whitebox TI attacks was
+proposed, where starting from a random noise or a guiding
+image an iterative gradient-ascend approach is used to generate
+an image that has a similar facial template. The authors also
+used multiple regularization terms to generate smooth images.
+They also used the same loss function to train a convolutional
+neural network (CNN) to reconstruct face images. For evaluation of their method, they reported only sample reconstructed
+images and discussed the visual quality of the reconstruction.
+Similarly, in [16], a learning-based method for low-resolution
+whitebox TI attacks was proposed, where a CNN network was
+used to reconstruct face images. To train this CNN, several
+loss terms were used to optimize the pixel-level reconstruction
+quality, and one loss term used the feature extractor of the
+whitebox FR model to preserve identity in the reconstructed
+face images. For the security evaluation, the reconstructed face
+images were injected into the FR system and the adversary’s
+success attack rate was reported.
+In [17], a learning-based method is proposed to reconstruct
+face images. The authors trained a multi-layer perceptron
+(MLP) and a CNN to estimate landmark coordinates and facial
+features, respectively. Then, a differentiable warping function
+was used to combine estimated landmarks and textures to
+reconstruct the face images. In the whitebox scenario, they
+trained their model end-to-end with a loss function, including a term to minimize the distance between templates of
+the original and reconstructed face images. However, in the
+blackbox scenario, they trained their MLP and CNN separately
+and combined the results with the warping function. For the
+security analysis, they only reported the histogram of similarity
+of original and reconstructed face images.
+In [18], a blackbox scenario was considered and a learningbased method was proposed. The authors proposed two
+networks, called NBNetA and NBNetB, and trained each with
+two different loss functions, mean absolute error and perceptual loss. Considering the variations in the network structures
+and loss function, they proposed four different models, called
+NBNetA-M, NBNetA-P, NBNetB-M, and NBNetB-P. They
+defined two types of attacks and compared the templates of
+the reconstructed face image with the same and different
+images of the same subject and found the success attack
+rate.
+In [23], a learning-based method is used for reconstructing
+face images from facial templates. The authors used bijection
+learning and trained a generative adversarial network (GAN)
+to generate face images. For whitebox attacks, they used the
+FR model to minimize the distance between the templates of
+the original and reconstructed face images. In the blackbox
+attack, they proposed to use knowledge distillation to mimic
+the FR model and used the learned model in the training of
+
+Authorized licensed use limited to: Harbin Institute of Technology. Downloaded on May 14,2025 at 07:12:48 UTC from IEEE Xplore. Restrictions apply.
+
+376
+
+IEEE TRANSACTIONS ON BIOMETRICS, BEHAVIOR, AND IDENTITY SCIENCE, VOL. 6, NO. 3, JULY 2024
+
+TABLE I
+C OMPARISON W ITH R ELATED W ORK IN THE L ITERATURE
+
+their GAN model (similar to their whitebox attack). For the
+security analysis, they reported the matching accuracy between
+an original and a reconstructed face from another image in
+each positive pair.
+In [20], a blackbox method with three steps was proposed.
+In the first step, the authors trained a general face generator
+model based on GAN to generate face images from noise
+vectors. Then, in their second step, they trained a mapping
+network using a MLP to map the templates of the target FR
+model (blackbox) to the templates of a known FR model.
+In the last step, they applied optimization on the input (i.e.,
+noise) of the GAN model to maximize the score of the GAN
+discriminator (to generate real images) and also maximize the
+similarity between mapped templates and the templates of the
+reconstructed face images extracted with the known FR model.
+For their security evaluation, they evaluated the adversary’s
+success attack rate, but they did not specify the system’s
+operation configuration (e.g., false match rate of the FR
+system). Similarly, in [21], a GAN-based method is used to
+reconstruct face images from facial templates in the blackbox
+scenario. They focused on the size of the training set and
+investigated the amount of images that the adversary needs
+for training. They assumed that the adversary has access to
+multiple FR models, and has templates extracted by different
+models. However, this assumption may not be feasible in
+the real-world scenario since it is difficult to have access to
+templates of the same subject extracted by different models.
+In addition, in their method, the adversary still requires some
+real face images to use in the training set and they did not
+investigate the application of synthetic training images.
+In contrast to low-resolution methods, there are a few
+works in the literature [22], [23], [24] to generate highresolution face images from facial templates. These models
+use StyleGAN [9], [26], [27] to generate high-resolution face
+images. StyleGAN is a GAN-based face generator network
+that can generate high-resolution and realistic face images.
+It consists of two sub-networks, a mapping network, and
+a synthesis network. The mapping network takes a random
+noise z ∈ Z in the input and generates an intermediate latent
+code w ∈ W, which is then fed to the synthesise network
+to generate a high-resolution face image. The intermediate
+
+latent space is shown to provide more control for editing the
+synthesized face image [9], [26], [27], [28], [29]. In [23], a
+blackbox learning-based method was used to reconstruct face
+images using StyleGAN [27]. The authors generated random
+face images using StyleGAN and extracted facial templates
+using the FR model. Then, they trained a MLP to map facial
+templates to the input (noise z) of StyleGAN. For the security
+analysis, they considered two types of attacks similar to [18]
+and compared the templates of reconstructed and original
+face images. In addition, they used a commercial off-the-shelf
+(COTS) presentation attack detection (PAD) system to evaluate
+the reconstructed face images. However, they did not perform
+a practical presentation attack, where the reconstructed face
+images needed to be recaptured by a camera.
+In contrast to [23] that used learning-based method,
+in [22], [24] optimization-based methods are proposed to
+reconstruct high-resolution face images in blackbox TI attacks.
+In [22], authors proposed a hill-climbing approach by a greedy
+random optimization enhanced with simulated annealing [30]
+to find input (noise z) of StyleGAN for the given facial
+template. Similarly, In [24] the authors used an optimizationbased approach to find input (noise z) of StyleGAN, but solved
+the optimization using the genetic algorithm [31]. For the
+security analysis, authors in [24] reported similar evaluation
+as [23], but authors in [22] reconstructed only 20 face images
+and compared the similarity between templates of the original
+and reconstructed face images.
+In [25], a learning-based method (called GaFaR) was
+proposed to reconstruct high-resolution and 3D face from
+facial templates in whitebox and blackox TI attacks against FR
+systems. To this end, a semi-supervised and adversarial learning approach using real and synthetic face images was used
+to train a mapping from facial templates to the intermediate
+latent space of a generative neural radiance fields (GNeRF)
+model, from which the adversary can generate reconstructed
+face images with any arbitrary pose using the renderer part of
+the GNeRF model. While the frontal reconstructed face image
+can be used to attack the system, in [25] the adversary can
+also perform optimization on the camera parameter to find
+the best pose that enhances the success attack rate. For the
+security analysis, the reconstructed face images were used to
+
+Authorized licensed use limited to: Harbin Institute of Technology. Downloaded on May 14,2025 at 07:12:48 UTC from IEEE Xplore. Restrictions apply.
+
+OTROSHI SHAHREZA AND MARCEL: TEMPLATE INVERSION ATTACK USING SYNTHETIC FACE IMAGES
+
+attack the target FR system, and the success attack rate was
+reported.
+Table I compares our proposed method with related work
+in the literature. Compared to most methods in the literature
+that reconstructed low-resolution face images, our method
+generates high-resolution and realistic face images. The lowresolution reconstruction has several limitations for practical
+attacks and cannot be used for presentation attacks based on
+the reconstructed low-resolution face images. However, a few
+methods [22], [23], [24] were proposed for high-resolution
+face reconstruction from facial templates, where facial templates were mapped to noise vectors in the input space Z
+of StyleGAN. In contrast, we train a mapping form facial
+templates to the intermediate latent space W of StyleGAN,
+which is shown to have more control over the generated
+face image. In [25], facial templates were also mapped to
+the intermediate latent space of a GNeRF model, however
+training such mapping was proposed using a semi-supervised
+and adversarial learning approach, and included real face
+images in the training. We should highlight that in contrast
+to most works in the literature, which use real face images
+for training the face reconstruction networks, we use synthetic
+face images as training data. Using synthetic data has two
+merits: first, the adversary does not need to find a dataset
+of real face images to use for training. Second, since we
+generate the training dataset, we can have the corresponding
+intermediate latent code for each face image, and thus use the
+correct intermediate latent codes directly in our training. This
+helps train our mapping to the intermediate latent space of
+StyleGAN. In contrast to most methods that work only for
+whitebox or blackbox scenarios, our method can be applied
+for both whitebox and blackbox TI attacks. Our experiments
+also show that our method outperforms previous methods on
+high-resolution face reconstruction in the literature in terms
+of the adversary’s success attack rate in TI attacks against FR
+systems.
+III. M ETHODOLOGY
+We assume the threat model described in Section III-A and
+use the proposed method in Section III-B to reconstruct face
+images from facial templates.
+A. Threat Model
+We consider the scenario where the adversary gains access
+to the templates from the database of the FR system and aims
+to invert the template to impersonate. We assume the threat
+model with the following properties:
+• Adversary’s Goal: The adversary’s goal is to reconstruct
+face images from face templates stored in the database
+of the FR systems and use the reconstructed face image
+to impersonate into the FR system.
+• Adversary’s Knowledge: We assume that the adversary
+has the following knowledge:
+1) The adversary has access to templates from the
+database of the FR system.
+2) The adversary also has a whitebox or blackbox
+knowledge of the feature extractor of the FR system.
+
+377
+
+In the case of the blackbox knowledge, we assume
+that the adversary has the whitebox knowledge of
+another FR model.
+3) The adversary also has access to a general face
+generator network.
+• Adversary’s Capability: We consider two scenarios:
+1) The adversary can use the reconstructed face image
+from the TI attack to inject it as a query into the
+feature extractor of the FR system.
+2) The adversary can use the reconstructed face image
+to perform a presentation attack to enter the FR
+system.
+• Adversary’s Strategy: The adversary trains a face reconstruction network to invert facial templates. Then, the
+adversary uses the trained network to reconstruct face
+images from the leaked facial templates. The adversary
+can use the reconstructed face images to inject a query
+into the system or conduct a presentation attack.
+B. Proposed Face Reconstruction Method
+To reconstruct face images from facial templates, we
+consider the situation where the adversary has access to a
+pretrained face generator model such as StyleGAN [9]. As
+described in Section II, the StyleGAN model is composed
+of two sub-networks, a mapping network and a synthesis
+network. Let us denote the mapping network with MStyleGAN
+and the synthesis network with SStyleGAN . The mapping
+network gets a random noise vector z ∈ Z as input and
+generates an intermediate latent code w = MStyleGAN (z) ∈ W,
+which is then fed to the synthesis network to generate the face
+image I = SStyleGAN (w).
+To generate a training dataset for learning a face reconstruction network, we use the StyleGAN model to generate
+synthetic face images and extract facial templates from the
+synthesized face images. To this end, we sample K noise
+{zi |z ∈ Z ∼ N (0, I), i = 1, . . . , K} from Gaussian distribution N (0, I) for the input of StyleGAN. Next, we generate
+corresponding intermediate latent codes wi = MStyleGAN (zi )
+and synthetic images Ii = SStyleGAN (wi ), and then use the
+feature extractor of the target FR system2 to extract facial
+templates ti = F(Ii ) from our synthetic face images. Finally,
+we can have our training dataset D = {(Ii , ti , wi )|, i =
+1, . . . , K} which has triples of synthetic face images Ii as well
+as their corresponding facial templates ti and the StyleGAN
+intermediate latent codes wi .
+After generating our dataset D, we can use this dataset
+to train a new mapping network M(.) to project the facial
+template t to the intermediate latent code ŵ = M(t) in W space
+of StyleGAN. Then, we use the intermediate latent code ŵ =
+M(t) as input to the synthesis network of StyleGAN SStyleGAN
+to generate the reconstructed face image Î = SStyleGAN (ŵ).
+We train our new mapping network M(.) with parameters θM
+using the following multi-term loss function:
+Ltotal = Lw + Lpixel + LID ,
+
+(1)
+
+2 As mentioned in our threat model in Section III-A, we only need the
+blackbox knowledge of target FR model, and it is not necessary to have the
+whitebox knowledge.
+
+Authorized licensed use limited to: Harbin Institute of Technology. Downloaded on May 14,2025 at 07:12:48 UTC from IEEE Xplore. Restrictions apply.
+
+378
+
+IEEE TRANSACTIONS ON BIOMETRICS, BEHAVIOR, AND IDENTITY SCIENCE, VOL. 6, NO. 3, JULY 2024
+
+Algorithm 1 Training Process in Our Proposed Method
+Require: : nepoch : number of epochs, niteration : number of
+iterations in each epoch, α: learning rate.
+1: procedure T RAINING
+2:
+Initialize weights θM of our new mapping network
+3:
+for epoch = 1, ..., nepoch do
+4:
+for itr = 1, ..., niteration do
+5:
+Sample a batch of random noise vectors:
+6:
+z ∈ Z ∼ N (0, I)
+7:
+Generate training data:
+8:
+w = MStyleGAN (z)
+9:
+I = SStyleGAN (w)
+10:
+t = F(I)
+11:
+Reconstruct image from template t:
+12:
+ŵ = M(t)
+13:
+Î = SStyleGAN (ŵ)
+14:
+Calculate loss Ltotal and optimize θM :
+15:
+gθM ← ∇θM Ltotal
+16:
+θM ← θM − α · Adam(θM , gθM )
+17:
+end for
+18:
+end for
+19: end procedure
+
+where Lw , Lpixel and LID are the intermediate latent space
+loss, pixel loss, and ID loss, respectively, and are defined as
+follows:
+Lw = w − M(t)22 ,
+
+2
+Lpixel = I − SStyleGAN (M(t))2 ,
+
+ 2
+
+
+LID = Floss (I) − Floss Î  .
+2
+
+(2)
+(3)
+(4)
+
+The intermediate latent space loss (Lw ) is used to minimize
+the error in the estimated intermediate latent code ŵ = M(t) in
+the intermediate latent space W of StyleGAN. Since we use
+synthetic face images, we have the correct values of intermediate
+latent codes w to calculate Lw . The pixel loss (Lpixel ) is also
+applied to minimize the pixel-level reconstruction error for the
+reconstructed face image Î = SStyleGAN (M(t)) compared to
+the original image I. Finally, the ID loss is used to optimize
+the similarity between the facial templates extracted from the
+reconstructed and original face images using a FR feature
+extractor Floss (.). In the whitebox TI attack, the adversary can
+use the same feature extractor as the one in the target FR
+system (i.e., F) as Floss (.); however, in the blackbox scenario,
+the adversary needs to use a different feature extractor that
+has access to.3 Therefore, in blackbox TI attacks, Floss (.) is
+different from the target FR system.4 Algorithm 1 summarizes
+our training process and Fig. 2 illustrates the block diagram of
+our proposed face reconstruction method. In our experiments,
+3 Note that the adversary needs to have whitebox knowledge of feature
+extractor used in Floss to be able to calculate gradients in optimizing loss
+function for training face reconstruction model.
+4 Note that the alternate model is only used in the blackbox scenario and
+is only applied for Floss (.) in the loss function LID (not to extract the initial
+templates t). In both whitebox and blackbox scenarios, feature extractor of
+the target FR system (i.e., F) is always used to extract the initial templates
+t in generating training dataset D.
+
+we generate 25,000 synthetic face images for our training set and
+use Adam optimizer [32] with the learning rate of 10−4 . In the
+inference stage, we use our trained mapping network to project
+the facial template to the intermediate space of StyleGAN, and
+then use the synthesis network to generate the reconstructed
+face image.
+IV. E XPERIMENTS
+In this section, we present our experiments and discuss our
+results. First, in Section IV-A we describe our experimental
+setup. Then, in Section IV-B we compare the performance
+of our method with previous methods in the literature in TI
+attacks against SOTA FR models. In Section IV-C, we report our
+vulnerability evaluation of FR systems to practical presentation
+attacks using the reconstructed face images from TI attacks.
+We discuss further our experimental results in Section IV-D.
+A. Experimental Setup
+1) Face Recognition Models: We use SOTA FR systems
+and evaluate their vulnerability to our TI attack on real
+face images. In our experiments, we consider ArcFace [14],
+ElasticFace [33], and also four FR models with different SOTA
+backbones from FaceX-Zoo [34], including AttentionNet [35],
+HRNet [36], RepVGG [37], and Swin [38]. Table II presents
+the recognition performances of these models.
+2) Evaluation Datasets: We evaluate the performance of
+our face reconstruction network on real face datasets, including MOBIO [10], Labeled Faced in the Wild (LFW) [11],
+AgeDB [12], and IARPA Janus Benchmark-C (IJB-C) [13]
+datasets. The MOBIO dataset includes face images of 150 subjects captured using mobile devices in 12 sessions. The LFW
+database consists of 13,233 face images of 5,749 people, where
+1,680 people have two or more images. The AgeDB dataset
+consists of 16,488 images of 568 subjects (famous people)
+with the average age range of 50.3 years. The IJB-C dataset
+includes 31,334 images of 3,531 subjects.
+3) Evaluation Protocol: To evaluate the vulnerability of the
+FR system to TI attacks, we consider the situation in which the
+adversary gains access to the database of the FR system and
+reconstructs the underlying face images to enter the system. As
+described in Section III-A, we consider two scenarios in our
+threat model. In the first scenario, we consider the situation
+where the adversary can inject the reconstructed face images
+from the TI attack into the feature extractor of the target FR
+system. In the second scenario, we consider the situation in
+which the adversary performs a presentation attack using the
+reconstructed face images from the TI attack. In each case,
+we evaluate the vulnerability of the FR system in terms of the
+adversary’s success attack rate (SAR) in entering the system
+using the reconstructed face images from the TI attack.
+4) Implementation Details: We use the Bob5 toolbox [39], [40] to build the pipelines for the FR systems in
+our experiments and also evaluate the TI attacks against FR
+systems. We also use the PyTorch package and trained our
+models on a system equipped with an NVIDIA GeForce
+5 Available at https://www.idiap.ch/software/bob/
+
+Authorized licensed use limited to: Harbin Institute of Technology. Downloaded on May 14,2025 at 07:12:48 UTC from IEEE Xplore. Restrictions apply.
+
+OTROSHI SHAHREZA AND MARCEL: TEMPLATE INVERSION ATTACK USING SYNTHETIC FACE IMAGES
+
+Fig. 2.
+
+379
+
+Block diagram of the proposed method in the training and inference stages.
+
+TABLE II
+R ECOGNITION P ERFORMANCE OF FR M ODELS IN T ERMS OF T RUE M ATCH R ATE (TMR) AT FALSE M ATCH R ATES (FMR S ) OF 10−2 AND 10−3
+ON THE MOBIO, LFW, AGE DB, AND IJB-C DATASETS . T HE VALUES ARE IN P ERCENTAGE
+
+RTXTM 3090. We use the pretrained model of StyleGAN36 to
+generate 1024 × 1024 high-resolution face images. The source
+codes of our experiments are publicly available to facilitate
+the reproducibility of our results.7
+B. Comparison With Previous TI Methods
+We compare the performance of our face reconstruction
+method with state-of-the-art TI methods in the literature,
+including NBNetA-M [18], NBNetA-P [18], NBNetB-M [18],
+NBNetB-P [18], Dong et al. [23], Vendrow and Vendrow [22],
+Dong et al. [24], GaFaR [25], and GaFaR+GS [25]. Among
+these methods and according to Section II, Dong et al. [23],
+6 Available at https://github.com/NVlabs/stylegan3
+7 https://gitlab.idiap.ch/bob/bob.paper.tbiom2024_face_ti
+
+Vendrow and Vendrow [22], and Dong et al. [24] used
+StyleGAN to reconstruct high-resolution face images. We
+consider the scenario where the adversary can inject the
+reconstructed face image as a query to the feature extractor of
+the target FR system. Table III compare the performance of
+different methods in terms of the adversary’s success attack
+rate (SAR) in TI attacks against SOTA FR systems at the
+system FMR of 10−2 on the MOBIO, LFW, AgeDB, and
+IJB-C datasets. Table IV reports similar results for the system
+threshold corresponding to FMR of 10−3 on the MOBIO,
+LFW, AgeDB, and IJB-C datasets. As the results in these
+tables show, while our method is trained on synthetic data,
+it achieves high SAR in TI attacks against FR systems.
+Furthermore, compared to other methods, our experimental
+results show that our method achieves superior performance
+
+Authorized licensed use limited to: Harbin Institute of Technology. Downloaded on May 14,2025 at 07:12:48 UTC from IEEE Xplore. Restrictions apply.
+
+380
+
+IEEE TRANSACTIONS ON BIOMETRICS, BEHAVIOR, AND IDENTITY SCIENCE, VOL. 6, NO. 3, JULY 2024
+
+TABLE III
+C OMPARISON W ITH P REVIOUS TI M ETHODS IN ATTACKS AGAINST SOTA FR M ODELS IN T ERMS OF S UCCESS ATTACK R ATE ( IN P ERCENTAGE ) AT
+S YSTEMS ’ FMR = 10−2 ON THE MOBIO, LFW, AGE DB, AND IJB-C DATASETS . F OR ATTACKS U SING O UR M ETHOD , W E U SE A RC FACE AND
+E LASTIC FACE AS FLOSS IN O UR L OSS F UNCTION . T HE B EST T WO VALUES IN ATTACK AGAINST E ACH S YSTEM IS E MBOLDEN
+
+TABLE IV
+C OMPARISON W ITH P REVIOUS TI M ETHODS IN ATTACKS AGAINST SOTA FR M ODELS IN T ERMS OF S UCCESS ATTACK R ATE ( IN P ERCENTAGE ) AT
+−3
+S YSTEMS ’ FMR = 10 ON THE MOBIO, LFW, AGE DB, AND IJB-C DATASETS . F OR ATTACKS U SING O UR M ETHOD , W E U SE A RC FACE AND
+E LASTIC FACE AS FLOSS IN O UR L OSS F UNCTION . T HE B EST T WO VALUES IN ATTACK AGAINST E ACH S YSTEM IS E MBOLDEN
+
+than SOTA TI methods on high-resolution face reconstruction. In particular, compared to Dong et al. [23], Vendrow
+and Vendrow [22], and Dong et al. [24] which also used
+StyleGAN for face reconstruction our method achieves higher
+SAR values. Compared to GaFaR+GS [25], our method
+achieve competitive performance. However, we should note
+
+that GaFaR+GS [25] use a geometry-aware network to reconstruct 3D face images and then find the best pose for each
+image to enhance SAR.
+In our experiments in Table III and Table IV, we use
+two FR models, ArcFace and ElasticFace, as Floss in our
+proposed method. As the results in these table shows, face
+
+Authorized licensed use limited to: Harbin Institute of Technology. Downloaded on May 14,2025 at 07:12:48 UTC from IEEE Xplore. Restrictions apply.
+
+OTROSHI SHAHREZA AND MARCEL: TEMPLATE INVERSION ATTACK USING SYNTHETIC FACE IMAGES
+
+381
+
+Fig. 3. Sample real face images from the LFW dataset (first row) and their reconstructed images from ArcFace templates in whitebox (second row) and
+blackbox (third row). The values below each image show the cosine similarity between the corresponding templates of original and reconstructed face images.
+The decision threshold corresponding to FMR = 10−3 is 0.24 on the LFW dataset, and thus all these reconstructed images pass this threshold.
+
+reconstruction with ArcFace achieves higher SAR values in
+our method. Besides, the recognition performances in Table II
+also show that ArcFace has a better recognition accuracy.
+Therefore, a model with a better recognition accuracy can
+more help training in our proposed method and lead to better
+reconstruction performance.
+Fig. 3 illustrates sample face images from the LFW
+dataset and their corresponding reconstructed face image from
+ArcFace in the whitebox (using ArcFace as Floss ) and blackbox
+(using ElasticFace as Floss ) TI attacks. The reconstructed face
+images are realistic and reveal important privacy-sensitive
+information about underlying users (such as gender, ethnicity,
+etc.). In addition, the reconstructed face images have similar
+facial templates to the templates of the original face images
+and can be recognized as the same subject by the FR system
+with the FMR of 10−3 on the LFW dataset. We should note
+that the reconstructed face images are also high-resolution
+(i.e., 1024 × 1024) and can be used for presentation attack,
+which is discussed in Section IV-C.
+C. Presentation Attack UsingReconstructed Face Images
+As another experiment, we consider the situation where
+the adversary can reconstruct face images from facial templates and use the reconstructed face images to perform a
+presentation attack to impersonate into the FR system. To this
+end, we use the reconstructed face images to display with a
+tablet (Apple iPad Pro) and take it in front of a camera as the
+sensor of the FR system. We use cameras of three different
+smartphones, including Apple iPhone 12, Samsung Galaxy S9,
+and Xiaomi Redmi 9A, in our experiment. Fig. 4 illustrates
+our presentation attack evaluation setup.
+We consider whitebox (using ArcFace as Floss ) and blackbox (using ElasticFace as Floss ) TI attacks against ArcFace
+templates on the MOBIO dataset and reconstruct facial templates using our proposed method. Fig. 5 shows sample face
+
+Fig. 4. (a) Presentation attack evaluation setup, (b) The reconstructed face
+image from TI attack that is used for presentation attack, (c) The captured
+image by the smartphone camera (iPhone 12) in our presentation attack.
+
+images from the MOBIO dataset and their corresponding
+reconstructed face images in whitebox and blackbox attacks
+as well as the captured images from our digital replay attack
+using different smartphones. We evaluate the performance of
+replay attacks using our reconstructed face images in terms
+of adversary’s SAR.8 Table V reports the vulnerability of
+a FR system with ArcFace model to replay attacks using
+reconstructed face images in whitebox and blackbox TI attacks
+with our method for FMRs of 10−2 and 10−3 on the MOBIO
+dataset. As the results in this table show, our reconstructed
+8 The ISO/IEC 30107-3 standard [41] suggests to refer to the adversary’s
+success attack rate in evaluations of presentation attacks as Impostor Attack
+Presentation Match Rate (IAPMR). However, for consistency with our
+previous experimental results, we use SAR to report the success attack rate
+in our presentation attack (replay attack) evaluation.
+
+Authorized licensed use limited to: Harbin Institute of Technology. Downloaded on May 14,2025 at 07:12:48 UTC from IEEE Xplore. Restrictions apply.
+
+382
+
+IEEE TRANSACTIONS ON BIOMETRICS, BEHAVIOR, AND IDENTITY SCIENCE, VOL. 6, NO. 3, JULY 2024
+
+Fig. 5. Sample face images from the MOBIO dataset and their corresponding reconstructed face images in whitebox and blackbox attacks as well as the
+captured images from our digital replay attack using cameras of different smartphones.
+
+TABLE V
+V ULNERABILITY OF THE FR S YSTEM W ITH A RC FACE M ODEL AGAINST
+P RESENTATION ATTACK U SING R ECONSTRUCTED FACE I MAGES F ROM
+W HITEBOX AND B LACKBOX TI ATTACKS IN T ERMS OF SAR/IAPMR AT
+S YSTEM FMR S OF 10−2 AND 10−3 ON THE MOBIO DATASET.
+T HE VALUES ARE IN P ERCENTAGE
+
+Fig. 6. Sample failure cases from the LFW dataset (first row) and their
+corresponding (second row) reconstructed face images using our method in
+the whitebox TI attack against ArcFace. The values below each image show
+the cosine similarity between templates of original and reconstructed face
+images. The values below each image show the cosine similarity between the
+corresponding templates of original and reconstructed face images.
+
+face images achieve high SAR values when captured with
+different smartphones. Also, the results in this table show that
+our replay attacks achieve comparable performance with TI
+attacks using the injection of reconstructed face images. This
+experiment demonstrates the vulnerability of real FR systems
+to the reconstructed face images using our method.
+D. Discussion
+While our experiments in Section IV-B show that our
+proposed method achieves state-of-the-art performance, there
+are still some failure cases where the reconstructed face images
+do not match the original face image. Fig. 6 illustrates some
+sample reconstructed face images in the whitebox TI attack
+against ArcFace on the LFW dataset that do not match the
+original face images, and therefore the attack is not successful.
+
+As shown in this figure, some of the failure cases correspond to
+people with dark skin color or the eldery. As a matter of fact,
+the StyleGAN model has been trained on the FFHQ dataset,
+which is not a balanced face dataset and has a bias on some
+demography groups. In addition, the face recognition model
+used in this attack (ArcFace) is also shown to have bias [42].
+Despite such failure cases, SOTA FR models are still significantly vulnerable to our TI attacks as shown in Section IV-B
+and Section IV-C. To investigate the effect of each loss term
+in our proposed method, we implement an ablation study and
+train our mapping network with different loss functions. We
+consider the whitebox TI attack against a FR system with
+ArcFace and evaluate the adversary’s SAR on the MOBIO
+and LFW datasets. Table VI reports our ablation study on
+
+Authorized licensed use limited to: Harbin Institute of Technology. Downloaded on May 14,2025 at 07:12:48 UTC from IEEE Xplore. Restrictions apply.
+
+OTROSHI SHAHREZA AND MARCEL: TEMPLATE INVERSION ATTACK USING SYNTHETIC FACE IMAGES
+
+TABLE VI
+A BLATION S TUDY ON THE E FFECT OF L OSS T ERMS IN O UR P ROPOSED
+M ETHOD IN W HITEBOX ATTACK AGAINST A RC FACE IN T ERMS OF
+SAR FOR A FR S YSTEM W ITH FMR S OF 10−2 AND 10−3
+ON THE MOBIO AND LFW DATASETS
+
+the effect of each loss term in our proposed method. As the
+results in this table show, each of our loss terms contributes
+to the reconstruction of our TI attacks against FR systems.
+Using the latent space loss is particularly important as it
+has a significant effect on the training compared to using all
+other terms except the latent code loss term. When using the
+latent space loss, our ID loss also considerably enhances the
+reconstruction compared to other cases in which we do not use
+the ID loss. However, the pixel-level loss slightly degrades the
+reconstruction in terms of SAR, but it reduces the pixel-level
+errors (e.g., hair color, etc.) in the reconstructed face images.
+In our method, we use synthetic data to train our face reconstruction network and use the trained network in TI attacks
+against FR systems with real face images. Our experiments
+in Section IV-B show that our proposed method outperforms
+SOTA TI methods in the literature on high-resolution face
+reconstruction. The results also indicate the vulnerability of
+SOTA FR models to our TI attacks. Our experiments in
+Section IV-C also demonstrate that our reconstructed face
+images can be used to perform presentation attacks by the
+adversary, and can achieve high SAR values. We should note
+that this work is conducted with the motivation of showing the
+vulnerability of FR systems, and we do not condone misuse of
+our work for the intention of attacking real FR systems. As a
+matter of fact, to mitigate TI attacks against FR systems and in
+the light of data protection regulations such as European Union
+General Data Protection Regulation (EU-GDPR) [43], several
+biometric template protection schemes are proposed in the
+literature [44], [45], [46], [47], [48]. In particular, the ISO/IEC
+24745 standard [49] considers irreversibility of protected
+templates as one of the main properties of biometric template
+protection methods. According to this property, it should be
+infeasible for an adversary to invert protected templates and
+reconstruct the corresponding unprotected biometric templates.
+V. C ONCLUSION
+In this paper, we used synthetic data and proposed a new
+method to reconstruct high-resolution (i.e., 1024 × 1024) face
+images from facial templates in TI attacks against FR systems.
+We used a face generator network to generate synthetic face
+images and extracted their facial templates to build our training
+dataset. Then, we used our generated training dataset to learn a
+mapping from facial templates to the intermediate latent space
+of the face generator network using a multi-term loss function.
+We proposed our method for both whitebox and blackbox
+TI attacks against FR systems and evaluated our model
+
+383
+
+(trained with synthetic data) in TI attacks against FR systems
+with real face images. We provided extensive experiments
+on four different face datasets, including the MOBIO, LFW,
+AgeDB, and IJB-C datasets, demonstrating the superiority
+of our proposed method compared to SOTA TI methods on
+high-resolution face reconstruction. Moreover, we used the
+reconstructed face images from our TI attacks to perform
+digital replay attacks against real FR systems, showing the
+vulnerability of FR systems to presentation attacks based on
+the reconstructed face images with our model (trained only
+with synthetic train data) on real face datasets.
+ACKNOWLEDGMENT
+The authors would like to thank Karine Vaucher (Idiap
+Research Institute, Switzerland) for her help in conducting data
+collection in the presentation attack experiments.
+R EFERENCES
+[1] A. K. Jain, D. Deb, and J. J. Engelsma, “Biometrics: Trust, but
+verify,” IEEE Trans. Biometrics, Behav., Identity Sci., vol. 4, no. 3,
+pp. 303–323, Jul. 2022.
+[2] H. Zhang, S. Venkatesh, R. Ramachandra, K. Raja, N. Damer, and
+C. Busch, “MIPGAN—Generating strong and high quality morphing
+attacks using identity prior driven GAN,” IEEE Trans. Biometrics,
+Behav., Identity Sci., vol. 3, no. 3, pp. 365–383, Jul. 2021.
+[3] J. Galbally, C. McCool, J. Fierrez, S. Marcel, and J. Ortega-Garcia,
+“On the vulnerability of face verification systems to hill-climbing
+attacks,” Pattern Recognit., vol. 43, no. 3, pp. 1027–1038, 2010.
+[4] B. Biggio, G. Fumera, P. Russu, L. Didaci, and F. Roli, “Adversarial
+biometric recognition: A review on biometric system security from the
+adversarial machine-learning perspective,” IEEE Signal Process. Mag.,
+vol. 32, no. 5, pp. 31–41, Sep. 2015.
+[5] A. Hadid, N. Evans, S. Marcel, and J. Fierrez, “Biometrics systems under
+spoofing attack: An evaluation methodology and lessons learned,” IEEE
+Signal Process. Mag., vol. 32, no. 5, pp. 20–30, Sep. 2015.
+[6] S. Marcel, J. Fierrez, and N. Evans, Handbook of Biometric AntiSpoofing: Presentation Attack Detection and Vulnerability Assessment.
+Singapore: Springer, 2023.
+[7] H. O. Shahreza and S. Marcel, “Inversion of deep facial templates using
+synthetic data,” in Proc. IEEE Int. Joint Conf. Biometric (IJCB), 2023,
+pp. 1–8.
+[8] F. Boutros, V. Struc, J. Fierrez, and N. Damer, “Synthetic data for face
+recognition: Current state and future prospects,” Image Vis. Comput.,
+vol. 135, Jul. 2023, Art. no. 104688.
+[9] T. Karras et al., “Alias-free generative adversarial networks,” in Proc.
+Adv. Neural Inf. Process. Syst., vol. 34, 2021, pp. 1–31.
+[10] C. McCool, R. Wallace, M. McLaren, L. El Shafey, and S. Marcel,
+“Session variability modelling for face authentication,” IET Biom., vol. 2,
+no. 3, pp. 117–129, Sep. 2013.
+[11] G. B. Huang, M. Ramesh, T. Berg, and E. Learned-Miller, “Labeled
+faces in the wild: A database for studying face recognition in
+unconstrained environments,” Univ. Massachusetts, Boston, MA, USA,
+Rep. TR-7-49, Oct. 2007.
+[12] S. Moschoglou, A. Papaioannou, C. Sagonas, J. Deng, I. Kotsia,
+and S. Zafeiriou, “AgeDB: The first manually collected, in-the-wild
+age database,” in Proc. IEEE Conf. Comput. Vis. Pattern Recognit.
+Workshops, 2017, pp. 51–59.
+[13] B. Maze et al., “IARPA Janus benchmark-C: Face dataset and protocol,” in Proc. Int. Conf. Biometrics (ICB), 2018, pp. 158–165.
+[14] J. Deng, J. Guo, X. Niannan, and S. Zafeiriou, “ArcFace: Additive
+angular margin loss for deep face recognition,” in Proc. IEEE Conf.
+Comput. Vis. Pattern Recognit. (CVPR), 2019, pp. 4685–4694.
+[15] A. Zhmoginov and M. Sandler, “Inverting face embeddings with
+convolutional neural networks,” 2016, arXiv:1606.04189.
+[16] H. O. Shahreza, V. K. Hahn, and S. Marcel, “Face reconstruction from
+deep facial embeddings using a convolutional neural network,” in Proc.
+IEEE Int. Conf. Image Process. (ICIP), 2022, pp. 1211–1215.
+
+Authorized licensed use limited to: Harbin Institute of Technology. Downloaded on May 14,2025 at 07:12:48 UTC from IEEE Xplore. Restrictions apply.
+
+384
+
+IEEE TRANSACTIONS ON BIOMETRICS, BEHAVIOR, AND IDENTITY SCIENCE, VOL. 6, NO. 3, JULY 2024
+
+[17] F. Cole, D. Belanger, D. Krishnan, A. Sarna, I. Mosseri, and
+W. T. Freeman, “Synthesizing normalized faces from facial identity
+features,” in Proc. IEEE Conf. Comput. Vis. Pattern Recognit., 2017,
+pp. 3703–3712.
+[18] G. Mai, K. Cao, P. C. Yuen, and A. K. Jain, “On the reconstruction
+of face images from deep face templates,” IEEE Trans. Pattern Anal.
+Mach. Intell., vol. 41, no. 5, pp. 1188–1202, May 2019.
+[19] C. N. Duong, T.-D. Truong, K. Luu, K. G. Quach, H. Bui, and K. Roy,
+“Vec2Face: Unveil human faces from their blackbox features in face
+recognition,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit.,
+2020, pp. 6132–6141.
+[20] M. Akasaka, S. Maeda, Y. Sato, M. Nishigaki, and T. Ohki, “Modelfree template reconstruction attack with feature converter,” in Proc. Int.
+Conf. Biometrics Special Interest Group (BIOSIG), 2022, pp. 1–5.
+[21] S. Ahmad, K. Mahmood, and B. Fuller, “Inverting biometric models with
+fewer samples: Incorporating the output of multiple models,” in Proc.
+IEEE Int. Joint Conf. Biometrics (IJCB), 2022, pp. 1–11.
+[22] E. Vendrow and J. Vendrow, “Realistic face reconstruction from deep
+embeddings,” in Proc. Workshop Privacy Mach. Learn., 2021, pp. 1–6.
+[23] X. Dong, Z. Jin, Z. Guo, and A. B. J. Teoh, “Towards generating
+high definition face images from deep templates,” in Proc. Int. Conf.
+Biometrics Special Interest Group (BIOSIG), 2021, pp. 1–11.
+[24] X. Dong et al., “Reconstruct face from features based on genetic
+algorithm using GAN generator as a distribution constraint,” Comput.
+Secur., vol. 125, Feb. 2023, Art. no. 103026.
+[25] H. O. Shahreza and S. Marcel, “Template inversion attack against face
+recognition systems using 3D face reconstruction,” in Proc. IEEE/CVF
+Int. Conf. Comput. Vis. (ICCV), 2023, pp. 19662–19672.
+[26] T. Karras, S. Laine, and T. Aila, “A style-based generator architecture
+for generative adversarial networks,” in Proc. IEEE/CVF Conf. Comput.
+Vis. Pattern Recognit. (CVPR), 2019, pp. 4401–4410.
+[27] T. Karras, S. Laine, M. Aittala, J. Hellsten, J. Lehtinen, and T. Aila,
+“Analyzing and improving the image quality of stylegan,” in Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR), 2020,
+pp. 8110–8119.
+[28] Y. Alaluf, O. Tov, R. Mokady, R. Gal, and A. Bermano,
+“Hyperstyle: StyleGAN inversion with hypernetworks for real image
+editing,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit., 2022,
+pp. 18511–18521.
+[29] X. Hu et al., “Style transformer for image inversion and editing,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit., 2022,
+pp. 11337–11346.
+[30] P. J. Van Laarhoven and E. H. Aarts, “Simulated annealing,” in Simulated
+Annealing: Theory and Applications. Dordrecht, The Netherlands:
+Springer, 1987, pp. 7–15.
+[31] M. Srinivas and L. M. Patnaik, “Genetic algorithms: A
+survey,” Computer, vol. 27, no. 6, pp. 17–26, Jun. 1994.
+[32] D. P. Kingma and J. Ba, “Adam: A method for stochastic
+optimization,” in Proc. Int. Conf. Learn. Represent. (ICLR), San Diego,
+CA, USA, 2015, pp. 1–15.
+[33] F. Boutros, N. Damer, F. Kirchbuchner, and A. Kuijper, “ElasticFace:
+Elastic margin loss for deep face recognition,” in Proc. IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit. (CVPR), 2022, pp. 1578–1587.
+[34] J. Wang, Y. Liu, Y. Hu, H. Shi, and T. Mei, “FaceX-Zoo: A PyTorch
+toolbox for face recognition,” in Proc. 29th ACM Int. Conf. Multimedia,
+2021, pp. 3779–3782.
+[35] F. Wang et al., “Residual attention network for image classification,” in Proc. IEEE Conf. Comput. Vis. Pattern Recognit., 2017,
+pp. 3156–3164.
+[36] J. Wang et al., “Deep high-resolution representation learning for visual
+recognition,” in Proc. IEEE Trans. Pattern Anal. Mach. Intell., vol. 43,
+no. 10, pp. 3349–3364, Oct. 2021.
+[37] X. Ding, X. Zhang, N. Ma, J. Han, G. Ding, and J. Sun, “RepVGG:
+Making VGG-style convnets great again,” in Proc. IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit. (CVPR), 2021, pp. 13733–13742.
+[38] Z. Liu et al., “Swin transformer: Hierarchical vision transformer using
+shifted windows,” 2021, arXiv:2103.14030.
+[39] A. Anjos, L. E. Shafey, R. Wallace, M. Günther, C. McCool, and
+S. Marcel, “Bob: A free signal processing and machine learning toolbox
+for researchers,” in Proc. 20th ACM Conf. Multimedia Syst. (ACMMM),
+2012, pp. 1449–1452.
+[40] A. Anjos, M. Günther, T. de Freitas Pereira, P. Korshunov,
+A. Mohammadi, and S. Marcel, “Continuously reproducing toolchains
+in pattern recognition and machine learning experiments,” in Proc. Int.
+Conf. Mach. Learn. (ICML), 2017, pp. 1–8.
+[41] Information Technology—Biometric Presentation Attack Detection—Part
+3: Testing and Reporting, ISO/IEC Standard 30107-3:2017, Jun. 2017.
+
+[42] T. de Freitas Pereira and S. Marcel, “Fairness in biometrics: A figure of
+merit to assess biometric verification systems,” IEEE Trans. Biometrics,
+Behav., Identity Sci., vol. 4, no. 1, pp. 19–29, Jan. 2022.
+[43] “Regulation of the European parliament and of the council on the
+protection of individuals with regard to the processing of personal
+data and on the free movement of such data (general data protection
+regulation),” Eur. Council, Brussels, Belgium, document 32016R0679,
+Apr. 2016.
+[44] K. Nandakumar and A. K. Jain, “Biometric template protection:
+Bridging the performance gap between theory and practice,” IEEE Signal
+Process. Mag., vol. 32, no. 5, pp. 88–100, Sep. 2015.
+[45] P. Kaur, N. Kumar, and M. Singh, “Biometric cryptosystems: A comprehensive survey,” Multimedia Tools Appl., vol. 82, pp. 1–56, May 2023.
+[46] M. Sandhya and M. V. Prasad, “Biometric template protection: A
+systematic literature review of approaches and modalities,’ in Biometric
+Security and Privacy. Cham, Switzerland: Springer, 2017, pp. 323–370.
+[47] H. O. Shahreza, V. K. Hahn, and S. Marcel, “MLP-hash: Protecting face
+templates via hashing of Randomized multi-layer perceptron,” in Proc.
+31st Eur. Signal Process. Conf. (EUSIPCO), 2023, pp. 605–609.
+[48] H. O. Shahreza, C. Rathgeb, D. Osorio-Roig, V. K. Hahn, S. Marcel,
+and C. Busch, “Hybrid protection of biometric templates by combining
+homomorphic encryption and cancelable biometrics,” in Proc. IEEE Int.
+Joint Conf. Biometrics (IJCB), 2022, pp. 1–10.
+[49] Information Technology—Security Techniques Biometric Information
+Protection, ISO/IEC Standard 24745:2022, 2022.
+
+Hatef Otroshi Shahreza (Graduate Student
+Member, IEEE) received the B.Sc. degree (Hons.)
+in electrical engineering from the University of
+Kashan, Iran, in 2016 and the M.Sc. degree in
+electrical engineering from the Sharif University of
+Technology, Iran, in 2018. He is currently pursuing
+the Ph.D. degree with the École Polytechnique
+Fédérale de Lausanne, Switzerland, and a Research
+Assistant with the Biometrics Security and Privacy
+Group, Idiap Research Institute, Switzerland,
+where he received H2020 Marie Skłodowska-Curie
+Fellowship (TReSPAsS-ETN) for his Doctoral Program. During his Ph.D.,
+he also experienced six months as a Visiting Scholar with the Biometrics
+and Internet Security Research Group, Hochschule Darmstadt, Germany.
+His research interests include deep learning, computer vision, biometrics,
+and biometric template protection. He is also the winner of the European
+Association for Biometrics Research Award 2023.
+
+Sébastien Marcel received the Ph.D. degree in
+signal processing from the Research Center of
+France Telecom (currently Orange Labs), Université
+de Rennes I, CNET, France, in 2000. He Heads
+with the Biometrics Security and Privacy Group,
+Idiap Research Institute, Switzerland. He is a
+Professor with the School of Criminal Justice,
+University of Lausanne and a Lecturer with the
+École Polytechnique Fédérale de Lausanne. He
+is also the Director with the Swiss Center for
+Biometrics Research and Testing, which conducts
+certifications of biometric products. He conducts research on face recognition,
+speaker recognition, vein recognition, attack detection, presentation attacks,
+morphing attacks, deepfakes, and template protection.
+
+Authorized licensed use limited to: Harbin Institute of Technology. Downloaded on May 14,2025 at 07:12:48 UTC from IEEE Xplore. Restrictions apply.
+
+

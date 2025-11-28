@@ -1,0 +1,2849 @@
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+1
+
+Model Inversion Attacks Through Target-Specific
+Conditional Diffusion Models
+
+arXiv:2407.11424v2 [cs.CV] 21 Nov 2024
+
+Ouxiang Li, Yanbin Hao, Zhicai Wang, Bin Zhu, Shuo Wang, Zaixi Zhang, Fuli Feng
+
+Abstract—Model inversion attacks (MIAs) aim to reconstruct
+private images from a target classifier’s training set, thereby
+raising privacy concerns in AI applications. Previous GANbased MIAs tend to suffer from inferior generative fidelity due
+to GAN’s inherent flaws and biased optimization within latent
+space. To alleviate these issues, leveraging on diffusion models’
+remarkable synthesis capabilities, we propose Diffusion-based
+Model Inversion (Diff-MI) attacks. Specifically, we introduce
+a novel target-specific conditional diffusion model (CDM) to
+purposely approximate target classifier’s private distribution and
+achieve superior accuracy-fidelity balance. Our method involves
+a two-step learning paradigm. Step-1 incorporates the target
+classifier into the entire CDM learning under a pretrain-thenfinetune fashion, with creating pseudo-labels as model conditions in pretraining and adjusting specified layers with image
+predictions in fine-tuning. Step-2 presents an iterative image reconstruction method, further enhancing the attack performance
+through a combination of diffusion priors and target knowledge.
+Additionally, we propose an improved max-margin loss that
+replaces the hard max with top-k maxes, fully leveraging feature
+information and soft labels from the target classifier. Extensive
+experiments demonstrate that Diff-MI significantly improves
+generative fidelity with an average decrease of 20% in FID while
+maintaining competitive attack accuracy compared to state-ofthe-art methods across various datasets and models. Our code is
+available at: https://github.com/Ouxiang-Li/Diff-MI.
+Index Terms—Model Inversion, Generative Priors, Security
+and Privacy.
+
+I. I NTRODUCTION
+Deep Neural Networks (DNNs) are revolutionizing various
+fields such as computer vision, autonomous driving, and
+healthcare. However, these advancements have also raised
+significant concerns regarding privacy attacks on DNNs. One
+such category is Model Inversion Attacks (MIAs), which aim
+to reconstruct private training samples by exploiting a “target
+classifier”. In this paper, we focus on the white-box MIA
+to reconstruct user images, in which case the attackers are
+assumed to have full access to the target classifier.
+Ouxiang Li, Zhicai Wang, and Fuli Feng are with School of Artificial
+Intelligence and Data Science, University of Science and Technology of China,
+Hefei, China (e-mail: lioox@mail.ustc.edu.cn, wangzhic@mail.ustc.edu.cn,
+fulifeng93@gmail.com).
+Yanbin Hao is with School of Computer Science and Information Engineering, Hefei University of Technology, Hefei, 230601, China (e-mail:
+haoyanbin@hotmail.com).
+Bin Zhu is with School of Computing and Information Systems, Singapore
+Management University, Singapore (e-mail: binzhu@smu.edu.sg).
+Shuo Wang is with School of Information Science and Technology,
+University of Science and Technology of China, Hefei, China (e-mail:
+shuowang.edu@gmail.com).
+Zaixi Zhang is with Department of Computer Science and Engineering,
+University of Science and Technology of China, Hefei, China (e-mail:
+zaixi@mail.ustc.edu.cn).
+
+Previous works [1]–[3] in the white-box setting have succeeded in reconstructing private images disclosing personal
+information by using generative adversarial networks (GANs)
+[4]. Firstly, they train the GAN on a public dataset to learn
+an image prior that only shares structural similarity with the
+private dataset (i.e., without any interclass overlap). Then
+leveraging the full accessibility of the target classifier, they
+continuously optimize latent variables through iterations until
+they could reconstruct images with the highest confidence
+associated with specific target labels in the target classifier. In
+a word, their works can be summarized as a single-objective
+optimization problem for the latent variables z, which are initially sampled from a Standard Gaussian distribution N (0, I),
+by minimizing the classification loss between reconstructed
+images and target labels.
+Successful MIAs should balance both attack accuracy and
+fidelity. However, these works using GANs as image priors
+commonly suffer from inferior generative fidelity, which can
+be attributed to the following two reasons. On the one hand,
+GANs are difficult to train and prone to collapse without
+carefully tuned hyper-parameters and regularizers [5]–[7],
+inherently falling short in generative quality. On the other
+hand, since GANs can be viewed as a mapping from a
+known distribution (e.g., Standard Gaussian distribution) to a
+complex image distribution [4], such an optimization strategy
+can potentially distort the prior distribution in the latent space,
+leading to fidelity degradation (see Fig. 1) in pursuit of higher
+attack accuracy. Additionally, previous works have improved
+the standard cross-entropy (CE) loss in MIAs for Poincaré loss
+[8] and max-margin loss [3], whereas the feature information
+and soft labels provided by the target classifier still remains
+underutilized.
+To address the above limitations, we propose a two-step
+Diffusion-based Model Inversion (Diff-MI) attack, leveraging
+on diffusion models (DMs)’ remarkable synthesis capabilities
+[7], [11], [12]. Specifically, in step-1, we devise a targetspecific conditional diffusion model (CDM) to distill the target
+classifier’s knowledge and approximate its private distribution.
+Particularly, we first pretrain a CDM with public images along
+with their pseudo-labels produced by the target classifier as
+conditions. To fully distill the target classifier’s white-box
+knowledge (e.g., gradients), we then fine-tune a small subset
+of the pretrained CDM through its sampling process with
+image predictions by the target classifier, achieving superior
+accuracy-fidelity balance. In step-2, we introduce an iterative
+image reconstruction method for diffusion-based MIAs to
+mitigate the fidelity degradation problem. It turns the singleobjective optimization problem (i.e., minimizing the classifica-
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+iter = 0
+
+iter = 200
+
+2
+
+iter = 400
+
+iter = 600
+
+PLG-MI
+
+Ours
+
+Private
+Samples
+
+Fig. 1: Fidelity degradation. We randomly select 4 target classes and visualize their distributional variation in GAN’s latent space along
+with corresponding generated images, depicted with different colors (MIA Method = PLG-MI [3], Private Dataset = CelebA [9], Public
+Dataset = CelebA, Target Classifier = Face.evoLVe [10]). Through iterations, we observe that the latent variables, initially sampled from
+N (0, I), tend to cluster together and constitute a new distribution with a deviation from N (0, I). Meanwhile, reconstructed images gradually
+deteriorate visually during inversion because of the widening gap between the optimized latent distribution and the prior distribution. As a
+result, PLG-MI sacrifices generative fidelity for attack accuracy, which is also present in other GAN-based methods [1], [2].
+
+tion loss) into a combinatorial optimization problem by involving both learned CDM prior and target classifier constraint,
+further enhancing the attack performance. Additionally, we
+propose an improved max-margin loss replacing the hard max
+with top-k maxes along with a p-reg loss regularizing images
+in the feature space, fully leveraging feature information and
+soft labels from the target classifier. Our contributions can be
+summarized as follows:
+We propose Diffusion-based Model Inversion (Diff-MI)
+attacks, which capitalize on DMs’ remarkable synthesis
+capabilities to solve MIA problem with high-fidelity reconstruction. To the best of our knowledge, our method is the
+first diffusion-based white-box MIA.
+• We devise a target-specific CDM to approximate the target
+classifier’s private distribution, by creating pseudo-labels as
+conditions in pretraining and adjusting specified layers with
+image predictions in fine-tuning.
+• We compare existing classification losses and introduce an
+improved max-margin loss for MIAs consisting of the top-k
+loss replacing the hard max with top-k maxes and the p-reg
+loss regularizing images in the feature space.
+• We conduct extensive experiments to demonstrate that our
+Diff-MI achieves superior generative fidelity and reconstruction quality with competitive attack accuracy against stateof-the-art (SOTA) methods.
+•
+
+II. R ELATED W ORKS
+MIAs were first proposed in [13], [14], where they demonstrated success in low-capacity models like logistic regression.
+Recently, MIAs were extended to tackle more complex DNNs
+and intended to acquire higher-dimensional private data (e.g.,
+images). The first to launch MIAs against DNNs was Generative Model Inversion (GMI) [1], where the public dataset
+was firstly extracted as an image prior by a GAN, and then
+this prior was employed to guide the reconstruction of private
+training samples with the guidance of the target classifier.
+Knowledge-Enriched Distributional Model Inversion (KEDMI) [2] trained an inversion-specific GAN by introducing soft
+
+labels produced by the target classifier and optimizes distributional estimation instead of point estimation in the latent space.
+Variational Model Inversion (VMI) [15] proposed to view the
+MIA problem as a variational inference problem, and provided
+a framework using deep normalizing flows [16] regularized by
+a KL divergence term. Plug & Play Attacks (PPA) [8] proposed
+to use publicly available pretrained GANs to attack a wide
+range of target models. Pseudo Label-Guided Model Inversion
+(PLG-MI) [3] proposed to leverage pseudo-labels produced by
+the target classifier to guide the training of a conditional GAN
+[17] and achieved SOTA attack performance. However, above
+GAN-based MIAs struggle to achieve a satisfactory balance
+between attack accuracy and fidelity, either prioritizing high
+accuracy at the expense of fidelity [1]–[3] or ensuring fidelity
+at the cost of accuracy [8], [15]. Based on this limitation, our
+goal is to achieve a superior accuracy-fidelity balance. More
+recently, [18] introduced conditional diffusion models to tackle
+black-box MIAs.
+Diffusion Models [19] are probabilistic models designed
+to learn an underlying data distribution and have recently
+achieved impressive performance in image synthesis tasks,
+such as conditional generation [7], [11], [12], image editing
+[20]–[22], and text-to-image generation [23], [24]. These
+models employ a Markov chain of diffusion steps, gradually
+introducing random noise to the data and then learning to
+reverse this diffusion process to generate desired data samples
+from noise. To accomplish this, they train a time-conditioned
+U-Net ϵθ (xt , t) [25] to predict a denoised variant of their
+input xt , where xt is a noisy version of the input x0 . The
+main objective can be simplified to
+h
+i
+2
+LDM = Ex0 ,ϵ∼N (0,I),t ∥ϵ − ϵθ (xt , t)∥2 ,
+(1)
+with t uniformly sampled from {1, ..., T }.
+III. M ETHOD
+In this section, we first introduce the MIA problem and then
+elaborate on the design details of the proposed Diffusion-based
+Model Inversion (Diff-MI) attacks.
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+3
+
+Step-1: Target-Specific Conditional Diffusion Model
+
+Step-2: Iterative Image Reconstruction
+
+
+
+① Pre-training CDM
+
+t step
+noise
+
+
+
+Pretrain
+
+x0
+
+Public Image
+
+Target
+Classifier
+
+yp
+
+Target
+Classifier
+
+Label Embedding
+
+Step Embedding
+
+Trainable
+
+Group Norm1
+
+Frozen
+
+SiLU
+
+xT
+
+Generated Image
+
+×T
+
+Fine-tune
+
+Target
+Classifier
+
+2D Conv2
+Group Norm3
+SiLU
+2D Conv4
+
+2D Conv12
+SiLU
+Group Norm11
+
+1D Conv8
+
+Label Embedding
+
+Linear13
+
+Scale & Shift
+
+Attention7
+
+y
+
+c
+Target Label
+
+Linear5
+
+Group Norm6
+
+Training Objective
+
+y
+
+c
+Target Label
+
+Middle Block in U-Net
+
+ (0, I )
+
+Skip Connection
+
+cls
+
+clone
+
+② Fine-tuning CDM
+
+Partially Frozen
+
+prior
+
+Gradient
+
+Pseudo Label
+
+Add
+
+Sample
+
+xt
+
+t step
+noise
+
+2D Conv10
+SiLU
+Group Norm9
+
+Fig. 2: Overview of our proposed two-step Diff-MI attacks. Step-1: We build a target-specific CDM on the public dataset to distill the
+target classifier’s knowledge. This is achieved by pretraining a CDM with pseudo-labels produced by the target classifier as conditions, then
+fine-tuning a small subset of the pretrained CDM with the guidance of the target classifier (subscripts of layers in the middle block indicate
+their corresponding index). Step-2: We use an iterative image reconstruction method to involve both diffusion prior (i.e., Lprior ) and target
+classifier’s knowledge (i.e., Lcls ). xT in step-1 and x0 in step-2 are both initialized from N (0, I).
+
+A. MIA Problem
+Problem Formulation. The goal of MIAs is to construct
+an attack model, often termed the “attacker”, which is used
+to reconstruct representative images associated with specified
+“target labels” from the “private dataset” Dpri with only access
+to the “target classifier” T . Take face recognition attacks
+as an example, the attacker can reconstruct a facial image,
+exposing the privacy of a target label yc (i.e., person ID)
+by fully accessing a face recognition classifier. Typically, the
+reconstructed image should visually and semantically resemble
+the class-wise training samples of the target classifier.
+Attacker’s Prior Knowledge. As our method deals with
+the white-box MIAs, the attacker is granted access to all parameters of the target classifier. The attacker is also presumed
+to know the data type (e.g., human face) of the private dataset.
+Therefore, to familiarize the attacker with the private data type,
+a “public dataset” Dpub of the same data type is utilized to gain
+prior knowledge of general data features, sharing no interclass
+overlap with Dpri .
+B. Diffusion-based Model Inversion Attacks
+An overview of our proposed Diff-MI is illustrated in Fig. 2.
+Given a target classifier T trained on a private dataset Dpri ,
+the attacker aims to reconstruct key features of identities in
+Dpri with the support of a public dataset Dpub . Our Diff-MI
+consists of two steps. In step-1, we build a target-specific CDM
+to distill knowledge from the target classifier by pretraining a
+CDM on Dpub with pseudo-labels as conditions and then finetuning a small subset of the pretrained CDM by incorporating
+the target classifier through its sampling process. In step2, we propose an iterative image reconstruction method to
+
+involve the diffusion prior and the target classifier’s knowledge
+through a combinatorial optimization problem.
+B.1 Step-1: Target-Specific Conditional Diffusion Model
+Pre-training CDM. To leverage the knowledge of the target
+classifier, we adopt a top-n selection strategy [3] in advance to
+generate pseudo-labels for images in Dpub . Then we utilize the
+obtained image-label pairs to pretrain the CDM. Specifically,
+for a provided target classifier T and specified target label
+yc ∈ {1, ..., C}, where C denotes the number of classes in
+Dpri , we feed all public images into T and sort the ycth value
+of logits (i.e., outputs of the last layer of T ) in descending
+order. Then we select top-n public images with the highest
+likelihood associated with yc .
+This strategy aims to search for the most representative n
+images in Dpub corresponding to every target label in Dpri .
+Empirically, the target classifier has relatively high confidence
+of class yc in the selected top-n images, which means these
+images are perceived to share structural similarity with images
+of the same class in Dpri from the perspective of T . In this way,
+the image distribution can be decoupled into distinct classwise sub-distributions in advance, distilling the knowledge of
+the target classifier into the CDM. Formally, for training the
+CDM on Dpub with pseudo-labels yp ∈ {1, ..., C}, we have a
+label-conditioned objective via Eq. 1, which now reads
+h
+i
+2
+LPretrain = Ex0 ,yp ,ϵ∼N (0,I),t ∥ϵ − ϵθ (xt , yp , t)∥2 .
+(2)
+Fine-tuning CDM. The use of pseudo-labels is effective in
+distilling the knowledge of the target classifier. However, we
+argue that the extracted target knowledge could be inadequate
+for the attacker, especially when there is a significant gap
+between the public and private datasets. This inadequacy may
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+4
+
+arise because the pseudo-labels might not be as accurate as
+anticipated due to the domain gap. Considering the whitebox knowledge of the target classifier (i.e., all parameters are
+accessible), we propose to integrate the target classifier into the
+CDM’s learning process to further extract its knowledge for
+our target-specific CDM. In practice, we connect the target
+classifier to the CDM and initiate a sampling process to
+generate images. These generated images are then directly fed
+into the target classifier for label prediction. By comparing
+the predicted soft labels with the target labels, we can jointly
+fine-tune the label embedding layer and the U-Net module of
+the CDM using the following objective
+LFine-tune = ExT ∼N (0,I),yc [Lcls (T (D (xT , yc )) , yc )] ,
+
+(3)
+
+where yc ∈ {1, ..., C} represents the target label, D (·, ·)
+denotes the sampling process of the CDM, and Lcls is the
+classification loss we will introduce in Sec. III-C.
+The most straightforward way for fine-tuning is to adjust all
+layers of the CDM during the sampling process. However, this
+operation would undermine the learned mathematical properties of the CDM derived from the diffusion process (i.e., noiseadding process), leading to meaningless generations. Because
+this contradicts the logic of diffusion models that predict
+Gaussian noise. Our experiments reveal that only fine-tuning
+the label embedding layer and the middle block of the U-Net
+can result in higher attack accuracy but compromise slight
+generative fidelity. To further minimize the impact on generative fidelity, we adopt the method from [26] to calculate the
+change rate of layer’s parameters using ∆l = ∥θl′ − θl ∥ / ∥θl ∥,
+where θl′ and θl denote the fine-tuned and original parameters
+of layer l respectively. As demonstrated by [26], layers with
+greater changes typically play a more significant role in finetuning. As shown in Fig. 6 (a), we empirically select five layers
+in the middle block that show the highest ∆ during fine-tuning,
+achieving superior accuracy-fidelity balance. Further analysis
+is provided in Sec. IV-F.
+B.2 Step-2: Iterative Image Reconstruction
+Upon completing the training of our target-specific CDM,
+the subsequent step is to employ it for reconstructing images
+based on a specific target class. Instead of using the traditional
+diffusion sampling process for image generation, we introduce
+an iterative image reconstruction (IIR) method, inspired by
+[27]. Particularly, IIR turns the diffusion sampling process
+into a combinatorial optimization problem, which performs
+image reconstruction by iterating differentiation involving both
+the learned CDM prior and target classifier’s knowledge. This
+enables the target classifier to further aid in guiding the image
+reconstruction process.
+Specifically, given a target label yc , we first initialize the
+image x0 from N (0, I). Meanwhile, we define a time schedule
+(ti )N
+i=1 , where N represents the number of iterations, and t is
+annealed from high to low values. To optimize x0 under the
+trained target-specific CDM ϵθ and the constraint of the target
+classifier T , we minimize the following objective consisting
+of a prior loss Lprior and a classification loss Lcls :
+LIIR = Lprior + Lcls (T (x0 ) , yc ) ,
+
+(4)
+
+where
+h
+i
+2
+Lprior = Eϵ∼N (0,I),ti ∥ϵ − ϵθ (xti , yc , ti )∥2 ,
+
+(5)
+
+√
+√
+ᾱti x0 + 1 − ᾱti ϵ represents the diffusion
+and xti =
+process of DMs according to a predefined schedule ᾱt .
+Intuitively, the prior loss Lprior measures how well the
+reconstructed image x0 aligns with the class-wise diffusion
+prior. The classification loss Lcls evaluates the discrepancy
+between the reconstructed image x0 and the target label yc
+according to the target classifier T . After iterating N times,
+we can obtain the reconstructed image x0 correlated with the
+target label yc . Additionally, we adopt the targeted Projected
+Gradient Descent (PGD) method [28]–[30] to improve the
+reconstruction after IIR with the target classifier.
+
+C. An Improved Max-Margin Loss
+Previous works [1], [2], [15] have commonly adopted the
+cross-entropy loss for classification while they are usually
+confronting the vanishing gradient problem. This problem has
+been proven and addressed by introducing novel losses such
+as Poincaré loss [8], max-margin loss [3], and identity loss
+[31], among which the max-margin loss achieves SOTA attack
+performance:
+LMM (x, yc ) = −lyc (x) + max lj (x),
+j̸=yc
+
+(6)
+
+where lyc denotes the logit w.r.t the target label yc .
+We propose a top-k loss as an improvement in the maxmargin loss by replacing the hard max with top-k maxes,
+to make full use of the soft label provided by the target
+classifier for more discriminative reconstruction. This encourages the discovery of the most representative sample while
+simultaneously distinguishing it from the other most similar k
+classes, rather than solely emphasizing the most similar one.
+Our improved top-k loss is shown as follows:
+Ltop-k (x, yc , k) = −lyc (x) + maxk lj (x).
+
+(7)
+
+j̸=yc
+
+Meanwhile, we find the p-reg loss proposed in [31] useful
+in regularizing reconstructed images in the feature space
+(i.e., penultimate layer activations of the classifier) for closer
+feature distance. They derive the regularizing feature preg by
+sampling from a feature distribution pre-computed from the
+whole public dataset using the target classifier. In contrast, we
+introduce prior knowledge of pseudo-labels to estimate the
+feature centroid of each target label preg,yc , which now reads
+2
+
+Lp-reg (px , yc ) = ∥px − preg,yc ∥2 ,
+
+(8)
+
+where px refers to penultimate layer activations of the target
+classifier w.r.t x. To sum up, the classification loss adopted in
+our Diff-MI can be formulated as
+Lcls = Ltop-k + αLp-reg ,
+where α is a regularization coefficient.
+
+(9)
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+IV. E XPERIMENTS
+In this section, we evaluate our Diff-MI in terms of the
+performance of reconstructing private images from a specific
+target classifier. The baselines we compare against are GMI
+[1], KED-MI [2], and PLG-MI [3], which are all GAN-based
+methods. We also include more comparisons with VMI [15]
+and PPA [8], which prioritize fidelity but fall short in accuracy.
+
+5
+
+the distributional shift setting, our access is restricted to any
+part of the original dataset, including its disjoint counterpart.
+Consequently, we can only resort to another dataset of the
+same data type, which exhibits a larger distributional shift with
+Dpri . Herein, we use FFHQ and FaceScrub as substitutes for
+Dpub .
+B. Evaluation Metrics
+
+A. Experimental Setup
+To ensure a fair comparison, we maintain the same experimental setup for these baselines. Subsequently, we illustrate
+the details of these setups.
+Datasets. We perform MIAs for various classification tasks,
+including face recognition, fine-grained image classification,
+and disease prediction. For face recognition, we select three
+widely-used datasets for experiments: (1) CelebA [9] containing 202,599 face images of 10,177 identities with coarse
+alignment; (2) FFHQ [32] containing 70,000 high-quality
+images with considerable variation in terms of age, ethnicity,
+and image background; and (3) FaceScrub [33] containing
+106,863 face image URLs of 530 celebrities. Herein, we use
+a cleaned and aligned version of FaceScrub [34] which
+includes 91,712 images of 263 males and 263 females because
+of partially invalid URLs in the original dataset. For finegrained image classification, we choose CUB-200-2011
+[35] which is the most widely-used dataset for fine-grained
+visual categorization tasks. It contains 11,788 images of
+200 subcategories belonging to birds. For disease prediction,
+ChestX-Ray [36] is a medical image dataset that comprises
+112,120 frontal-view X-ray images of 30,805 unique patients
+with the text-mined fourteen common disease labels, mined
+from the text radiological reports via NLP techniques. And
+CheXpert [37] contains 224,316 chest radiographs of 65,240
+patients with both frontal and lateral views available.
+Target Classifiers. Following previous works, we evaluate
+our attack on three different face recognition models with varying complexities: (1) VGG16 [38], (2) ResNet-152 (IR152)
+[39], and (3) Face.evoLVe [10]. Before training the classifier,
+the private dataset containing 30,027 images of CelebA is
+split into two parts: 90% of the samples for training and 10%
+for testing. All target classifiers are trained using the SGD
+optimizer with learning rate 10−2 , batch size 64, momentum
+0.9, and weight decay 10−4 while making use of pretrained
+weights. All private images are cropped at the center, resized
+to 64 × 64, and horizontally flipped in 50% of the cases.
+Implementation Details. We implement our attack in both
+standard and distributional shift settings. In the standard setting, we divide the original dataset into two disjoint parts: one
+serves as Dpri to train the target classifier and the other serves
+as Dpub to train the diffusion model, ensuring there is no image
+and identity intersection between the two parts. Specifically,
+we take 30,027 images of 1,000 identities from CelebA as
+Dpri to train the target classifier and randomly choose 30,000
+images of other identities from the disjoint part as Dpub to train
+the diffusion model. However, the standard setting can be too
+easy for the current SOTA method [3], thus a more challenging
+but realistic scenario should be emphasized and researched. In
+
+The evaluation of MIAs can be multifaceted, with the core
+aim of assessing whether the reconstructed images expose any
+private information about the target class. We reconstruct 5
+images for the first 300 target labels for evaluation. Moreover,
+we conduct a user study to access generative fidelity and
+accuracy from the perspective of human preference. Herein,
+we introduce metrics to meet the needs of visual inspection
+as well as quantitative evaluation:
+(1) Attack Accuracy (Acc). We build an evaluation classifier to predict target classes of the reconstruction and then
+calculate top-1 (Acc1) and top-5 (Acc5) accuracies. Notably,
+the evaluation classifier should be different from the target
+classifier, as reconstructed images may incorporate visually
+irrelevant and semantically meaningless features, potentially
+leading to overfitting and inflated attack accuracy. Moreover,
+the evaluation classifier should achieve high generalization
+ability because it serves as a proxy for a human observer
+in determining whether the reconstruction reveals personally
+sensitive information. Herein, we adopt the model in [10],
+which is pretrained on MS-Celeb-1M [41] and fine-tuned
+on the same training data of the target classifier.
+(2) Fréchet Inception Distance (FID). FID [42] is commonly used for evaluating the generative diversity and fidelity
+in GAN’s works. It measures feature distances between generated images and real images. Feature vectors are all extracted
+by an Inception-v3 model [43] pretrained on ImageNet [44].
+In our experiment, we calculate FID between the reconstructed
+images and the private training set of the target classifier
+to reveal the generative fidelity of the reconstruction. Lower
+FID typically indicates that the reconstructed images are
+resembling the private images with superior generative fidelity.
+In our implementation, we use Pytorch-FID [45].
+(3) K-Nearest Neighbor Distance (KNN Dist). KNN Dist
+means the shortest feature distance (ℓ2 distance) between the
+reconstructed image for a specific target label and corresponding private images of the same class. Lower KNN Dist
+typically indicates that the reconstructed images are closer to
+the private images. Notably, KNN Dist is a model-specific
+metric correlated with Acc and we found that previous works
+[1], [2] with relatively lower Acc usually suffer from a much
+higher KNN Dist, resulting in a misleading evaluation. To
+achieve independence from Acc and precise evaluations, we
+propose to only calculate KNN Dist on the reconstructed
+images recognized successfully by the evaluation classifier to
+have a fair comparison.
+(4) PSNR, SSIM, & LPIPS [46]–[48] are three widely
+used metrics in the field of image quality assessment. PSNR
+measures the reconstruction accuracy of an image by comparing the peak signal-to-noise ratio between the reconstructed
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+6
+
+TABLE I: Attack performance comparison in the standard setting (Dpri = CelebA , Dpub = CelebA). ↑ and ↓ respectively symbolize that
+higher and lower scores give better attack performance.
+Acc1 ↑
+
+VGG16
+Acc5 ↑
+FID ↓
+
+KNN Dist ↓
+
+Acc1 ↑
+
+Acc5 ↑
+
+IR152
+FID ↓
+
+KNN Dist ↓
+
+Acc1 ↑
+
+Face.evoLVe
+Acc5 ↑
+FID ↓
+
+GMI
+KED-MI
+PLG-MI
+
+23.40%
+63.13%
+97.47%
+
+47.07%
+88.33%
+99.47%
+
+28.04
+30.49
+33.27
+
+1272.20
+1232.97
+1133.36
+
+35.87%
+68.53%
+99.67%
+
+58.53%
+88.07%
+99.73%
+
+29.03
+41.10
+33.16
+
+1269.30
+1249.90
+1044.64
+
+30.87%
+75.00%
+99.67%
+
+53.33%
+94.67%
+99.93%
+
+31.13
+33.21
+31.48
+
+1297.40
+1232.97
+1113.21
+
+Ours
+
+93.47%
+
+99.20%
+
+23.82
+
+1081.98
+
+97.40%
+
+99.80%
+
+25.77
+
+1010.70
+
+94.93%
+
+99.33%
+
+28.16
+
+1025.36
+
+KNN Dist ↓
+
+TABLE II: Attack performance comparison in the distributional shift setting. “A → B” represents the diffusion model and target
+classifier trained on datasets A and B, respectively.
+Acc1 ↑
+
+FFHQ → CelebA
+Acc5 ↑
+FID ↓
+
+KNN Dist ↓
+
+Acc1 ↑
+
+FaceScrub → CelebA
+Acc5 ↑
+FID ↓
+KNN Dist ↓
+
+VGG16
+
+GMI
+KED-MI
+PLG-MI
+Ours
+
+8.40%
+33.93%
+87.07%
+78.07%
+
+21.07%
+64.93%
+95.73%
+93.87%
+
+41.55
+37.37
+43.55
+28.82
+
+1406.68
+1353.46
+1277.54
+1250.04
+
+11.07%
+39.13%
+83.00%
+75.13%
+
+27.87%
+70.33%
+95.93%
+92.40%
+
+39.47
+36.90
+34.08
+25.74
+
+1386.05
+1344.16
+1247.40
+1221.25
+
+IR152
+
+GMI
+KED-MI
+PLG-MI
+Ours
+
+14.93%
+44.60%
+96.67%
+94.73%
+
+33.13%
+74.07%
+99.67%
+99.67%
+
+41.87
+46.97
+44.15
+37.82
+
+1402.52
+1320.22
+1159.10
+1140.09
+
+18.93%
+52.27%
+96.73%
+90.40%
+
+41.00%
+78.80%
+99.33%
+97.67%
+
+41.98
+33.97
+40.34
+29.53
+
+1340.84
+1307.37
+1137.90
+1113.21
+
+Face.evoLVe
+
+GMI
+KED-MI
+PLG-MI
+Ours
+
+11.33%
+48.47%
+93.13%
+92.60%
+
+26.33%
+74.07%
+98.60%
+98.60%
+
+46.29
+44.53
+48.45
+37.73
+
+1393.91
+1336.24
+1231.42
+1204.60
+
+14.00%
+46.07%
+91.87%
+89.53%
+
+31.67%
+75.27%
+98.33%
+98.00%
+
+42.05
+39.75
+40.00
+27.44
+
+1371.37
+1335.63
+1245.22
+1210.82
+
+and private images, with higher values indicating better image
+quality. SSIM focuses on structural similarity, considering
+aspects such as brightness, contrast, and structure, with values
+ranging from -1 to 1, where closer to 1 indicates higher image
+quality. LPIPS is a deep learning-based metric that assesses
+image differences by learning the perceptual similarity of image patches, providing a more perceptually aligned evaluation,
+which has been demonstrated to closely align with human
+perception. We also introduce additional metrics regarding
+image quality assessment, i.e., FSIM [49], VSI [50], HaarPSI
+[51], SR-SIM [52], DSS [53], and MDSI [54].
+Discussion on MIA Metrics. Notably, we would like
+to distinguish between the attack accuracy (Acc) and other
+metrics regarding reconstruction similarity (i.e., FID, KNN
+Dist, and PSNR/SSIM/LPIPS). Acc relies on an evaluation
+classifier and is inevitably subject to inherent prediction errors, which indicates that Acc may not always accurately
+and objectively reflect the attack performance and largely
+depends on the similarity between the evaluation and target
+classifiers (e.g., model architecture, data augmentation, and
+training strategy). In contrast, other metrics directly measure
+the feature distance or image similarity to private images,
+resulting in fewer cumulative errors and a more objective
+assessment. Our user study also shows a preference for higherfidelity images, even if they achieve lower Acc. This implies
+that once Acc is sufficiently high (e.g., when the user’s key
+privacy is successfully reconstructed), the image quality becomes more crucial. This perspective prioritizes image quality
+based on human observation over a purely numerical fit to the
+classifier. This holistic consideration underscores the necessity
+of compromising attack accuracy and generative fidelity, i.e.,
+
+🔒🔒Private
+
+KED-MI
+
+PLG-MI
+
+Ours
+(w/o FT)
+
+Ours
+
+Fig. 3: Visual comparison of reconstructed images using different
+MIA methods (Dpri = CelebA, Dpub = CelebA, Target Classifier =
+VGG16). The first row shows the ground-truth private images of
+target labels of different identities.
+
+superior accuracy-fidelity balance in our setup.
+C. Comparisons on Face Datasets
+Standard Setting. We first compare our attack with baselines in the standard setting, where we divide CelebA into
+private and public datasets. As shown in Table I, our method
+outperforms all baselines in terms of generative fidelity while
+exhibiting competitive attack accuracy across three models.
+The reconstructed images generated by our Diff-MI achieve
+the lowest FID and KNN Dist on all target classifiers. Specifically, we observe an average decrease of 20% in FID and 50
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+7
+
+TABLE III: Reconstruction quality assessment using different methods with various target classifiers. LPIPS-A and LPIPS-V denote
+that using AlexNet [40] and VGG16 [38] for extracting image features, respectively. “A + B” indicates taking A as the public dataset and
+B as the target classifier.
+PSNR ↑
+
+SSIM ↑
+
+FSIM ↑
+
+VSI ↑
+
+HaarPSI ↑
+
+SR-SIM ↑
+
+DSS ↑
+
+MDSI ↓
+
+LPIPS-A ↓
+
+LPIPS-V ↓
+
+1
+
+CelebA
++
+VGG16
+
+GMI
+KED-MI
+PLG-MI
+Ours
+
+13.09
+14.13
+14.79
+15.64
+
+0.39
+0.42
+0.47
+0.53
+
+0.69
+0.71
+0.73
+0.75
+
+0.86
+0.86
+0.88
+0.89
+
+0.40
+0.42
+0.45
+0.49
+
+0.82
+0.84
+0.85
+0.87
+
+0.44
+0.51
+0.52
+0.60
+
+0.57
+0.56
+0.54
+0.53
+
+0.3393
+0.3324
+0.3025
+0.2998
+
+0.5245
+0.5175
+0.4787
+0.4747
+
+2
+
+CelebA
++
+IR152
+
+GMI
+KED-MI
+PLG-MI
+Ours
+
+13.15
+13.94
+14.62
+16.11
+
+0.38
+0.38
+0.49
+0.55
+
+0.69
+0.69
+0.73
+0.76
+
+0.86
+0.86
+0.88
+0.90
+
+0.40
+0.41
+0.44
+0.50
+
+0.82
+0.83
+0.84
+0.86
+
+0.44
+0.51
+0.53
+0.61
+
+0.56
+0.56
+0.55
+0.54
+
+0.3406
+0.3414
+0.3085
+0.2991
+
+0.5259
+0.5322
+0.4855
+0.4791
+
+3
+
+CelebA
++
+Face.evoLVe
+
+GMI
+KED-MI
+PLG-MI
+Ours
+
+12.93
+13.95
+14.20
+16.31
+
+0.38
+0.42
+0.48
+0.55
+
+0.69
+0.70
+0.72
+0.76
+
+0.86
+0.86
+0.87
+0.90
+
+0.39
+0.41
+0.43
+0.50
+
+0.82
+0.84
+0.84
+0.87
+
+0.43
+0.52
+0.53
+0.60
+
+0.57
+0.56
+0.55
+0.54
+
+0.3434
+0.3340
+0.3069
+0.2975
+
+0.5306
+0.5200
+0.4859
+0.4737
+
+4
+
+FFHQ
++
+VGG16
+
+GMI
+KED-MI
+PLG-MI
+Ours
+
+11.86
+11.31
+13.49
+14.07
+
+0.22
+0.24
+0.28
+0.33
+
+0.65
+0.64
+0.69
+0.70
+
+0.83
+0.81
+0.85
+0.86
+
+0.35
+0.34
+0.40
+0.43
+
+0.80
+0.79
+0.82
+0.84
+
+0.36
+0.38
+0.44
+0.48
+
+0.58
+0.58
+0.55
+0.54
+
+0.3442
+0.3622
+0.3108
+0.3069
+
+0.5502
+0.5532
+0.5092
+0.5024
+
+5
+
+FFHQ
++
+IR152
+
+GMI
+KED-MI
+PLG-MI
+Ours
+
+11.77
+11.00
+13.69
+13.72
+
+0.23
+0.23
+0.30
+0.31
+
+0.65
+0.63
+0.70
+0.69
+
+0.83
+0.81
+0.86
+0.85
+
+0.35
+0.33
+0.40
+0.41
+
+0.79
+0.79
+0.82
+0.83
+
+0.36
+0.36
+0.43
+0.46
+
+0.58
+0.58
+0.55
+0.54
+
+0.3490
+0.3685
+0.3178
+0.3124
+
+0.5544
+0.5602
+0.5115
+0.5103
+
+6
+
+FFHQ
++
+Face.evoLVe
+
+GMI
+KED-MI
+PLG-MI
+Ours
+
+11.62
+11.06
+13.04
+13.80
+
+0.22
+0.24
+0.28
+0.33
+
+0.65
+0.63
+0.68
+0.70
+
+0.83
+0.81
+0.85
+0.86
+
+0.34
+0.34
+0.38
+0.43
+
+0.79
+0.79
+0.82
+0.83
+
+0.35
+0.37
+0.42
+0.48
+
+0.58
+0.58
+0.56
+0.54
+
+0.3506
+0.3576
+0.3255
+0.3116
+
+0.5595
+0.5466
+0.5169
+0.5037
+
+7
+
+FaceScrub
++
+VGG16
+
+GMI
+KED-MI
+PLG-MI
+Ours
+
+12.97
+11.74
+13.67
+13.63
+
+0.28
+0.26
+0.29
+0.33
+
+0.68
+0.65
+0.69
+0.70
+
+0.85
+0.82
+0.85
+0.85
+
+0.38
+0.36
+0.41
+0.41
+
+0.82
+0.80
+0.82
+0.83
+
+0.41
+0.40
+0.44
+0.47
+
+0.56
+0.57
+0.55
+0.54
+
+0.3402
+0.3498
+0.3147
+0.3078
+
+0.5426
+0.5445
+0.5090
+0.5129
+
+8
+
+FaceScrub
++
+IR152
+
+GMI
+KED-MI
+PLG-MI
+Ours
+
+12.89
+11.93
+13.42
+13.82
+
+0.28
+0.26
+0.30
+0.34
+
+0.68
+0.65
+0.69
+0.70
+
+0.85
+0.83
+0.85
+0.86
+
+0.38
+0.36
+0.41
+0.42
+
+0.82
+0.81
+0.82
+0.83
+
+0.40
+0.40
+0.44
+0.48
+
+0.57
+0.57
+0.55
+0.54
+
+0.3436
+0.3504
+0.3165
+0.3060
+
+0.5458
+0.5463
+0.5111
+0.5130
+
+9
+
+FaceScrub
++
+Face.evoLVe
+
+GMI
+KED-MI
+PLG-MI
+Ours
+
+12.74
+11.70
+13.46
+13.70
+
+0.27
+0.25
+0.30
+0.33
+
+0.67
+0.65
+0.68
+0.69
+
+0.85
+0.82
+0.85
+0.85
+
+0.37
+0.35
+0.40
+0.42
+
+0.82
+0.80
+0.82
+0.83
+
+0.40
+0.39
+0.43
+0.47
+
+0.56
+0.57
+0.55
+0.54
+
+0.3479
+0.3484
+0.3153
+0.3127
+
+0.5498
+0.5427
+0.5177
+0.5100
+
+points in KNN Dist compared to the SOTA method (i.e., PLGMI), indicating that our reconstruction is closely resembling
+the private images with improved generative fidelity and closer
+feature distance. We also note that our improvement in fidelity
+compromises attack accuracy compared to PLG-MI. Recall
+that our intention is to strive for superior accuracy-fidelity
+balance rather than solely pursuing high Acc. The improved fidelity is deemed more favorable when maintaining competitive
+Acc. Fig. 3 visualizes the reconstructed images using different
+methods. Compared with KED-MI and PLG-MI, which are
+suffering from inferior generative fidelity because of GAN’s
+inherent flaws and the fidelity degradation problem discussed
+in Sec. I, our reconstruction exhibits more pronounced semantic facial features and demonstrates superior visual fidelity.
+We also compare the reconstruction using our method without
+fine-tuning (Ours w/o FT). The comparison indicates that our
+FT method effectively preserves the generative fidelity while
+
+improving attack accuracy.
+Distributional Shift Setting. We further explore a more
+challenging yet realistic scenario where the public and private datasets exhibit larger distributional shifts. As shown
+in Table II, our Diff-MI outperforms all baselines in terms
+of generative fidelity as well and simultaneously achieves
+competitive attack accuracy against the SOTA method on both
+public datasets. It is evident that all methods suffer from a
+performance drop because of larger distributional shifts. Even
+so, our reconstruction still exhibits lower FID and KNN Dist
+with an average decrease of 20% and an average reduction of
+20 points, respectively.
+Reconstruction Quality. In addition to attack accuracy
+(Acc) and distributional distance (FID and KNN Dist), we also
+compare the image quality of different reconstructions to provide a more comprehensive assessment of attack performance.
+As shown in Table III, our reconstructions outperform all base-
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+8
+
+TABLE IV: Attack performance between Diff-MI and PPA (Dpri = CelebA, Dpub = FFHQ, image size = 64 × 64).
+Acc1 ↑
+
+Acc5 ↑
+
+FID ↓
+
+KNN Dist ↓
+
+PSNR ↑
+
+SSIM ↑
+
+FSIM ↑
+
+VSI ↑
+
+HaarPSI ↑
+
+SR-SIM ↑
+
+DSS ↑
+
+MDSI ↓
+
+LPIPS-A ↓
+
+LPIPS-V ↓
+
+VGG16
+
+PPA
+Ours
+
+19.53%
+78.07%
+
+38.13%
+93.87%
+
+24.79
+28.82
+
+1230.81
+1250.04
+
+13.84
+14.07
+
+0.28
+0.33
+
+0.69
+0.70
+
+0.86
+0.86
+
+0.39
+0.43
+
+0.82
+0.84
+
+0.40
+0.48
+
+0.57
+0.54
+
+0.3460
+0.3069
+
+0.5240
+0.5024
+
+IR152
+
+PPA
+Ours
+
+22.93%
+94.73%
+
+44.27%
+99.67%
+
+24.82
+37.82
+
+1239.97
+1140.09
+
+13.70
+13.72
+
+0.27
+0.31
+
+0.69
+0.69
+
+0.86
+0.85
+
+0.38
+0.41
+
+0.82
+0.83
+
+0.39
+0.46
+
+0.57
+0.54
+
+0.3532
+0.3124
+
+0.5290
+0.5103
+
+Face.evoLVe
+
+PPA
+Ours
+
+21.87%
+92.60%
+
+43.93%
+98.60%
+
+27.17
+37.73
+
+1272.65
+1204.60
+
+13.68
+13.80
+
+0.27
+0.33
+
+0.69
+0.70
+
+0.86
+0.86
+
+0.38
+0.43
+
+0.82
+0.83
+
+0.39
+0.48
+
+0.57
+0.54
+
+0.3512
+0.3116
+
+0.5311
+0.5037
+
+TABLE V: Attack performance between Diff-MI and VMI (Dpri = CelebA, Dpub = CelebA).
+Acc1 ↑
+
+Acc5 ↑
+
+FID ↓
+
+KNN Dist ↓
+
+PSNR ↑
+
+SSIM ↑
+
+FSIM ↑
+
+VSI ↑
+
+HaarPSI ↑
+
+SR-SIM ↑
+
+DSS ↑
+
+MDSI ↓
+
+LPIPS-A ↓
+
+LPIPS-V ↓
+
+VGG16
+
+VMI
+Ours
+
+54.60%
+93.47%
+
+83.67%
+99.20%
+
+20.61
+23.82
+
+1272.29
+1081.98
+
+14.28
+15.64
+
+0.39
+0.53
+
+0.71
+0.75
+
+0.87
+0.89
+
+0.42
+0.49
+
+0.83
+0.87
+
+0.49
+0.60
+
+0.56
+0.53
+
+0.3133
+0.2998
+
+0.4988
+0.4747
+
+IR152
+
+VMI
+Ours
+
+74.33%
+97.40%
+
+93.33%
+99.80%
+
+21.50
+25.77
+
+1235.52
+1010.70
+
+14.48
+16.11
+
+0.39
+0.55
+
+0.71
+0.76
+
+0.87
+0.90
+
+0.42
+0.50
+
+0.84
+0.86
+
+0.51
+0.61
+
+0.56
+0.54
+
+0.3204
+0.2991
+
+0.5071
+0.4791
+
+Face.evoLVe
+
+VMI
+Ours
+
+68.27%
+94.93%
+
+91.33%
+99.33%
+
+19.45
+28.16
+
+1231.84
+1025.36
+
+14.28
+16.31
+
+0.41
+0.55
+
+0.71
+0.76
+
+0.87
+0.90
+
+0.42
+0.50
+
+0.83
+0.87
+
+0.50
+0.60
+
+0.56
+0.54
+
+0.3138
+0.2975
+
+0.4970
+0.4737
+
+TABLE VI: MIAs in high-resolution compared with PPA (FFHQ
+→ CelebA, T = IR152, image size = 224 × 224).
+
+PPA
+Ours
+
+Acc1 ↑
+
+Acc5 ↑
+
+FID ↓
+
+KNN Dist ↓
+
+77.26%
+91.38%
+
+93.82%
+98.96%
+
+64.11
+57.51
+
+135.85
+133.48
+
+lines across all metrics in both settings. This indicates that our
+reconstruction is not merely a simple numerical approximation
+to the target classifier with high attack accuracy. Instead, it
+involves simultaneous exploration of private data at both pixel
+and feature levels, ensuring both accurate reconstruction and
+superior image quality. These metrics assess the similarity
+between reconstructed images and their corresponding private
+counterparts from various feature perspectives. This indicates
+that, in terms of reconstruction quality, our method is superior
+in both accuracy and fidelity. Whether at the pixel level or
+feature level, our method can more accurately and robustly
+reconstruct private features. This result also corroborates our
+discussion in Sec. IV-B. Although our method falls short
+in attack accuracy (Acc) compared with PLG-MI, it excels
+in terms of image similarity and quality (FID, KNN Dist,
+and PSNR/SSIM/LPIPS). This suggests that our method is
+not simply numerical fitting the target classifier but rather
+reconstructing privacy features more effectively from a human
+observation.
+Comparisons with VMI and PPA. PPA introduces a plugand-play MIA method and adopts a GAN pretrained on the
+public dataset. It intentionally relaxes the dependency between
+the target model and image prior, enabling the use of a single
+GAN to attack a wide range of target models. As shown
+in Table IV, PPA suffers from low attack accuracy (Acc)
+and diminished reconstruction similarity (PSNR, SSIM, FSIM,
+etc.), even though it exhibits a decent FID. We argue that
+such an attack is suboptimal, as its lack of precision impedes
+the accurate reconstruction of user privacy, even coupled with
+respectable generative fidelity. This can be attributed to its
+plug-and-play attack paradigm, as its emphasis on attack
+convenience inherently affects the attack performance when
+applied to different target classifiers. In contrast, our Diff-
+
+MI purposely learns a target-specific generator (i.e., CDM) to
+approximate the target knowledge, resulting in improved and
+robust attack performance. Although training such a targetspecific generator comes with additional costs, we believe that
+these sacrifices are worthwhile in robustly achieving superior
+attack performance. VMI formulates the MIA problem as a
+variational inference problem, and provides a framework using
+deep normalizing flows [16]. This framework alleviates the
+fidelity degradation problem by incorporating a regularization
+term (i.e., KL divergence) into the distribution of GAN’s latent
+space. As shown in Table V, our Diff-MI outperforms VMI
+across nearly all metrics. This superiority can be attributed
+to our proposed target-specific CDM, which not only ensures
+generative fidelity but also achieves more precise reconstruction.
+High Resolution. We conduct our Diff-MI in highresolution scenarios following PPA’s [8] setup. We follow
+the same experimental setup as PPA [8], the first work to
+extend MIAs to high-resolution scenarios. Specifically, we
+introduce CelebA as Dpri and align images using the HD
+CelebA Cropper [55]. We crop images using a face factor of
+0.65 and resize them to 224 × 224 with bicubic interpolation
+(other parameters are set as default). Then following PPA, we
+take the first 1,000 classes with the most number of samples
+out of total 10,177 classes to train the target classifier T
+= IR152 [39]. Meanwhile, we use the same training data
+(Dpri = CelebA) to train an Inception-v3 model [43] as the
+evaluation classifier. Training details are the same as PPA
+without any modification using their official code. During
+the attack stage, we re-implement PPA following its default
+configuration and reconstruct 50 images for the first 100 target
+classes for evaluation. As for our Diff-MI, we introduce LDM
+[12], which can encode input images from 256 × 256 into
+64×64 for computational efficiency, to train the target-specific
+CDM with Dpub = FFHQ in the latent space. As shown
+in Table VI, our method can achieve better attack accuracy
+with competitive generative fidelity. This can be attributed to
+our target-specific generator compared to PPA’s utilization of
+pretrained StyleGAN2 [56]. Although training such a targetspecific generator comes with additional costs, we believe
+these sacrifices are worthwhile in robustly achieving superior
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+9
+
+TABLE VII: Diff-MI confronts MIA defense (i.e., BiDO) and is compared with other baselines (Dpri = CelebA, Dpub = CelebA, Target
+Classifier = VGG16).
+Acc1 ↑
+
+Acc5 ↑
+
+FID ↓
+
+PSNR ↑
+
+SSIM ↑
+
+FSIM ↑
+
+VSI ↑
+
+HaarPSI ↑
+
+SR-SIM ↑
+
+DSS ↑
+
+MDSI ↓
+
+LPIPS-A ↓
+
+LPIPS-V ↓
+
+GMI
+KED-MI
+PLG-MI
+
+23.40%
+63.13%
+97.47%
+
+47.07%
+88.33%
+99.47%
+
+28.04
+30.49
+33.27
+
+13.09
+14.13
+14.79
+
+0.39
+0.42
+0.47
+
+0.69
+0.71
+0.73
+
+0.86
+0.86
+0.88
+
+0.40
+0.42
+0.45
+
+0.82
+0.84
+0.85
+
+0.44
+0.51
+0.52
+
+0.57
+0.56
+0.54
+
+0.3393
+0.3324
+0.3025
+
+0.5245
+0.5175
+0.4787
+
+Ours
+Ours w/ defense
+
+93.47%
+81.00%
+
+99.20%
+94.87%
+
+23.82
+27.58
+
+15.64
+15.35
+
+0.53
+0.49
+
+0.75
+0.74
+
+0.89
+0.88
+
+0.49
+0.47
+
+0.87
+0.86
+
+0.60
+0.58
+
+0.53
+0.53
+
+0.2998
+0.3043
+
+0.4747
+0.4825
+
+🔒Private
+
+PLG-MI
+
+Ours
+
+Fig. 4: Visual comparison of reconstructed images labeled from “001. Black-footed Albatross” to “015. Lazuli Bunting” between PLG-MI
+and our Diff-MI on CUB-200-2011.
+TABLE VIII: Human preference study regarding fidelity and accuracy (Dpri = CelebA, Dpub = CelebA, Target Classifier = VGG16).
+Results over 50% indicate that workers prefer our reconstruction.
+Ours v.s.
+
+GMI [1]
+
+KED-MI [2]
+
+PLG-MI [3]
+
+Ours (w/o FT)
+
+Fidelity
+Accuracy
+
+68.97%
+68.92%
+
+88.80%
+78.37%
+
+85.92%
+73.44%
+
+33.22%
+47.18%
+
+attack performance.
+MIAs with Defenses. To defend against MIAs, [57] has
+proposed to employ a unilateral dependency optimization
+strategy to minimize the dependency between inputs and
+outputs during training the target model. Subsequently, [58]
+enhanced this approach by introducing a bilateral dependency
+optimization (BiDO) strategy and achieved SOTA performance
+in defending MIAs. The BiDO strategy aims to minimize the
+dependency between the latent representations and the inputs
+while maximizing the dependency between latent representations and the outputs. Hence, we conduct an experiment to
+assess the attack performance of our Diff-MI with defenses
+(i.e., BiDO), particularly focusing on its performance in terms
+of generative quality. As shown in Table VII, there is an
+evident decrease in Acc (i.e., 93.47% → 81.00%), along
+with a slight decline in the reconstruction quality (e.g., FID:
+23.82 → 27.58). Even so, our reconstruction quality still
+surpasses that of other baselines (i.e., FID, PSNR, SSIM,
+FSIM, etc.), demonstrating the robustness of our Diff-MI in
+reconstructing high-quality private images.
+D. Comparisons on Other Datasets
+In addition to the face recognition task, we also conduct
+MIAs on other classification tasks, including fine-grained
+image classification on CUB-200-2011 [35] and disease
+prediction on ChestX-Ray [36] and CheXpert [37].
+Experimental Details. For CUB-200-2011, we use the
+officially provided bounding-box annotations to crop each
+sample in advance. Among all 200 classes, we designate
+the first 50 classes containing 2,889 images as the private
+
+🔒🔒Private
+
+GMI
+
+KED-MI
+
+PLG-MI
+
+Ours
+
+Fig. 5: Visual comparison of reconstructed chest X-rays labeled from
+“0” to “5” using different MIA methods (Dpri = ChestX-Ray, Dpub =
+CheXpert).
+
+dataset to train the target classifier ResNet-18 [39], while
+the remaining 150 classes containing 8,899 images as the
+public dataset to train the evaluation model ResNet-34 [39].
+For ChestX-Ray, we randomly select 2,000 images from
+each of the 14 classes. If the total number of images in a
+particular class is less than 2,000, we include all the images
+of that class, resulting in a total of 25,344 images as the
+private dataset. We adopt ResNet-18 [39] trained on the private
+dataset as the target model. Then, we randomly select 20,000
+images from the class with the label “NoFinding” as the
+public dataset to train the evaluation model ResNet-34 [39].
+Furthermore, we also introduce another large-scale dataset of
+chest X-rays CheXpert [37], consisting of 224,316 chest
+radiographs of 65,240 patients. We select 12,940 images with
+equal height and width labeled as “view1” as the public
+dataset. All images from the above datasets are resized to
+64 × 64. n for the top-n selection strategy and k in the top-k
+loss are set to 200 and 5 for CUB-200-2011 and 1000 and 3
+
+VGG16
+
+Acc
+
+FID
+
+96.0
+
+0.4
+
+1 2 3 4 5 6 7 8 9 10 11 12 13
+
+95.0
+
+ > Ă Ǉ Ğ ƌ  E Ƶ ŵ ď Ğ ƌ
+
+28
+27
+26
+
+13
+
+8
+
+(a)
+
+L
+
+5
+
+96
+
+Acc
+
+FID
+
+95
+
+28
+27
+
+Acc
+
+95
+
+FID
+
+94
+
+28
+27
+
+26
+
+26
+
+24
+
+93
+
+24
+
+24
+
+3 23
+
+92
+
+25
+
+95.5
+
+0.2
+0.0
+
+96.5
+
+(b)
+
+94
+
+25
+
+0
+
+1
+
+10
+
+20
+
+k
+
+30
+
+40
+
+50 23
+
+(c)
+
+93
+
+ & / 
+
+Face.evoLVe
+
+ & / 
+  Đ Đ ; й Ϳ
+
+IR152
+
+ & / 
+  Đ Đ ; й Ϳ
+
+0.6
+
+10
+
+  Đ Đ ; й Ϳ
+
+  Ś Ă Ŷ Ő Ğ  Z Ă ƚ Ğ 
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+25
+
+92
+91
+0.0
+
+1.0
+
+2.0
+
+α
+
+3.0
+
+4.0 23
+
+(d)
+
+Fig. 6: (a) Analysis of change rates in the middle block. We observe similar plots for three target classifiers. The middle block consists of
+one attention block (6 ∼ 8) and two residual blocks (1 ∼ 5 and 9 ∼ 13). Among all 13 layers in the middle block, the changes in certain
+layers (i.e., 2, 4, 8, 10, 12) are relatively higher than the others, indicating that they play a significant role during fine-tuning. (b) Acc and
+FID with fine-tuning the label embedding layer and different layers in the middle block, where L means fine-tuning the top-L layers that
+exhibit the highest ∆. (c) and (d) compare the attack performance of different hyperparameters k and α in Lcls . (a) - (d) follow the same
+experimental setup: Dpri = CelebA, Dpub = CelebA, and for (b) - (d): T = VGG16.
+TABLE IX: Attack performance comparison on CUB-200-2011
+and ChestX-Ray. “A → B” represents the diffusion model and
+target classifier trained on datasets A and B, respectively.
+Method
+
+Acc1 ↑
+
+Acc5 ↑
+
+FID ↓
+
+KNN Dist ↓
+
+GMI
+20.00%
+CUB-200-2011
+KED-MI 46.20%
+↓
+PLG-MI 70.60%
+CUB-200-2011
+Ours
+79.20%
+
+49.40% 167.06
+78.60% 199.51
+90.60% 116.91
+94.00% 58.06
+
+954.04
+912.02
+915.00
+903.05
+
+ChestX-Ray
+↓
+ChestX-Ray
+
+GMI
+13.21%
+KED-MI 52.86%
+PLG-MI 37.43%
+Ours
+63.50%
+
+51.86% 127.06
+91.07% 100.74
+76.14% 150.41
+90.93% 69.24
+
+117.77
+128.57
+107.37
+108.54
+
+CheXpert
+↓
+ChestX-Ray
+
+GMI
+14.29%
+KED-MI 50.50%
+PLG-MI 34.00%
+Ours
+70.36%
+
+46.50% 214.46
+85.86% 153.79
+80.00% 119.80
+92.43% 74.40
+
+139.30
+124.52
+168.03
+126.77
+
+TABLE X: Ablation study of the various components in Diff-MI
+(Dpri = CelebA, Dpub = CelebA, T = VGG16). ✗1 and ✗2 represent
+replacing our proposed Lcls with CE loss and max-margin loss,
+respectively.
+Method
+FT
+
+PGD
+
+Lcls
+
+✓
+✓
+✓
+✓
+✗
+
+✓
+✗
+✓
+✓
+✓
+
+✓
+✓
+✗1
+✗2
+✓
+
+Acc1 ↑
+
+Acc5 ↑
+
+FID ↓
+
+KNN Dist ↓
+
+93.47%
+90.47%
+88.73%
+91.20%
+75.87%
+
+99.20%
+98.07%
+98.13%
+98.40%
+93.60%
+
+23.82
+24.33
+24.98
+25.06
+20.95
+
+1081.98
+1107.16
+1100.37
+1102.28
+1116.79
+
+for ChestX-Ray. α for the p-reg loss is set to 1.0 as well. In
+step-1, we first pretrain the CDM with batch size 150 for 50K
+iterations on two A40 GPUs and then fine-tune the pretrained
+CDM for all target classes, conducting a total of 400 epochs
+for both CUB-200-2011 and for ChestX-Ray. In step-2,
+we follow the same setup of the face recognition task and
+reconstruct 10 and 100 images per class for CUB-200-2011
+and ChestX-Ray for quantitative evaluation.
+Experimental Results. As shown in Table IX, our method
+demonstrates superior performance across all evaluation metrics on CUB-200-2011. This indicates that quantitatively,
+our reconstruction outperforms all baselines in terms of both
+attack accuracy and generative fidelity, two critical factors
+
+in assessing the attack performance of MIAs. Our method
+achieves an impressive FID reduction of over 50% compared
+to all baselines. This substantial improvement signifies our
+ability to generate images of exceptional fidelity that closely
+resemble real examples from the dataset. Notably, our DiffMI, which is based on diffusion models, requires minimal
+hyperparameter tuning when generalizing to new datasets,
+while previous GAN-based baselines were highly sensitive to
+hyperparameter selection. This sensitivity necessitates additional hyperparameter tuning when attempting to generalize
+them to new datasets. The reconstructed images obtained
+by PLG-MI and our Diff-MI are visualized in Fig. 4. The
+visualization clearly demonstrates that our reconstruction effectively captures intricate details of various bird species, including beak shapes, wing coloration, and tail length. Whereas
+PLG-MI exhibits a ringing-like effect due to its sensitivity
+to hyperparameters, resulting in a degradation of generative
+fidelity. Conclusively, our method not only achieves superior
+generative fidelity but also accurately captures the semantic
+information of private images.
+Table IX presents the results of performing MIAs on the
+private medical dataset ChestX-Ray, taking ChestX-Ray
+and CheXpert as the public dataset, respectively. Compared
+to all baselines, our method achieves nearly the best performance across all metrics, with only a slight increase in KNN
+Dist. Particularly noteworthy is our substantial improvement
+in generative fidelity, as evidenced by an average decrease of
+45% in FID. This significant reduction in FID highlights the
+enhanced realism and fidelity of the reconstructed samples,
+indicating the superiority of our Diff-MI over SOTA methods
+in MIAs. These compelling results pave the way for broader
+applications of our method in various domains where highquality MIAs are essential. We also provide a visual comparison of the private images reconstructed by baselines and our
+method using CheXpert as the public dataset, as shown in
+Fig. 5.
+E. Human Preference Study
+We conduct a human preference study using Amazon Mechanical Turk. We perform a paired test of our method with
+three baselines and Ours (w/o FT). For generative fidelity, we
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+display two reconstructed images from each method (ours v.s.
+baseline) with the question - “Which image do you consider
+to be more realistic?”. For attack accuracy, we display three
+target images of the same class from Dpri , along with the
+paired reconstructed images, and ask - “Which image do
+you consider to be more similar to the target images?”. As
+shown in Table VIII, our reconstruction is preferred (≥ 50%)
+over all baselines in terms of both generative fidelity and
+attack accuracy. Workers inevitably lean to images with higher
+fidelity when discerning more similar images. Therefore, compared with Ours (w/o FT), our method falls short in both
+aspects. Attackers can choose whether to fine-tune depending
+on superior human preference or better attack performance.
+F. Ablation Study
+We first compare the impact of fine-tuning different layers
+in the middle block, considering various change rates. Results
+in Fig. 6 (b) indicate that fine-tuning fewer layers yields
+superior attack performance. Specifically, among all layers in
+the middle block, only fine-tuning the top-3 layers achieves
+the highest Acc and lowest FID but suffers from a long
+time for convergence. Thus we choose to fine-tune the top-5
+layers in our implementation. Fig. 6 (c) shows the top-k loss
+improves the attack performance and k = 20 is optimal for
+the lowest FID. Increasing k (e.g. 30, 40) leads to higher Acc
+but inferior fidelity proved by the increasing FID, meaning
+that the reconstruction starts to incorporate some semantically
+meaningless features that overfit the target classifier. Fig. 6 (d)
+illustrates the p-reg loss serves as a beneficial regularization
+term for improving generative fidelity (α = 1.0), albeit with
+a slight decrease in Acc. Conclusively, k and α are set to 20
+and 1.0, striking a trade-off between Acc and FID.
+We further ablate certain key components in Diff-MI and
+derive the following conclusions from Table X: (1) The PGD
+method significantly enhances attack performance in terms of
+both attack accuracy and generative fidelity, owing to its comprehensive utilization of the target classifier; (2) Our improved
+loss function demonstrates superior performance compared to
+the CE loss and max-margin loss employed in previous studies.
+This indicates that our method can accurately reconstruct more
+discriminative images in MIAs; (3) Our target-specific CDM
+effectively captures the knowledge of the target classifier,
+resulting in higher Acc and closer feature distance. However,
+it does encounter a trade-off between generative fidelity and
+attack accuracy during the fine-tuning process. Attackers can
+choose whether to fine-tune the pretrained generator based
+on their specific requirements, prioritizing either higher attack
+accuracy or improved generative fidelity.
+V. C ONCLUSION
+This paper has presented a two-step diffusion-based whitebox MIA method, namely Diff-MI. In step-1, we customize a
+target-specific CDM to distill the target classifier’s knowledge
+and approximate its private distribution under a pretrain-thenfinetune fashion, achieving superior accuracy-fidelity balance.
+In step-2, we introduce an iterative image reconstruction
+method to involve both diffusion priors and target classifier’s
+
+11
+
+knowledge through a combinatorial optimization problem.
+Additionally, we introduce an improved max-margin loss for
+MIAs, optimizing the use of feature information and soft
+labels from the target classifier with better attack performance. Experiments show that our method achieves SOTA
+generative fidelity and reconstruction quality with competitive
+attack accuracy in diverse scenarios across different model
+architectures.
+Limitation. To enhance the robustness and overall attack
+performance in MIAs, our method requires training a targetspecific CDM from scratch, incurring more computational
+costs. Additionally, our Diff-MI still suffers from a trade-off
+between generative fidelity and attack accuracy during finetuning and attacking. For future work, we intend to explore
+the potential of pretrained diffusion models with enhanced
+generative quality and attack accuracy in both white-box and
+black-box MIAs.
+Ethical Statement. MIAs can have profound impacts on
+society as they pose a serious threat to individual privacy
+and data security, eroding public trust in artificial intelligence
+systems and hindering technology adoption in critical applications. Meanwhile, diffusion models are gaining popularity
+in the field of image synthesis, whereas they can also be
+employed by malicious attackers for conducting generative
+MIAs and reconstructing high-quality private images about
+users. While our Diff-MI could potentially have negative
+societal impacts, we intend to reveal the vulnerabilities of
+current systems and raise public awareness about privacy
+attacks on DNNs. We believe that our work will inspire the
+design of defenses against MIAs.
+Data Availability. In our experiments, we simulate the realworld attack scenario by introducing CelebA1 [9], FFHQ2
+[32], and FaceScrub3 [33] as the private and public datasets
+to inverse face recognition classifiers. Meanwhile, we also
+compare other plausible scenarios, such as fine-grained image
+classification and disease detection, where CUB-200-20114
+[35], ChestX-Ray5 [36], and CheXpert6 [37] are introduced. More details about datasets, models, and codes of this
+paper are available in our GitHub repository7 .
+R EFERENCES
+[1] Y. Zhang, R. Jia, H. Pei, W. Wang, B. Li, and D. Song, “The secret
+revealer: Generative model-inversion attacks against deep neural networks,” in Proceedings of the IEEE/CVF conference on computer vision
+and pattern recognition, 2020, pp. 253–261.
+[2] S. Chen, M. Kahla, R. Jia, and G.-J. Qi, “Knowledge-enriched distributional model inversion attacks,” in Proceedings of the IEEE/CVF
+international conference on computer vision, 2021, pp. 16 178–16 187.
+[3] X. Yuan, K. Chen, J. Zhang, W. Zhang, N. Yu, and Y. Zhang, “Pseudo
+label-guided model inversion attack via conditional generative adversarial network,” arXiv preprint arXiv:2302.09814, 2023.
+[4] I. Goodfellow, J. Pouget-Abadie, M. Mirza, B. Xu, D. Warde-Farley,
+S. Ozair, and Y. Bengio, “Generative adversarial networks, 1–9,” arXiv
+preprint arXiv:1406.2661, 2014.
+1 https://mmlab.ie.cuhk.edu.hk/projects/CelebA.html
+2 https://github.com/NVlabs/ffhq-dataset
+3 https://vintage.winklerbros.net/facescrub.html
+4 https://www.vision.caltech.edu/datasets/cub 200 2011/
+5 https://www.kaggle.com/datasets/nih-chest-xrays/data
+6 https://aimi.stanford.edu/datasets/chexpert-chest-x-rays
+7 https://github.com/Ouxiang-Li/Diff-MI
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+[5] A. Brock, J. Donahue, and K. Simonyan, “Large scale gan training for
+high fidelity natural image synthesis,” arXiv preprint arXiv:1809.11096,
+2018.
+[6] T. Miyato, T. Kataoka, M. Koyama, and Y. Yoshida, “Spectral
+normalization for generative adversarial networks,” arXiv preprint
+arXiv:1802.05957, 2018.
+[7] P. Dhariwal and A. Nichol, “Diffusion models beat gans on image
+synthesis,” Advances in Neural Information Processing Systems, vol. 34,
+pp. 8780–8794, 2021.
+[8] L. Struppek, D. Hintersdorf, A. D. A. Correia, A. Adler, and K. Kersting,
+“Plug & play attacks: Towards robust and flexible model inversion
+attacks,” arXiv preprint arXiv:2201.12179, 2022.
+[9] Z. Liu, P. Luo, X. Wang, and X. Tang, “Deep learning face attributes
+in the wild,” in Proceedings of the IEEE international conference on
+computer vision, 2015, pp. 3730–3738.
+[10] Y. Cheng, J. Zhao, Z. Wang, Y. Xu, K. Jayashree, S. Shen, and J. Feng,
+“Know you at one glance: A compact vector representation for lowshot learning,” in Proceedings of the IEEE international conference on
+computer vision workshops, 2017, pp. 1924–1932.
+[11] J. Ho and T. Salimans, “Classifier-free diffusion guidance,” arXiv
+preprint arXiv:2207.12598, 2022.
+[12] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer, “Highresolution image synthesis with latent diffusion models,” in Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, 2022, pp. 10 684–10 695.
+[13] M. Fredrikson, E. Lantz, S. Jha, S. Lin, D. Page, and T. Ristenpart,
+“Privacy in pharmacogenetics: An end-to-end case study of personalized
+warfarin dosing,” in 23rd {USENIX} Security Symposium ({USENIX}
+Security 14), 2014, pp. 17–32.
+[14] M. Fredrikson, S. Jha, and T. Ristenpart, “Model inversion attacks
+that exploit confidence information and basic countermeasures,” in
+Proceedings of the 22nd ACM SIGSAC conference on computer and
+communications security, 2015, pp. 1322–1333.
+[15] K.-C. Wang, Y. Fu, K. Li, A. Khisti, R. Zemel, and A. Makhzani,
+“Variational model inversion attacks,” Advances in Neural Information
+Processing Systems, vol. 34, pp. 9706–9719, 2021.
+[16] D. P. Kingma and P. Dhariwal, “Glow: Generative flow with invertible
+1x1 convolutions,” Advances in neural information processing systems,
+vol. 31, 2018.
+[17] M. Mirza and S. Osindero, “Conditional generative adversarial nets,”
+arXiv preprint arXiv:1411.1784, 2014.
+[18] R. Liu, “Unstoppable attack: Label-only model inversion via conditional
+diffusion model,” 2023.
+[19] J. Ho, A. Jain, and P. Abbeel, “Denoising diffusion probabilistic models,”
+Advances in Neural Information Processing Systems, vol. 33, pp. 6840–
+6851, 2020.
+[20] A. Hertz, R. Mokady, J. Tenenbaum, K. Aberman, Y. Pritch, and
+D. Cohen-Or, “Prompt-to-prompt image editing with cross attention
+control,” arXiv preprint arXiv:2208.01626, 2022.
+[21] T. Brooks, A. Holynski, and A. A. Efros, “Instructpix2pix: Learning
+to follow image editing instructions,” in Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition, 2023, pp.
+18 392–18 402.
+[22] S. Li, B. Zeng, Y. Feng, S. Gao, X. Liu, J. Liu, L. Lin, X. Tang, Y. Hu,
+J. Liu et al., “Zone: Zero-shot instruction-guided local editing,” arXiv
+preprint arXiv:2312.16794, 2023.
+[23] A. Ramesh, M. Pavlov, G. Goh, S. Gray, C. Voss, A. Radford, M. Chen,
+and I. Sutskever, “Zero-shot text-to-image generation,” in International
+conference on machine learning. Pmlr, 2021, pp. 8821–8831.
+[24] A. Nichol, P. Dhariwal, A. Ramesh, P. Shyam, P. Mishkin, B. McGrew,
+I. Sutskever, and M. Chen, “Glide: Towards photorealistic image generation and editing with text-guided diffusion models,” arXiv preprint
+arXiv:2112.10741, 2021.
+[25] O. Ronneberger, P. Fischer, and T. Brox, “U-net: Convolutional networks
+for biomedical image segmentation,” in Medical Image Computing
+and Computer-Assisted Intervention–MICCAI 2015: 18th International
+Conference, Munich, Germany, October 5-9, 2015, Proceedings, Part III
+18. Springer, 2015, pp. 234–241.
+[26] Y. Li, R. Zhang, J. Lu, and E. Shechtman, “Few-shot image generation
+with elastic weight consolidation,” arXiv preprint arXiv:2012.02780,
+2020.
+[27] A. Graikos, N. Malkin, N. Jojic, and D. Samaras, “Diffusion models as
+plug-and-play priors,” arXiv preprint arXiv:2206.09012, 2022.
+[28] A. Madry, A. Makelov, L. Schmidt, D. Tsipras, and A. Vladu, “Towards
+deep learning models resistant to adversarial attacks,” arXiv preprint
+arXiv:1706.06083, 2017.
+
+12
+
+[29] S. Santurkar, A. Ilyas, D. Tsipras, L. Engstrom, B. Tran, and A. Madry,
+“Image synthesis with a single (robust) classifier,” Advances in Neural
+Information Processing Systems, vol. 32, 2019.
+[30] R. Ganz and M. Elad, “Bigroc: Boosting image generation via a robust
+classifier,” arXiv preprint arXiv:2108.03702, 2021.
+[31] N.-B. Nguyen, K. Chandrasegaran, M. Abdollahzadeh, and N.-M. Cheung, “Re-thinking model inversion attacks against deep neural networks,” arXiv preprint arXiv:2304.01669, 2023.
+[32] T. Karras, S. Laine, and T. Aila, “A style-based generator architecture
+for generative adversarial networks,” in Proceedings of the IEEE/CVF
+conference on computer vision and pattern recognition, 2019, pp. 4401–
+4410.
+[33] H.-W. Ng and S. Winkler, “A data-driven approach to cleaning large face
+datasets,” in 2014 IEEE international conference on image processing
+(ICIP). IEEE, 2014, pp. 343–347.
+[34] A. M. Khawar Islam, Muhammad Zaigham Zaheer, “Face pyramid
+vision transformer,” in Proceedings of the British Machine Vision
+Conference, 2022.
+[35] C. Wah, S. Branson, P. Welinder, P. Perona, and S. Belongie, “The
+caltech-ucsd birds-200-2011 dataset,” 2011.
+[36] X. Wang, Y. Peng, L. Lu, Z. Lu, M. Bagheri, and R. M. Summers,
+“Chestx-ray8: Hospital-scale chest x-ray database and benchmarks on
+weakly-supervised classification and localization of common thorax
+diseases,” in Proceedings of the IEEE conference on computer vision
+and pattern recognition, 2017, pp. 2097–2106.
+[37] J. Irvin, P. Rajpurkar, M. Ko, Y. Yu, S. Ciurea-Ilcus, C. Chute, H. Marklund, B. Haghgoo, R. Ball, K. Shpanskaya et al., “Chexpert: A large
+chest radiograph dataset with uncertainty labels and expert comparison,”
+in Proceedings of the AAAI conference on artificial intelligence, vol. 33,
+no. 01, 2019, pp. 590–597.
+[38] K. Simonyan and A. Zisserman, “Very deep convolutional networks for
+large-scale image recognition,” arXiv preprint arXiv:1409.1556, 2014.
+[39] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image
+recognition,” in Proceedings of the IEEE conference on computer vision
+and pattern recognition, 2016, pp. 770–778.
+[40] A. Krizhevsky, I. Sutskever, and G. E. Hinton, “Imagenet classification
+with deep convolutional neural networks,” Advances in neural information processing systems, vol. 25, 2012.
+[41] Y. Guo, L. Zhang, Y. Hu, X. He, and J. Gao, “Ms-celeb-1m: A dataset
+and benchmark for large-scale face recognition,” in Computer Vision–
+ECCV 2016: 14th European Conference, Amsterdam, The Netherlands,
+October 11-14, 2016, Proceedings, Part III 14. Springer, 2016, pp.
+87–102.
+[42] M. Heusel, H. Ramsauer, T. Unterthiner, B. Nessler, and S. Hochreiter,
+“Gans trained by a two time-scale update rule converge to a local
+nash equilibrium,” Advances in neural information processing systems,
+vol. 30, 2017.
+[43] C. Szegedy, V. Vanhoucke, S. Ioffe, J. Shlens, and Z. Wojna, “Rethinking
+the inception architecture for computer vision,” in Proceedings of the
+IEEE conference on computer vision and pattern recognition, 2016, pp.
+2818–2826.
+[44] J. Deng, W. Dong, R. Socher, L.-J. Li, K. Li, and L. Fei-Fei, “Imagenet:
+A large-scale hierarchical image database,” in 2009 IEEE conference on
+computer vision and pattern recognition. Ieee, 2009, pp. 248–255.
+[45] M. Seitzer, “pytorch-fid: FID Score for PyTorch,” https://github.com/
+mseitzer/pytorch-fid, August 2020, version 0.3.0.
+[46] A. Hore and D. Ziou, “Image quality metrics: Psnr vs. ssim,” in 2010
+20th international conference on pattern recognition. IEEE, 2010, pp.
+2366–2369.
+[47] Z. Wang, A. C. Bovik, H. R. Sheikh, and E. P. Simoncelli, “Image
+quality assessment: from error visibility to structural similarity,” IEEE
+transactions on image processing, vol. 13, no. 4, pp. 600–612, 2004.
+[48] R. Zhang, P. Isola, A. A. Efros, E. Shechtman, and O. Wang, “The
+unreasonable effectiveness of deep features as a perceptual metric,” in
+Proceedings of the IEEE conference on computer vision and pattern
+recognition, 2018, pp. 586–595.
+[49] L. Zhang, L. Zhang, X. Mou, and D. Zhang, “Fsim: A feature similarity
+index for image quality assessment,” IEEE transactions on Image
+Processing, vol. 20, no. 8, pp. 2378–2386, 2011.
+[50] L. Zhang, Y. Shen, and H. Li, “Vsi: A visual saliency-induced index
+for perceptual image quality assessment,” IEEE Transactions on Image
+processing, vol. 23, no. 10, pp. 4270–4281, 2014.
+[51] R. Reisenhofer, S. Bosse, G. Kutyniok, and T. Wiegand, “A haar waveletbased perceptual similarity index for image quality assessment,” Signal
+Processing: Image Communication, vol. 61, pp. 33–43, 2018.
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+
+[52] L. Zhang and H. Li, “Sr-sim: A fast and high performance iqa index
+based on spectral residual,” in 2012 19th IEEE international conference
+on image processing. IEEE, 2012, pp. 1473–1476.
+[53] A. Balanov, A. Schwartz, Y. Moshe, and N. Peleg, “Image quality
+assessment based on dct subband similarity,” in 2015 IEEE International
+Conference on Image Processing (ICIP). IEEE, 2015, pp. 2105–2109.
+[54] H. Z. Nafchi, A. Shahkolaei, R. Hedjam, and M. Cheriet, “Mean
+deviation similarity index: Efficient and reliable full-reference image
+quality evaluator,” Ieee Access, vol. 4, pp. 5579–5590, 2016.
+[55] LynnHo,
+“HD-CelebA-Cropper,”
+https://github.com/LynnHo/
+HD-CelebA-Cropper, August 2020.
+[56] T. Karras, S. Laine, M. Aittala, J. Hellsten, J. Lehtinen, and T. Aila,
+“Analyzing and improving the image quality of stylegan,” in Proceedings
+of the IEEE/CVF conference on computer vision and pattern recognition,
+2020, pp. 8110–8119.
+[57] T. Wang, Y. Zhang, and R. Jia, “Improving robustness to model inversion
+attacks via mutual information regularization,” in Proceedings of the
+AAAI Conference on Artificial Intelligence, vol. 35, no. 13, 2021, pp.
+11 666–11 673.
+[58] X. Peng, F. Liu, J. Zhang, L. Lan, J. Ye, T. Liu, and B. Han, “Bilateral
+dependency optimization: Defending against model-inversion attacks,”
+in Proceedings of the 28th ACM SIGKDD Conference on Knowledge
+Discovery and Data Mining, 2022, pp. 1358–1367.
+
+13
+
+
