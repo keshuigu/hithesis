@@ -152,40 +152,9 @@
 
 REFace的训练采用扩散模型的标准目标函数，结合身份一致性损失与感知损失。预训练的REFace模型在大规模人脸数据集上训练，学习到强大的人脸生成先验与身份迁移能力，为模型反演攻击提供了高质量的基础。
 
-\subsection{标签条件嵌入层的替换机制}
+\subsection{标签条件嵌入层设计}
 
-标准换脸模型接受目标图像作为输入，通过身份编码器提取身份嵌入。然而，在模型反演攻击场景中，攻击者仅拥有目标类别标签，无法获取真实的目标图像。因此，需要设计标签条件嵌入层来替代身份编码器，实现从离散标签到连续嵌入的映射。
-
-标签条件嵌入层的设计有两种主要策略：
-
-\subsubsection{基于查找表的嵌入层（Lookup Table-based Embedding）}
-
-最直接的方法是为每个类别分配一个可学习的嵌入向量，构建查找表（Embedding Table）：
-\begin{equation}\label{eq:mia_lookup_table}
-    \mathcal{E}_{\psi} = \{e_1, e_2, \ldots, e_C\}, \quad e_i \in \mathbb{R}^{d_e},
-\end{equation}
-其中 $e_i$ 为类别 $i$ 的嵌入向量，$\psi = \{e_1, e_2, \ldots, e_C\}$ 为可学习参数。给定目标类别 $y_{\text{target}}$，嵌入操作为简单的索引查找：
-\begin{equation}\label{eq:mia_lookup}
-    e_{\text{id}} = e_{y_{\text{target}}}.
-\end{equation}
-
-基于查找表的嵌入层具有以下优点：
-\begin{itemize}
-    \item 参数高效：总参数量为 $C\times d_e$，对于中小规模分类任务（如 $C\leq 1000$）开销可控；
-    \item 训练简单：无需额外的网络结构，直接通过梯度下降优化嵌入向量；
-    \item 表达灵活：每个类别独立优化，可以学习到类别特定的身份表示。
-\end{itemize}
-
-然而，查找表方法也存在局限：
-\begin{itemize}
-    \item 泛化能力弱：无法处理训练时未见过的类别（zero-shot设置）；
-    \item 参数随类别数线性增长：当 $C$ 很大（如 $C>10000$）时，参数量与存储开销显著增加；
-    \item 缺乏结构先验：不同类别的嵌入向量相互独立，无法利用类别间的相似性或层次结构。
-\end{itemize}
-
-\subsubsection{基于MLP的嵌入层（MLP-based Embedding）}
-
-为增强嵌入层的表达能力与泛化性，可以采用多层感知机（MLP）将类别标签的one-hot编码或预训练的类别嵌入映射为身份嵌入：
+标准换脸模型接受目标图像作为输入，通过身份编码器提取身份嵌入。然而，在模型反演攻击场景中，攻击者仅拥有目标类别标签，无法获取真实的目标图像。因此，需要设计标签条件嵌入层来替代身份编码器，实现从离散标签到连续嵌入的映射。本文采用基于多层感知机（MLP）的嵌入层，将类别标签的one-hot编码映射为身份嵌入向量：
 \begin{equation}\label{eq:mia_mlp_emb}
     e_{\text{id}} = \text{MLP}_{\psi}(\text{OneHot}(y_{\text{target}})),
 \end{equation}
@@ -193,53 +162,17 @@ REFace的训练采用扩散模型的标准目标函数，结合身份一致性�
 \begin{equation}\label{eq:mia_mlp_structure}
     \text{MLP}_{\psi}(x) = W_3 \cdot \text{ReLU}(\text{LN}(W_2 \cdot \text{ReLU}(\text{LN}(W_1 \cdot x + b_1)) + b_2)) + b_3,
 \end{equation}
-其中 $W_1\in\mathbb{R}^{d_h\times C}, W_2\in\mathbb{R}^{d_h\times d_h}, W_3\in\mathbb{R}^{d_e\times d_h}$ 为权重矩阵，$d_h$ 为隐藏层维度。
+其中 $W_1\in\mathbb{R}^{d_h\times C}, W_2\in\mathbb{R}^{d_h\times d_h}, W_3\in\mathbb{R}^{d_e\times d_h}$ 为权重矩阵，$d_h$ 为隐藏层维度，$d_e$ 为输出嵌入维度。基于MLP的嵌入层通过非线性变换能够学习类别标签与身份嵌入之间的复杂映射关系，相比查找表方法具有更强的表达能力，且参数量适中便于优化。
 
-基于MLP的嵌入层具有以下优点：
-\begin{itemize}
-    \item 表达能力强：通过非线性变换，可以学习类别标签与身份嵌入之间的复杂映射关系；
-    \item 参数效率高：当 $C$ 很大时，MLP的参数量 $O(C\cdot d_h + d_h^2 + d_h\cdot d_e)$ 可能低于查找表的 $O(C\cdot d_e)$；
-    \item 泛化能力强：若使用预训练的类别嵌入（如Word2Vec、BERT嵌入）作为输入，MLP可以利用类别间的语义相似性，实现一定程度的zero-shot泛化。
-\end{itemize}
-
-然而，MLP方法也有缺点：
-\begin{itemize}
-    \item 训练复杂度高：需要调优隐藏层维度、层数、激活函数等超参数；
-    \item 过拟合风险：当训练数据有限时，MLP可能过拟合到训练类别，难以泛化；
-    \item 计算开销增加：相比查找表的 $O(1)$ 索引操作，MLP需要 $O(C\cdot d_h + d_h^2)$ 的矩阵乘法。
-\end{itemize}
-
-\subsubsection{混合嵌入策略（Hybrid Embedding Strategy）}
-
-为兼顾查找表的灵活性与MLP的泛化能力，可以采用混合嵌入策略：
-\begin{equation}\label{eq:mia_hybrid_emb}
-    e_{\text{id}} = \alpha \cdot e_{y_{\text{target}}} + (1-\alpha) \cdot \text{MLP}_{\psi}(\text{OneHot}(y_{\text{target}})),
+为确保标签条件嵌入层生成的身份嵌入 $e_{\text{id}}$ 与换脸模型的ID注入模块兼容，需要保证维度匹配与分布匹配。首先，MLP的输出维度 $d_e$ 应与换脸模型的身份编码器输出维度一致。对于REFace，该维度为512（ArcFace嵌入维度），因此MLP的最后一层输出维度设置为512。其次，嵌入向量的数值分布应与真实身份嵌入的分布相近，以保证换脸模型的正常工作。实践中，通过归一化约束对嵌入向量进行 $L_2$ 归一化，使其位于单位超球面上，与ArcFace嵌入的归一化特性一致：
+\begin{equation}\label{eq:mia_emb_norm}
+    e_{\text{id}} \leftarrow \frac{e_{\text{id}}}{\|e_{\text{id}}\|_2}.
 \end{equation}
-其中 $\alpha\in[0,1]$ 为权重系数，$e_{y_{\text{target}}}$ 为查找表中的嵌入向量。在训练初期，可以设置较大的 $\alpha$（如0.8），使嵌入以查找表为主，快速收敛；随着训练进行，逐步降低 $\alpha$（如0.5），让MLP发挥更大作用，提升泛化能力。
-
-\subsection{嵌入层与换脸模型的接口匹配}
-
-标签条件嵌入层生成的身份嵌入 $e_{\text{id}}$ 需要与换脸模型的ID注入模块兼容。具体地，需要确保：
-
-（1）维度匹配。嵌入层输出的 $e_{\text{id}}$ 维度应与换脸模型的身份编码器输出维度一致。对于REFace，该维度为512（ArcFace嵌入维度）。若嵌入层输出维度不同，需添加线性投影层进行维度对齐：
-\begin{equation}\label{eq:mia_dim_align}
-    e_{\text{id}}^{\text{aligned}} = W_{\text{proj}} \cdot e_{\text{id}} + b_{\text{proj}},
+此外，在损失函数中添加范数正则项，鼓励嵌入向量的范数接近真实嵌入的平均范数：
+\begin{equation}\label{eq:mia_norm_reg}
+    \mathcal{L}_{\text{norm}} = (\|e_{\text{id}}\|_2 - \mu_{\text{norm}})^2,
 \end{equation}
-其中 $W_{\text{proj}}\in\mathbb{R}^{512\times d_e}$ 为投影矩阵。
-
-（2）分布匹配。嵌入层生成的 $e_{\text{id}}$ 的数值分布应与真实身份嵌入的分布相近，以保证换脸模型的正常工作。实践中，可以通过以下策略实现分布匹配：
-\begin{itemize}
-    \item 归一化约束：对嵌入向量进行 $L_2$ 归一化，使其位于单位超球面上，与ArcFace嵌入的归一化特性一致：
-    \begin{equation}\label{eq:mia_emb_norm}
-        e_{\text{id}} \leftarrow \frac{e_{\text{id}}}{\|e_{\text{id}}\|_2}.
-    \end{equation}
-    \item 范数正则化：在损失函数中添加范数正则项，鼓励嵌入向量的范数接近真实嵌入的平均范数：
-    \begin{equation}\label{eq:mia_norm_reg}
-        \mathcal{L}_{\text{norm}} = (\|e_{\text{id}}\|_2 - \mu_{\text{norm}})^2,
-    \end{equation}
-    其中 $\mu_{\text{norm}}$ 为真实嵌入范数的统计平均值（对于归一化后的ArcFace嵌入，$\mu_{\text{norm}}=1$）。
-    \item 分布对齐损失：计算生成嵌入与真实嵌入在统计量（均值、方差、协方差）上的距离，通过最小化该距离实现分布对齐。
-\end{itemize}
+其中 $\mu_{\text{norm}}$ 为真实嵌入范数的统计平均值（对于归一化后的ArcFace嵌入，$\mu_{\text{norm}}=1$）。
 
 \section{基于LoRA的换脸模型微调方法}
 \label{sec:mia_lora}
@@ -295,31 +228,6 @@ REFace的U-Net架构包含多个残差块（ResNet Block），每个残差块含
     W' = W + \frac{\alpha}{r} \text{reshape}(B A, [C_{\text{out}}, C_{\text{in}}, 1, 1]),
 \end{equation}
 其中 $A\in\mathbb{R}^{r\times C_{\text{in}}}, B\in\mathbb{R}^{C_{\text{out}}\times r}$。
-
-\subsection{LoRA超参数配置}
-
-LoRA的性能受秩 $r$、缩放因子 $\alpha$ 与学习率的影响。秩 $r$ 决定低秩子空间的表达能力,建议采用中等秩（$r=16$或$r=32$）以平衡参数效率与表达能力。缩放因子 $\alpha$ 通常设为 $r$ 或 $2r$,使更新幅度适中。LoRA参数的学习率应显著低于嵌入层学习率,以避免破坏预训练权重：
-\begin{equation}\label{eq:mia_lora_lr}
-    \eta_{\text{lora}} = \beta \cdot \eta_{\text{emb}}, \quad \beta\in[0.01, 0.1].
-\end{equation}
-
-\subsection{LoRA的初始化与训练稳定性}
-
-LoRA采用标准初始化策略:矩阵 $A$ 采用高斯随机初始化 $A\sim\mathcal{N}(0, \sigma^2)$,矩阵 $B$ 采用零初始化,确保训练开始时模型行为与预训练状态一致。对LoRA参数施加L2正则化抑制参数过度增长：
-\begin{equation}\label{eq:mia_lora_reg}
-    \mathcal{L}_{\text{lora\_reg}} = \lambda_{\text{lora}} \sum_{\ell} (\|A_{\ell}\|_F^2 + \|B_{\ell}\|_F^2).
-\end{equation}
-
-为降低显存占用,可采用梯度累积与混合精度训练技术。
-
-\subsection{LoRA的推理优化}
-
-训练完成后,将LoRA增量合并到原始权重中,消除推理时的额外计算开销：
-\begin{equation}\label{eq:mia_lora_merge}
-    W_{\text{merged}} = W + \frac{\alpha}{r} BA.
-\end{equation}
-
-合并后的模型在推理时与标准模型无异。若需针对多个目标分类器进行攻击,可采用"一个基础模型 + 多组LoRA权重"的架构,实现参数高效的多任务部署。
 
 \section{多目标优化损失函数设计}
 \label{sec:mia_loss}
