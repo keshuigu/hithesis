@@ -68,21 +68,17 @@
   % 个，每个关键词中间用分号分隔。（模板作者注：关键词分隔符不用考虑，模板会自动处
   % 理。英文关键词同理。）
 \begin{cabstract}
-随着深度学习技术的快速发展,人脸识别系统已广泛应用于身份验证、访问控制等关键领域,但同时面临严重的隐私泄露风险。本文针对人脸识别系统中的两类核心隐私威胁展开研究:模板逆向攻击(TIA)旨在从泄露的生物特征模板重建人脸图像;模型反演攻击(MIA)旨在从分类模型重建训练数据中的特定身份样本。
+随着深度学习技术的快速发展，人脸识别系统已广泛应用于身份验证、访问控制等关键领域。然而，系统中暴露的特征表示与模型输出为攻击者提供了可乘之机。本文针对人脸识别系统的两类隐私威胁展开研究：模板逆向攻击（TIA）从泄露的生物特征模板重建人脸图像，模型反演攻击（MIA）从分类模型重建特定身份样本。
 
-本文建立了统一的白盒威胁建模框架,攻击者掌握模型架构与参数但无法访问训练数据。基于扩散概率模型的理论基础,为逆向重建方法提供了数学工具与算法支撑。针对TIA,本文提出基于明晰扩散模型(EDM)的方法,通过混合目标函数融合像素空间重建损失与特征空间感知损失,实现视觉质量与识别一致性的协同优化。推理阶段采用梯度引导机制动态调整生成轨迹,确保生成图像精确匹配目标模板。针对MIA,本文首次将换脸模型应用于模型反演任务,设计标签条件嵌入层将类别标签映射为身份向量。采用Low-Rank Adaptation (LoRA)技术对预训练换脸模型进行参数高效微调,通过分类器引导损失实现目标类别的精确匹配。
+本文建立了统一的白盒威胁建模框架。基于扩散概率模型理论，为逆向重建提供了数学工具与算法支撑。针对TIA，提出基于明晰扩散模型（EDM）的方法，通过混合目标函数融合像素空间重建与特征空间感知，采用梯度引导机制动态调整生成轨迹，实现精确的特征匹配。针对MIA，首次将换脸模型应用于模型反演，设计标签条件嵌入层将类别标签映射为身份向量，采用LoRA技术进行参数高效微调。
 
-实验结果表明,TIA方法在LFW数据集上于误识率$10^{-3}$阈值下攻击成功率达98.50\%,相比GaFaR提升6.33\%。身份损失使攻击成功率从13\%提升至98\%以上。MIA方法Top-1准确率达93\%以上,FID值降至23.82{\textasciitilde}28.16,相比最佳基线降低约28\%,在攻击准确率与生成质量间取得优异平衡。
-
-本文的主要贡献包括:首次系统区分并形式化了TIA与MIA两类攻击,建立了统一的威胁建模框架;提出了首个基于明晰扩散模型的TIA方法和首个利用换脸先验的MIA方法,在攻击成功率和生成质量上均实现突破;系统性应用参数高效微调技术大幅降低攻击成本;建立了全面的评估基准,提供开源实现与可复现性保障。研究成果揭示了人脸识别系统的隐私脆弱性,为安全评估和防御策略设计提供了理论与技术支撑。
+实验验证了方法的有效性。TIA方法在LFW数据集误识率$10^{-3}$阈值下攻击成功率达98.50\%，相比现有方法提升6.33\%。MIA方法Top-1准确率达93\%以上，FID值降至23.82{\textasciitilde}28.16，相比最佳基线降低约28\%。本文建立了多维度评估体系，建立了完整的理论框架与方法论规范，为人脸识别系统的隐私风险评估与防御策略设计提供了理论支撑。
 \end{cabstract}
 
 \begin{eabstract}
-With the rapid development of deep learning, face recognition systems have been widely deployed in identity verification and access control, but also face serious privacy leakage risks. This dissertation investigates two core privacy threats: Template Inversion Attack (TIA) reconstructs face images from leaked biometric templates; Model Inversion Attack (MIA) reconstructs identity samples from classification model outputs.
+Face recognition systems have been widely deployed in identity verification and access control applications. However, exposed feature representations and model outputs provide opportunities for privacy attacks. This dissertation investigates two core privacy threats: Template Inversion Attack (TIA) reconstructs face images from leaked biometric templates; Model Inversion Attack (MIA) reconstructs identity samples from classification model outputs.
 
-This dissertation establishes a unified white-box threat modeling framework where attackers have model architecture and parameters but no training data access. Based on diffusion probabilistic model theory, it provides mathematical tools for inverse reconstruction methods.For TIA, this dissertation proposes an EDM-based method with hybrid objective function combining pixel-space reconstruction loss and feature-space perceptual loss, achieving coordinated optimization of visual quality and recognition consistency. The inference stage employs gradient guidance mechanisms to ensure generated images precisely match target templates.For MIA, this dissertation first applies face-swapping models to model inversion by designing a label-conditioned embedding layer mapping labels to identity vectors. Using Low-Rank Adaptation (LoRA) for parameter-efficient fine-tuning, it achieves precise target matching through classifier guidance loss.
+This dissertation establishes a unified white-box threat model where attackers have model access but no training data. Based on diffusion probabilistic model theory, it provides mathematical tools for inverse reconstruction. For TIA, an EDM-based method is proposed with hybrid objective function combining pixel-space reconstruction and feature-space perception, employing gradient guidance mechanisms to dynamically adjust generation trajectories for precise template matching. For MIA, face-swapping models are first applied to model inversion through label-conditioned embedding layers that map labels to identity vectors, with LoRA-based parameter-efficient fine-tuning.
 
-Experimental results show that the TIA method achieves 98.50\% attack success rate at FMR threshold of $10^{-3}$, improving 6.33\% over GaFaR. Identity loss improves success rate from 13\% to over 98\%. The MIA method maintains Top-1 accuracy above 93\% with FID values of 23.82{\textasciitilde}28.16, approximately 28\% lower than the best baseline, achieving excellent balance between attack accuracy and generation quality.
-
-The main contributions of this dissertation include: systematic formalization of TIA and MIA threat modeling framework, innovative EDM-based TIA method and face-swapping prior-based MIA method achieving breakthrough performance through hybrid loss functions and parameter-efficient fine-tuning, and establishment of comprehensive evaluation benchmarks with reproducibility guarantees. The research outcomes reveal privacy vulnerabilities of face recognition systems, providing theoretical and technical support for security assessment and defense strategy design.
+Experimental results validate method effectiveness. The TIA method achieves 98.50\% attack success rate at FMR threshold of $10^{-3}$ on LFW, improving 6.33\% over state-of-the-art. The MIA method maintains Top-1 accuracy above 93\% with FID values of 23.82{\textasciitilde}28.16, approximately 28\% lower than the best baseline. This dissertation establishes comprehensive evaluation framework and method standards, providing theoretical support for privacy risk assessment and defense strategy design in face recognition systems.
 \end{eabstract}
