@@ -10,7 +10,7 @@
 【当前方案】
 L(θ) = L_pixel(θ) + λ(t) · L_feat(θ)
        L_feat采用L2欧氏距离，权重采用线性调度
-       
+
        优点: 概念清晰、实现简单、有明确的解释性
        局限: 未充分利用特征空间几何结构、权重变化生硬
 
@@ -18,7 +18,7 @@ L(θ) = L_pixel(θ) + λ(t) · L_feat(θ)
 【改进方案A】(推荐第一阶段)
 L(θ) = L_pixel(θ) + λ_sigmoid(t) · L_feat(θ)
        L_feat保持L2，但权重改为Sigmoid调度
-       
+
        改变: 权重调度线性 → Sigmoid平滑过度
        效果: 训练更稳定，性能+1-2%
        成本: 极低（改几个参数）
@@ -27,7 +27,7 @@ L(θ) = L_pixel(θ) + λ_sigmoid(t) · L_feat(θ)
 【改进方案B】(推荐第二阶段)
 L(θ) = L_pixel(θ) + λ_sigmoid(t) · L_feat^contrastive(θ)
        L_feat改为对比学习框架
-       
+
        改变: 特征损失从L2距离 → 对比学习
        效果: 性能+3-5%，理论更严谨
        成本: 中等（需要集成负样本，但实现清晰）
@@ -36,7 +36,7 @@ L(θ) = L_pixel(θ) + λ_sigmoid(t) · L_feat^contrastive(θ)
 【完整方案】(追求最优)
 L(θ) = L_pixel(θ) + λ_sigmoid(t) · L_feat^contrastive(θ) + λ_perc(t) · L_perc(θ)
        加入可选的感知损失项
-       
+
        改变: 新增感知损失维度
        效果: 性能+0.3-0.5%，视觉质量进一步改善
        成本: 较高（需要额外的VGG特征计算）
@@ -55,7 +55,7 @@ L_feat = ||F(x̂) - F(x_0)||_2^2
 
 几何意义：
   在欧氏空间中最小化特征向量距离
-  
+
   F(x_0) ─────── F(x̂)
   (目标)    距离d    (生成)
 
@@ -63,11 +63,11 @@ L_feat = ||F(x̂) - F(x_0)||_2^2
   1. 不考虑特征空间的角度结构
      - 向量方向相同但幅度不同会被严重惩罚
      - 实际上对于人脸识别（基于相似度）并非最优
-  
+
   2. 梯度消失问题
      - 当相似度已经很高时（接近0），梯度接近0
      - 难以进一步精细调整
-  
+
   3. 缺乏负样本约束
      - 只约束与目标的距离，不约束与其他样本的距离
      - 生成的图像可能与多个身份相似
@@ -76,27 +76,27 @@ L_feat = ||F(x̂) - F(x_0)||_2^2
 #### 改进方案（对比学习框架）
 
 ```
-L_feat^contrastive = -log[exp(sim(F(x̂), F(x_0))/τ) / 
+L_feat^contrastive = -log[exp(sim(F(x̂), F(x_0))/τ) /
                            (exp(sim(F(x̂), F(x_0))/τ) + Σ exp(sim(F(x̂), F(n_i))/τ))]
 
 几何意义：
   最大化与正样本的相似度，同时最小化与负样本的相似度
-  
+
          负样本集 {n_i}
               ↓
   F(x_0) ─── F(x̂)  ← 拉近
   (目标)      (生成)
               ↑
-         
+
 优势分析：
   1. 角度空间约束
      - 基于相似度而非距离，更符合人脸识别的学习范式
      - 与ArcFace等主流方法的特征空间一致
-  
+
   2. 正负样本对比
      - 同时推离不匹配的样本
      - 提升生成图像的身份纯度
-  
+
   3. 温度参数控制
      - τ小：梯度强，但易波动（τ≈0.05）
      - τ大：梯度稳定，但学习信号弱（τ≈0.1）
@@ -115,7 +115,7 @@ L_feat^contrastive = -log[exp(sim(F(x̂), F(x_0))/τ) /
 #### 当前方案（线性调度）
 
 ```
-λ(t) 
+λ(t)
   │      ┌────────────────
   │     /│
   │    / │λ_max
@@ -135,11 +135,11 @@ L_feat^contrastive = -log[exp(sim(F(x̂), F(x_0))/τ) /
   1. 权重尖锐跳变
      - 在t_warmup处从0突变为正值
      - 可能导致训练不稳定
-  
+
   2. 中间段权重变化均匀
      - 不考虑扩散过程的实际需求
      - 高噪声阶段与低噪声阶段的权重相同
-  
+
   3. 难以调优
      - 需要手动选择t_warmup、t_total、λ_max三个参数
 ```
@@ -172,12 +172,12 @@ L_feat^contrastive = -log[exp(sim(F(x̂), F(x_0))/τ) /
   1. 平滑过度
      - 权重连续变化，避免梯度突变
      - 训练更稳定
-  
+
   2. 自适应性能
      - 高噪声阶段(t/t_total < 0.3)：λ较小，强调像素质量
      - 中间阶段(0.3 < t/t_total < 0.7)：λ快速增长，平衡过度
      - 低噪声阶段(t/t_total > 0.7)：λ接近λ_max，确保身份一致性
-  
+
   3. 超参数更少
      - 只需选择k≈6-10（通常固定）
      - 易于调优与复现
@@ -189,7 +189,7 @@ L_feat^contrastive = -log[exp(sim(F(x̂), F(x_0))/τ) /
   │        (当前)    (改进)
   │  ┌─────────    ┌──────────
   │  │        \   /
-  │  │         ╱╲  
+  │  │         ╱╲
   │  │        /  \
   │  │       /    ╲
   │  │      /      ────────
@@ -329,7 +329,7 @@ def contrastive_feat_loss(f_gen, template, neg_samples, tau=0.1):
     """
     Args:
         f_gen: 生成图像的特征 [batch, 512]
-        template: 目标模板特征 [batch, 512]  
+        template: 目标模板特征 [batch, 512]
         neg_samples: 负样本特征 [batch, K, 512]
         tau: 温度参数
     """
@@ -337,23 +337,23 @@ def contrastive_feat_loss(f_gen, template, neg_samples, tau=0.1):
     f_gen = F.normalize(f_gen, p=2, dim=1)
     template = F.normalize(template, p=2, dim=1)
     neg_norm = F.normalize(neg_samples, p=2, dim=1)
-    
+
     # 计算相似度
     pos_sim = (f_gen * template).sum(1) / tau  # [batch]
-    
+
     # 负样本相似度
-    neg_sim = torch.bmm(f_gen.unsqueeze(1), 
-                        neg_norm.transpose(1,2)) / tau  
+    neg_sim = torch.bmm(f_gen.unsqueeze(1),
+                        neg_norm.transpose(1,2)) / tau
     # [batch, 1, K] → [batch, K]
     neg_sim = neg_sim.squeeze(1)
-    
+
     # 对比损失 (InfoNCE)
     all_sim = torch.cat([pos_sim.unsqueeze(1), neg_sim], dim=1)
     # [batch, K+1]
-    
+
     labels = torch.zeros(batch_size, dtype=torch.long).to(device)
     loss = F.cross_entropy(all_sim, labels)
-    
+
     return loss
 ```
 
@@ -365,14 +365,14 @@ import math
 def sigmoid_schedule(t, t_total, k=8, mid_point=0.4, lambda_max=1.0):
     """
     Sigmoid平滑权重调度
-    
+
     Args:
         t: 当前训练步数
         t_total: 总训练步数
         k: 曲线陡峭度 (通常6-10)
         mid_point: 中点位置，默认0.4表示40%时权重为lambda_max/2
         lambda_max: 最大权重值
-    
+
     Returns:
         λ(t): 当前步的权重
     """

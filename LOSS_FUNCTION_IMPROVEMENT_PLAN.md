@@ -12,13 +12,13 @@
 
 **当前版本** (第71行):
 ```latex
-\mathcal{L}_{\text{feat}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} 
+\mathcal{L}_{\text{feat}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon}
   \left[ \left\| F\left( f_\theta(x_0 + \sigma \epsilon, y, \sigma) \right) - F(x_0) \right\|^2 \right]
 ```
 
 **改进版本** (结合角度空间约束):
 ```latex
-\mathcal{L}_{\text{feat}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} 
+\mathcal{L}_{\text{feat}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon}
   \left[ -\log \frac{\exp(\mathrm{sim}(F(\hat{x}), t)/\tau)}
                     {\exp(\mathrm{sim}(F(\hat{x}), t)/\tau) + \sum_{i=1}^K \exp(\mathrm{sim}(F(\hat{x}), n_i)/\tau)} \right]
 
@@ -44,7 +44,7 @@
 ```latex
 \lambda(t) = \begin{cases}
     0, & t < t_{\text{warmup}}, \\
-    \lambda_{\max} \cdot \frac{t - t_{\text{warmup}}}{t_{\text{total}} - t_{\text{warmup}}}, 
+    \lambda_{\max} \cdot \frac{t - t_{\text{warmup}}}{t_{\text{total}} - t_{\text{warmup}}},
     & t_{\text{warmup}} \le t \le t_{\text{total}}, \\
     \lambda_{\max}, & t > t_{\text{total}},
   \end{cases}
@@ -53,11 +53,11 @@
 **改进版本** (分阶段自适应调度):
 ```latex
 \lambda(t) = \begin{cases}
-    \lambda_{\text{early}} \cdot \sigma(k_1 \cdot (t - t_1) / T), 
+    \lambda_{\text{early}} \cdot \sigma(k_1 \cdot (t - t_1) / T),
     & t < 0.33 T \\
-    \lambda_{\text{mid}} \cdot (0.5 + 0.5 \cdot \sigma(k_2 \cdot (t - t_2) / T)), 
+    \lambda_{\text{mid}} \cdot (0.5 + 0.5 \cdot \sigma(k_2 \cdot (t - t_2) / T)),
     & 0.33T \le t < 0.67T \\
-    \lambda_{\text{late}} - \lambda_{\text{late}} \cdot \exp(-(t - 0.67T)/(0.33T)), 
+    \lambda_{\text{late}} - \lambda_{\text{late}} \cdot \exp(-(t - 0.67T)/(0.33T)),
     & t \ge 0.67T
   \end{cases}
 
@@ -98,14 +98,14 @@
 
 **改进版本** (添加可选的感知损失):
 ```latex
-\mathcal{L}(\theta) = \mathcal{L}_{\text{pixel}}(\theta) 
+\mathcal{L}(\theta) = \mathcal{L}_{\text{pixel}}(\theta)
                     + \lambda(t) \cdot \mathcal{L}_{\text{feat}}(\theta)
                     + \lambda_{\text{perc}}(t) \cdot \mathcal{L}_{\text{perc}}(\theta)
 
 其中新增感知损失项（可选，用于进一步改进视觉质量）:
 
-\mathcal{L}_{\text{perc}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} 
-  \left[ \sum_{l \in \{relu2_2, relu3_4, relu5_4\}} 
+\mathcal{L}_{\text{perc}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon}
+  \left[ \sum_{l \in \{relu2_2, relu3_4, relu5_4\}}
     \|V_l(\hat{x}) - V_l(x_0)\|_2^2 \right]
 
 其中:

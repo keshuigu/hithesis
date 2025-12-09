@@ -47,13 +47,13 @@
 
 **旧版本** (欧氏距离):
 ```latex
-\mathcal{L}_{\text{feat}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} 
+\mathcal{L}_{\text{feat}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon}
   \left[ \left\| F(f_\theta(x_0 + \sigma \epsilon, y, \sigma)) - F(x_0) \right\|^2 \right]
 ```
 
 **新版本** (对比学习):
 ```latex
-\mathcal{L}_{\text{feat}}^{\text{contrastive}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon, \{n_i\}_{i=1}^K} 
+\mathcal{L}_{\text{feat}}^{\text{contrastive}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon, \{n_i\}_{i=1}^K}
   \left[ -\log \frac{\exp(\mathrm{sim}(F(\hat{x}), F(x_0))/\tau)}
                     {\exp(\mathrm{sim}(F(\hat{x}), F(x_0))/\tau) + \sum_{i=1}^K \exp(\mathrm{sim}(F(\hat{x}), F(n_i))/\tau)} \right]
 
@@ -84,13 +84,13 @@
 #### 修改内容：
 
 ```latex
-\mathcal{L}(\theta) = \mathcal{L}_{\text{pixel}}(\theta) 
+\mathcal{L}(\theta) = \mathcal{L}_{\text{pixel}}(\theta)
                     + \lambda(t) \cdot \mathcal{L}_{\text{feat}}^{\text{contrastive}}(\theta)
                     + \lambda_{\text{perc}}(t) \cdot \mathcal{L}_{\text{perc}}(\theta)
 
 其中感知损失为:
 
-\mathcal{L}_{\text{perc}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} 
+\mathcal{L}_{\text{perc}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon}
   \sum_{l \in \mathcal{L}_{\text{layers}}} \alpha_l \left\| \Phi_l(\hat{x}) - \Phi_l(x_0) \right\|_2^2
 
 其中:
@@ -250,10 +250,10 @@ CosFace\cite{wang2018cosface}等）采用角度边距学习范式，将特征投
 具体地，对比学习框架的特征损失定义为：
 
 \begin{equation}\label{eq:contrastive_feat_loss}
-  \mathcal{L}_{\text{feat}}^{\text{contrastive}}(\theta) = 
-  \mathbb{E}_{x_0, \sigma, \epsilon, \{n_i\}_{i=1}^K} 
+  \mathcal{L}_{\text{feat}}^{\text{contrastive}}(\theta) =
+  \mathbb{E}_{x_0, \sigma, \epsilon, \{n_i\}_{i=1}^K}
   \left[ -\log \frac{\exp(\mathrm{sim}(\tilde{F}(\hat{x}), \tilde{F}(x_0))/\tau)}
-              {\exp(\mathrm{sim}(\tilde{F}(\hat{x}), \tilde{F}(x_0))/\tau) + 
+              {\exp(\mathrm{sim}(\tilde{F}(\hat{x}), \tilde{F}(x_0))/\tau) +
                \sum_{i=1}^K \exp(\mathrm{sim}(\tilde{F}(\hat{x}), \tilde{F}(n_i))/\tau)} \right],
 \end{equation}
 
@@ -295,13 +295,13 @@ $\tau$过大时梯度稳定但学习信号减弱。实践中通常通过交叉�
 \begin{enumerate}
   \item Sigmoid权重调度相比线性调度提升1.6个百分点，说明平滑的
         权重过度对训练稳定性有显著帮助。
-  
+
   \item 对比学习特征损失相比L2欧氏距离提升4.3个百分点，充分验证了
         基于相似度的约束相比距离约束的优越性。
-  
+
   \item 两项改进的联合效果（6.7百分点）略小于两者之和（6.0百分点），
         说明两项改进之间存在正相关但非完全独立的关系。
-  
+
   \item 感知损失的添加对成功率影响不大（仅+0.3%），但显著改善了
         重建图像的视觉质量（+0.3分）。这表明感知损失是可选的，
         取决于应用场景对视觉质量的要求。
@@ -373,11 +373,11 @@ $\tau$过大时梯度稳定但学习信号减弱。实践中通常通过交叉�
 1. **对比学习基础**
    - SimCLR (Chen et al., 2020)
    - MoCo (He et al., 2020)
-   
+
 2. **扩散模型进阶**
    - Score-based SDE (Song et al., 2021)
    - 条件扩散模型 (Ho & Salimans, 2021)
-   
+
 3. **应用于逆问题**
    - Diffusion Posterior Sampling (Chung et al., 2023)
    - DPS (Chung et al., 2022)

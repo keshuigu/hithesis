@@ -24,7 +24,7 @@ L(θ) = L_pixel(θ) + λ(t) · L_feat(θ)
 
 ### 方案A：基于角度空间的特征匹配损失（推荐 ★★★★★）
 
-**核心思想**: 
+**核心思想**:
 在特征空间中引入角度约束，充分利用人脸识别系统（如ArcFace）中已学习的角度边距结构。
 
 **数学表述**:
@@ -57,16 +57,16 @@ def angle_feat_loss(features_gen, template, neg_samples, margin=0.35):
     # 归一化处理
     f_gen = F.normalize(features_gen, p=2, dim=1)
     t_norm = F.normalize(template, p=2, dim=1)
-    
+
     # 计算与目标的余弦相似度
     cos_sim_target = (f_gen * t_norm).sum(dim=1)  # [batch_size]
-    
+
     # 计算与负样本的余弦相似度
     neg_norm = F.normalize(neg_samples, p=2, dim=1)  # [batch_size, num_neg, 512]
-    cos_sim_neg = torch.bmm(f_gen.unsqueeze(1), 
+    cos_sim_neg = torch.bmm(f_gen.unsqueeze(1),
                             neg_norm.transpose(1,2))  # [batch_size, 1, num_neg]
     cos_sim_neg = cos_sim_neg.squeeze(1).max(dim=1)[0]  # [batch_size]
-    
+
     # 角度边距损失
     loss = torch.clamp(cos_sim_neg - cos_sim_target + margin, min=0.0)
     return loss.mean()
@@ -81,7 +81,7 @@ def angle_feat_loss(features_gen, template, neg_samples, margin=0.35):
 
 **数学表述**:
 ```
-L(θ) = (1 + exp(-ω_pixel))^(-1) · L_pixel(θ) 
+L(θ) = (1 + exp(-ω_pixel))^(-1) · L_pixel(θ)
      + (1 + exp(-ω_feat))^(-1) · L_feat(θ)
 
 其中ω_pixel, ω_feat为可学习的任务权重参数，通过训练自动调整
@@ -103,7 +103,7 @@ L(θ) = (1 + exp(-ω_pixel))^(-1) · L_pixel(θ)
 3. **可解释性**: 学到的权重可反映任务的相对难度
 4. **灵活扩展**: 可轻松添加第三个约束（如感知损失）
 
-**文献支持**: 
+**文献支持**:
 - Kendall et al., "Multi-Task Learning Using Uncertainty to Weigh Losses", CVPR 2018
 
 ---
@@ -116,7 +116,7 @@ L(θ) = (1 + exp(-ω_pixel))^(-1) · L_pixel(θ)
 **数学表述**:
 ```
 L_feat^contrastive(θ) = E[
-  -log(exp(sim(F(x̂), t)/τ) / 
+  -log(exp(sim(F(x̂), t)/τ) /
        (exp(sim(F(x̂), t)/τ) + Σ_i exp(sim(F(x̂), n_i)/τ)))
 ]
 

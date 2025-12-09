@@ -231,80 +231,168 @@ REFace的U-Net架构包含多个残差块（ResNet Block），每个残差块含
 
 \section{多目标优化损失函数设计}
 \label{sec:mia_loss}
-本节基于 Diff-MI~\cite{li2024diffmi} 的设计思想，对原有的简单均方（MSE）感知与重建项进行替换与扩展。主要改动包括：
+本节基于 Diff-MI~\cite{li2024diffmi} 的设计思想，对原有的损失函数进行系统改进。核心挑战在于平衡五个相互制约的优化目标：扩散先验保真度、分类器攻击有效性、身份一致性、生成质量与模型正则化。为此，我们提出四个递进式改进方案（A-D），通过不确定性加权框架实现自动权重调整。
 
-- 引入扩散先验的噪声预测损失（diffusion prior loss）用于微调基于扩散的换脸主干，以保持扩散模型的数学性质；
-- 将分类器引导损失由单纯的交叉熵/均方替换为论文中建议的 top-k 改进的 max-margin 损失，并结合 p-reg 特征空间正则项；
-- 保留感知损失，但将其表述为基于深度特征的感知距离（LPIPS/加权特征差异），避免直接在像素空间使用裸 MSE。
+\subsection{总体损失架构与四层递进改进}
 
-\subsection{总体损失架构}
-
-在上述思想指导下，我们采用下列分项损失：
+基础框架采用分项损失加权求和：
 \begin{equation}\label{eq:mia_total_loss_new}
     \mathcal{L}_{\text{total}} = \lambda_{\text{prior}}\mathcal{L}_{\text{prior}} + \lambda_{\text{cls}}\mathcal{L}_{\text{cls}} + \lambda_{\text{id}}\mathcal{L}_{\text{id}} + \lambda_{\text{perc}}\mathcal{L}_{\text{perc}} + \lambda_{\text{reg}}\mathcal{L}_{\text{reg}}.
 \end{equation}
 
-下面逐项定义各损失。
-
-\subsection{扩散先验损失（Diffusion Prior Loss）}
-
-当以 REFace 的潜在扩散主干作为生成先验并在其上应用 LoRA 微调时，应保证微调不会破坏扩散模型对噪声的预测能力。因此在微调过程中加入扩散先验损失：
-\begin{equation}\label{eq:mia_prior_loss}
-    \mathcal{L}_{\text{prior}} = \mathbb{E}_{z_0,\epsilon\sim\mathcal{N}(0,I),t}\left[\left\|\epsilon - \epsilon_{\theta}(z_t, t, e_{\text{id}})\right\|_2^2\right],
+为解决权重平衡问题，使用不确定性加权框架（方案 D）：
+\begin{equation}\label{eq:mia_uncertainty_weighting}
+    \mathcal{L}_{\text{total}}^{*} = \sum_{i=1}^{5} \left( \frac{1}{2\sigma_i^2} \mathcal{L}_i + \frac{1}{2}\log\sigma_i^2 \right),
 \end{equation}
-其中 $z_t=\sqrt{\bar{\alpha}_t}z_0+\sqrt{1-\bar{\alpha}_t}\epsilon$ 为潜在空间的扩散扰动，$\epsilon_{\theta}$ 为 U-Net 的噪声预测网络。该项在微调阶段（尤其是对 U-Net 局部层或 LoRA 参数）保证生成先验一致性，减少因微调造成的先验畸变。
+其中 $\sigma_i$ 为可学习的任务不确定性参数，使权重自动适应任务难度。下面逐项阐述各损失的改进策略。
+
+\subsection{改进的扩散先验损失（方案 A）}
+\label{subsec:mia_prior_improved}
+
+标准的 L2 范数扩散先验损失在高相似度时梯度消失，且未考虑不同噪声水平的阶段性特性。方案 A 引入时间自适应权重与余弦相似度度量：
+\begin{equation}\label{eq:mia_prior_loss_v2}
+    \mathcal{L}_{\text{prior}}^{(A)} = \mathbb{E}_{z_0, \epsilon\sim\mathcal{N}(0,I), t} \left[ w(t) \cdot \left(1 - \frac{\langle \epsilon, \epsilon_\theta(z_t, t, e_{\text{id}}) \rangle}{\|\epsilon\|_2 \|\epsilon_\theta(z_t, t, e_{\text{id}})\|_2} \right) \right],
+\end{equation}
+其中时间步权重为：$w(t) = 0.5$ （$t<0.2T$，高噪声），$w(t)=1.0$ （$0.2T \le t < 0.8T$），$w(t)=1.5$ （$t \ge 0.8T$，低噪声）。这反映了低噪声阶段细节塑造更关键的特点。使用余弦相似度避免尺度敏感性，同时与人脸识别系统保持一致。在分阶段训练中，第 1 阶段使用 $\lambda_{\text{prior}}=2.0$ 强力保护先验，第 2 阶段衰减至 $0.5$。
 
 \subsection{改进的分类器引导损失（top-k + p-reg）}
 
-参考 Diff-MI 的改进项，我们用 top-k max-margin 损失替换简单的交叉熵/均方：
-\begin{equation}\label{eq:mia_topk}
-    \mathcal{L}_{\text{top-k}}(x,y,k) = -\ell_y(x) + \max_{\text{k\ best } j\neq y}\; \ell_j(x),
+参考 Diff-MI 的改进项，我们用 top-k max-margin 损失替换简单的交叉熵/均方，并引入三层递进改进（方案 B）。
+
+\subsubsection{B1：自适应 k 值与均值聚合}
+
+原始 top-k 固定 $k=3$，在不同类别数量场景下缺乏自适应性。改进采用：
+\begin{equation}\label{eq:mia_k_adaptive}
+    k_{\text{adapt}} = \max(2, \min(5, \lfloor C / 20 \rfloor)),
 \end{equation}
-其中 $\ell_j(\cdot)$ 表示分类器的 logit（非归一化输出），右侧为对除目标类外前 $k$ 个最高 logit 的最大值（top-k maxes）。该设计比硬 max 更好地利用分类器的软标签信息，减缓梯度消失并提升判别性。
-
-同时加入 p-reg 特征空间正则化以约束生成样本在分类器倒数第二层特征空间内接近类别中心：
-\begin{equation}\label{eq:mia_preg}
-    \mathcal{L}_{\text{p-reg}}(p_x,y) = \left\|p_x - p_{\text{reg},y}\right\|_2^2,
-\end{equation}
-其中 $p_x$ 为样本 $x$ 在分类器 penultimate 层的激活，$p_{\text{reg},y}$ 为通过伪标签或公共数据预估的类别特征中心（参见论文中基于 pseudo-label 的估计方法）。
-
-于是我们将分类损失定义为：
-\begin{equation}\label{eq:mia_cls_new}
-    \mathcal{L}_{\text{cls}} = \mathcal{L}_{\text{top-k}} + \alpha\,\mathcal{L}_{\text{p-reg}},
-\end{equation}
-其中 $\alpha$ 为 p-reg 正则权重（经验上取 0.5~1.0 作为起点，章节实验中可调优）。
-
-\subsection{身份一致性损失（Identity Loss）}
-
-保持原有基于人脸识别嵌入的余弦相似度损失：
-\begin{equation}\label{eq:mia_id_cosine_loss}
-    \mathcal{L}_{\text{id}} = 1 - \frac{\langle E_{\text{id}}(\hat{x}), e_{\text{id}} \rangle}{\|E_{\text{id}}(\hat{x})\|_2 \|e_{\text{id}}\|_2}.
+其中 $C$ 为类别总数。同时将 max 聚合替换为 mean 聚合以获得更稳定的梯度流：
+\begin{equation}\label{eq:mia_topk_new}
+    \mathcal{L}_{\text{top-k}}^{(B1)} = -\ell_y + \frac{1}{k_{\text{adapt}}} \sum_{j \in \text{top-}k_{\text{adapt}}(J \setminus \{y\})} \ell_j.
 \end{equation}
 
-\subsection{感知质量损失（Perceptual Loss）}
+\subsubsection{B2：可学习特征中心}
 
-感知损失不再采用像素空间的裸 MSE，而是采用基于深度特征的 LPIPS 或加权特征差异：
-\begin{equation}\label{eq:mia_lpips_loss_new}
-    \mathcal{L}_{\text{perc}} = \sum_{\ell=1}^L w_{\ell} \left\|\phi_{\ell}(\hat{x}) - \phi_{\ell}(x_{\text{src}})\right\|_2^2,
+改进 p-reg 的计算方式，用可学习的特征中心 $c_y$ 替代伪标签估计：
+\begin{equation}\label{eq:mia_learnable_center}
+    c_y \leftarrow (1-\rho) c_y + \rho \cdot E_{\text{id}}(\hat{x}), \quad \rho=0.01,
 \end{equation}
-其中 $\phi_{\ell}$ 为预训练感知网络（如 VGG 或 AlexNet）的第 $\ell$ 层特征，$w_{\ell}$ 为层权重。实际实现时建议直接使用 LPIPS 度量作为 $\mathcal{L}_{\text{perc}}$，其在主观感知与数值指标上均表现更好。
-
-\subsection{正则化与 LoRA 项}
-
-正则化项保持对嵌入范数与 LoRA 参数的约束：
-\begin{equation}\label{eq:mia_reg_total_new}
-    \mathcal{L}_{\text{reg}} = \sum_{y=1}^C (\|e_y\|_2 - 1)^2 + \lambda_{\text{lora}} \sum_{\ell} (\|A_{\ell}\|_F^2 + \|B_{\ell}\|_F^2).
+直接学习每个类别的特征原型，避免伪标签噪声。对应 p-reg 为：
+\begin{equation}\label{eq:mia_preg_v2}
+    \mathcal{L}_{\text{p-reg}}^{(B2)} = \left\|p_x - c_y\right\|_2^2.
 \end{equation}
 
-\subsection{训练与采样阶段的应用说明}
+\subsubsection{B3：对比身份损失（核心创新）}
 
-为兼顾先验保真与攻击效果，我们建议采用分阶段训练策略：
-- 阶段1（嵌入预训练）：冻结换脸主干，仅训练标签嵌入与小量 LoRA 参数，主要优化 $\mathcal{L}_{\text{cls}} + \lambda_{\text{id}}\mathcal{L}_{\text{id}} + \lambda_{\text{perc}}\mathcal{L}_{\text{perc}}$；此阶段可适当减弱 $\mathcal{L}_{\text{prior}}$ 权重。
-- 阶段2（微调保真）：开启 LoRA 参数更多层的训练，并加入 $\mathcal{L}_{\text{prior}}$ 以保持扩散先验，同时以 $\mathcal{L}_{\text{cls}}$ 引导攻击性增强。微调时 LoRA 学习率宜低于嵌入层学习率（例如 $\beta\in[0.01,0.1]$ 的比例）。
+相比简单的 cosine 相似度，引入对比学习框架以充分利用面部识别系统的单位超球面几何性质，显式增强真实身份特征与负样本特征的分离：
+\begin{equation}\label{eq:mia_identity_contrastive}
+    \mathcal{L}_{\text{id}}^{\text{contrast}} = \mathbb{E}\left[\max\left(0, m + \frac{\langle E_{\text{id}}(\hat{x}), e_{\text{neg}} \rangle}{\|E_{\text{id}}(\hat{x})\|_2 \|e_{\text{neg}}\|_2} - \frac{\langle E_{\text{id}}(\hat{x}), e_{\text{id}} \rangle}{\|E_{\text{id}}(\hat{x})\|_2 \|e_{\text{id}}\|_2}\right)\right],
+\end{equation}
+其中 $m \in [0.3, 0.5]$ 为角度裕度，$e_{\text{neg}}$ 为从内存库均匀采样的负样本特征。此形式与 ArcFace 架构对齐，显式强制学习特征在单位超球面上保持较大角度分离。这是相比原始设计的核心创新。
 
-在推理（攻击）阶段，可沿用论文的 IIR/迭代重建策略，将训练得到的 target-specific 条件扩散模型与上文的 $\mathcal{L}_{\text{cls}}$ 结合，用 PGD 等方法进一步提升最终样本的分类器置信度（参考 Diff-MI 的 step-2）。
+综合分类和身份约束：
+\begin{equation}\label{eq:mia_cls_id_combined}
+    \mathcal{L}_{\text{cls+id}}^{(B)} = \mathcal{L}_{\text{top-k}}^{(B1)} + \alpha \mathcal{L}_{\text{p-reg}}^{(B2)} + \lambda_{\text{id}} \mathcal{L}_{\text{id}}^{\text{contrast}},
+\end{equation}
+其中 $\alpha \in [0.5, 1.0]$，$\lambda_{\text{id}} \in [0.3, 1.0]$。
 
-本节的改动保持了感知质量与身份一致性的设计思路，但用更鲁棒且对扩散模型友好的先验损失与改进分类损失替代了原先可能的简单 MSE 方案，从而在准确率与生成质量之间取得更好的平衡。
+\subsection{属性保持与多样性约束（方案 C）}
+
+\subsubsection{C1：属性感知损失}
+
+感知损失不再仅采用深度特征 LPIPS，而是加入显式的属性保持约束（姿态、表情、光照）：
+\begin{equation}\label{eq:mia_attr_loss}
+    \mathcal{L}_{\text{attr}}^{(C1)} = \sum_{k=1}^K w_k \|\text{Attr}_k(\hat{x}) - \text{Attr}_k(x_{\text{src}})\|_2,
+\end{equation}
+其中 $\text{Attr}_k$ 为第 $k$ 个属性估计器（如姿态回归、表情分类等），$w_k$ 为属性权重。
+
+\subsubsection{C2：多样性约束}
+
+为促进生成样本的多样性而非崩溃到单一样本，引入显式多样性损失：
+\begin{equation}\label{eq:mia_diversity_loss}
+    \mathcal{L}_{\text{diversity}}^{(C2)} = -\text{Var}(E_{\text{id}}(\{\hat{x}_1, \ldots, \hat{x}_B\})),
+\end{equation}
+即最大化批内嵌入向量的方差，鼓励多样化生成。
+
+\subsubsection{C3：分层感知权重}
+
+改进深度特征权重分配，采用分层加权：
+\begin{equation}\label{eq:mia_perc_hierarchical}
+    \mathcal{L}_{\text{perc}}^{(C3)} = w_{\text{shallow}} \|\phi_{\text{early}}(\hat{x}) - \phi_{\text{early}}(x)\|_2 + w_{\text{mid}} \|\phi_{\text{mid}}(\hat{x}) - \phi_{\text{mid}}(x)\|_2 + w_{\text{deep}} \|\phi_{\text{deep}}(\hat{x}) - \phi_{\text{deep}}(x)\|_2,
+\end{equation}
+推荐权重比例为 $w_{\text{shallow}} : w_{\text{mid}} : w_{\text{deep}} = 0.2 : 0.5 : 0.3$。
+
+综合方案 C：
+\begin{equation}\label{eq:mia_perception_combined}
+    \mathcal{L}_{\text{perc+attr}}^{(C)} = \mathcal{L}_{\text{perc}}^{(C3)} + \beta \mathcal{L}_{\text{attr}}^{(C1)} + \gamma \mathcal{L}_{\text{diversity}}^{(C2)},
+\end{equation}
+其中 $\beta \in [0.1, 0.3]$，$\gamma \in [0.05, 0.15]$。
+
+\subsection{正则化与不确定性加权（方案 D）}
+\label{subsec:mia_regularization_uncertainty}
+
+\subsubsection{D1：改进的正则化项}
+
+保持对嵌入范数与 LoRA 参数的约束，并增加嵌入分离正则化：
+\begin{equation}\label{eq:mia_reg_separation}
+    \mathcal{L}_{\text{reg}}^{(D1)} = \sum_{y=1}^C (\|e_y\|_2 - 1)^2 + \lambda_{\text{lora}} \sum_{\ell} (\|A_{\ell}\|_F^2 + \|B_{\ell}\|_F^2) + \lambda_{\text{sep}} \sum_{y \neq y'} \max(0, m - \|e_y - e_{y'}\|_2).
+\end{equation}
+
+\subsubsection{D2：不确定性加权框架（核心技术）}
+
+相比手动调整每个损失项的权重系数 $\lambda_i$，方案 D 引入任务不确定性框架，自动学习每个损失项的相对重要性（Kendall et al., CVPR 2018）：
+\begin{equation}\label{eq:mia_uncertainty_weighting}
+    \mathcal{L}_{\text{total}}^{(D)} = \sum_{i} \left( \frac{1}{2\sigma_i^2} \mathcal{L}_i + \frac{1}{2} \log \sigma_i^2 \right),
+\end{equation}
+其中 $\sigma_i$ 为第 $i$ 个任务（如 $\mathcal{L}_{\text{cls}}, \mathcal{L}_{\text{id}}, \mathcal{L}_{\text{perc}}, \mathcal{L}_{\text{reg}}$ 等）的不确定性参数。该框架自动将权重分配偏向于较难的任务（$\sigma_i$ 较小的任务），从而消除所有手动权重调优。
+
+训练时 $\sigma_i$ 参数与其他网络参数联合优化，推荐学习率比例为 $\text{lr}(\sigma_i) = 0.1 \times \text{lr}_{\text{main}}$，以避免 $\sigma_i$ 在早期过度衰减。
+
+\subsubsection{D3：分阶段训练策略}
+
+结合所有改进（方案 A-D），我们建议采用分阶段训练策略：
+
+\paragraph{阶段 1（嵌入预训练，$N_1=500$-1000 步）：}
+冻结换脸与扩散主干，仅训练标签嵌入与少量 LoRA 参数。此阶段关注分类与身份约束的建立：
+\begin{equation}\label{eq:mia_stage1}
+    \mathcal{L}_{\text{stage1}} = \mathcal{L}_{\text{cls+id}}^{(B)} + 0.5 \mathcal{L}_{\text{perc}}^{(C3)},
+\end{equation}
+权重配置：$\lambda_{\text{prior}} = 0.3$（较弱的先验约束），$\lambda_{\text{id}} = 1.0$（强身份约束）。
+
+\paragraph{阶段 2（LoRA 微调与保真，$N_2=1000$-2000 步）：}
+开启 LoRA 参数更多层的训练，并加强先验保护，使用完整的四层递进改进：
+\begin{equation}\label{eq:mia_stage2}
+    \mathcal{L}_{\text{stage2}} = \mathcal{L}_{\text{prior}}^{(A)} + \mathcal{L}_{\text{cls+id}}^{(B)} + \mathcal{L}_{\text{perc+attr}}^{(C)} + \mathcal{L}_{\text{reg}}^{(D1)},
+\end{equation}
+权重配置（通过方案 D 自动学习）：初始 $\sigma_{\text{prior}} \approx 1.0$，$\sigma_{\text{id}} \approx 0.8$。LoRA 学习率宜为主学习率的 10-20%。
+
+推理阶段可沿用论文的 IIR/迭代重建策略，配合训练得到的 target-specific 条件扩散模型。
+
+\paragraph{超参数总结：}
+\begin{table}[h]
+\centering
+\caption{方案 A-D 超参数推荐值}
+\label{tab:mia_hyperparams}
+\begin{tabular}{ccccc}
+\hline
+方案 & 关键参数 & 推荐值 & 含义 & 备注 \\
+\hline
+A & $w(t)$（低） & 1.5 & 低噪声阶段权重 & 细节塑造阶段加强 \\
+  & $\lambda_{\text{prior}}$ & 0.5-2.0 & 先验损失权重 & 阶段相关 \\
+\hline
+B1 & $k_{\text{adapt}}$ & $\lfloor C/20 \rfloor$ & 自适应 top-k & $C$ 为类别数 \\
+B2 & $\rho$ & 0.01 & 中心更新率 & 动量系数 \\
+B3 & $m$ & [0.3, 0.5] & 角度裕度 & ArcFace 对齐 \\
+\hline
+C1 & $w_k$ & 0.1-0.3 & 属性权重 & 按重要性调整 \\
+C2 & $\gamma$ & [0.05, 0.15] & 多样性权重 & 防止模式坍缩 \\
+C3 & $w_{\text{deep}}$ & 0.3 & 深层特征权重 & 主要感知通道 \\
+\hline
+D1 & $\lambda_{\text{sep}}$ & 0.1 & 分离正则权重 & 嵌入间隔约束 \\
+D2 & $\text{lr}(\sigma)$ & $0.1 \times \text{lr}_{\text{main}}$ & 不确定性学习率 & 稳定性关键 \\
+D3 & 阶段划分 & $N_1:N_2 = 1:2$ & 迭代数比例 & 可按验证集调整 \\
+\hline
+\end{tabular}
+\end{table}
 
 \section{训练与推理流程}
 \label{sec:mia_training}

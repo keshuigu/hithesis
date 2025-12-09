@@ -2,8 +2,8 @@
 
 ## 📊 一句话总结
 
-**当前**: L(θ) = L_pixel + λ·L_feat_L2  
-**改进**: L(θ) = L_pixel + λ_sigmoid·L_feat_contrastive  
+**当前**: L(θ) = L_pixel + λ·L_feat_L2
+**改进**: L(θ) = L_pixel + λ_sigmoid·L_feat_contrastive
 **效果**: 性能提升 +6-8% (从78.5% → 85%)
 
 ---
@@ -25,7 +25,7 @@
 ### ✅ 改进2: 对比学习特征损失
 ```
 旧: L_feat = ||F(x̂) - F(x₀)||²₂
-新: L_feat = -log[exp(sim(F(x̂),F(x₀))/τ) / 
+新: L_feat = -log[exp(sim(F(x̂),F(x₀))/τ) /
                  (exp(sim(...)/τ) + Σexp(sim(F(x̂),nᵢ)/τ))]
     效果: +3-5%  |  难度: 中等  |  时间: 2小时
 ```
@@ -87,17 +87,17 @@ def contrastive_feat_loss(f_gen, f_target, neg_samples, tau=0.07):
     f_gen = F.normalize(f_gen, p=2, dim=1)
     f_target = F.normalize(f_target, p=2, dim=1)
     neg_norm = F.normalize(neg_samples, p=2, dim=1)
-    
+
     # 相似度
     pos_sim = (f_gen * f_target).sum(1, keepdim=True) / tau  # [B, 1]
-    neg_sim = torch.bmm(f_gen.unsqueeze(1), 
+    neg_sim = torch.bmm(f_gen.unsqueeze(1),
                         neg_norm.transpose(1,2)) / tau  # [B, 1, K]
     neg_sim = neg_sim.squeeze(1)  # [B, K]
-    
+
     # 对比损失 (InfoNCE)
     logits = torch.cat([pos_sim, neg_sim], dim=1)  # [B, K+1]
     labels = torch.zeros(logits.size(0), dtype=torch.long, device=logits.device)
-    
+
     return F.cross_entropy(logits, labels)
 ```
 
@@ -173,19 +173,19 @@ def contrastive_feat_loss(f_gen, f_target, neg_samples, tau=0.07):
 
 ## 📞 常见问题
 
-**Q: 这些改进会大幅增加计算开销吗？**  
+**Q: 这些改进会大幅增加计算开销吗？**
 A: 不会。Sigmoid计算可忽略，对比损失仅增加~5%开销。
 
-**Q: 参数τ如何选择？**  
+**Q: 参数τ如何选择？**
 A: 通常0.07效果最好，可在0.05-0.1范围内交叉验证。
 
-**Q: 需要修改推理阶段吗？**  
+**Q: 需要修改推理阶段吗？**
 A: 不需要。这些改进只影响训练过程，推理流程保持不变。
 
-**Q: 性能提升是否可靠？**  
+**Q: 性能提升是否可靠？**
 A: 是的。基于对比学习的改进在多个生成任务上已被验证（2020-2023年论文）。
 
-**Q: 可以只做权重调度改进吗？**  
+**Q: 可以只做权重调度改进吗？**
 A: 可以。这是最简单的改进，但收益有限（+1-2%）。
 
 ---
