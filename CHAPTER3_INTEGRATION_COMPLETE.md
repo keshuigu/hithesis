@@ -24,8 +24,8 @@
 #### 方案 A：基于角度空间的特征匹配 ⭐⭐⭐⭐⭐
 - **LaTeX 方程 (3.4)**: 角度约束特征损失
   ```latex
-  \mathcal{L}_{\text{feat}}^{(\text{A})} = \mathbb{E}_{x_0, \sigma, \epsilon} 
-  \left[ \max\left(0, m + \frac{\langle F(\hat{x}_0), f_{\text{neg}} \rangle}{\|F(\hat{x}_0)\|_2 \|f_{\text{neg}}\|_2} 
+  \mathcal{L}_{\text{feat}}^{(\text{A})} = \mathbb{E}_{x_0, \sigma, \epsilon}
+  \left[ \max\left(0, m + \frac{\langle F(\hat{x}_0), f_{\text{neg}} \rangle}{\|F(\hat{x}_0)\|_2 \|f_{\text{neg}}\|_2}
   - \frac{\langle F(\hat{x}_0), F(x_0) \rangle}{\|F(\hat{x}_0)\|_2 \|F(x_0)\|_2}\right) \right]
   ```
 - **LaTeX 方程 (3.5)**: Sigmoid 权重调度
@@ -38,8 +38,8 @@
 #### 方案 B：多任务学习框架 ⭐⭐⭐⭐
 - **LaTeX 方程 (3.7)**: 任务不确定性加权
   ```latex
-  \mathcal{L}^{(\text{B})} = \frac{1}{2\sigma_p^2} \mathcal{L}_{\text{pixel}} 
-  + \frac{1}{2}\log\sigma_p^2 + \frac{1}{2\sigma_f^2} \mathcal{L}_{\text{feat}} 
+  \mathcal{L}^{(\text{B})} = \frac{1}{2\sigma_p^2} \mathcal{L}_{\text{pixel}}
+  + \frac{1}{2}\log\sigma_p^2 + \frac{1}{2\sigma_f^2} \mathcal{L}_{\text{feat}}
   + \frac{1}{2}\log\sigma_f^2
   ```
 - **改进**: +2-3% 成功率（基于方案 A）
@@ -48,7 +48,7 @@
 #### 方案 C：一致性正则化 ⭐⭐⭐
 - **LaTeX 方程 (3.8)**: 类内一致性与多样性约束
   ```latex
-  \mathcal{L}_{\text{consist}}^{(\text{C})} = \frac{1}{2B^2} \sum_{i \neq j} 
+  \mathcal{L}_{\text{consist}}^{(\text{C})} = \frac{1}{2B^2} \sum_{i \neq j}
   \left( 1 - \frac{\langle F(\hat{x}_i), F(\hat{x}_j) \rangle}{\|F(\hat{x}_i)\|_2 \|F(\hat{x}_j)\|_2} \right)
   ```
 - **改进**: +1-2% 成功率（基于前两个方案）
@@ -116,7 +116,7 @@ class LossFunctionSchemeA:
     def __init__(self, margin=0.35, k=8):
         self.margin = margin
         self.k = k
-    
+
     def forward(self, feat_gen, feat_orig, feat_neg):
         # 实现角度约束特征损失
         pass
@@ -125,7 +125,7 @@ class LossFunctionSchemeB:
     def __init__(self):
         self.log_sigma_p = nn.Parameter(torch.tensor(0.0))
         self.log_sigma_f = nn.Parameter(torch.tensor(0.0))
-    
+
     def forward(self, loss_pixel, loss_feat):
         # 实现多任务学习框架
         pass
@@ -175,10 +175,10 @@ class LossFunctionSchemeB:
 
 **第三章 TIA 改进方案现已完全集成到 LaTeX 中！**
 
-✅ 三个递进式改进方案（A-B-C）与基础设计形成完整的论述框架  
-✅ 所有数学公式正确 LaTeX 化并编译成功  
-✅ 超参数推荐表提供了实现指导  
-✅ 75 页论文成功生成，无编译错误  
+✅ 三个递进式改进方案（A-B-C）与基础设计形成完整的论述框架
+✅ 所有数学公式正确 LaTeX 化并编译成功
+✅ 超参数推荐表提供了实现指导
+✅ 75 页论文成功生成，无编译错误
 
 **两章都已完成！** 现在可以：
 1. 基于 LaTeX 中的详细说明实现对应代码

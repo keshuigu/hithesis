@@ -75,8 +75,8 @@
 \label{subsec:tia_scheme_b}
 
 \begin{equation}\label{eq:tia_uncertainty_weighting}
-    \mathcal{L}^{(\text{B})} = \frac{1}{2\sigma_p^2} \mathcal{L}_{\text{pixel}} 
-    + \frac{1}{2}\log\sigma_p^2 + \frac{1}{2\sigma_f^2} \mathcal{L}_{\text{feat}} 
+    \mathcal{L}^{(\text{B})} = \frac{1}{2\sigma_p^2} \mathcal{L}_{\text{pixel}}
+    + \frac{1}{2}\log\sigma_p^2 + \frac{1}{2\sigma_f^2} \mathcal{L}_{\text{feat}}
     + \frac{1}{2}\log\sigma_f^2,
 \end{equation}
 
@@ -103,12 +103,12 @@
 \label{subsec:tia_scheme_c}
 
 \begin{equation}\label{eq:tia_consistency_loss}
-    \mathcal{L}_{\text{consist}}^{(\text{C})} = \frac{1}{2B^2} \sum_{i \neq j} 
+    \mathcal{L}_{\text{consist}}^{(\text{C})} = \frac{1}{2B^2} \sum_{i \neq j}
     \left( 1 - \frac{\langle F(\hat{x}_i), F(\hat{x}_j) \rangle}{\|F(\hat{x}_i)\|_2 \|F(\hat{x}_j)\|_2} \right),
 \end{equation}
 
 \begin{equation}\label{eq:tia_total_scheme_c}
-    \mathcal{L}^{(\text{C})} = \mathcal{L}_{\text{pixel}} + \lambda(t) \cdot \mathcal{L}_{\text{feat}}^{(\text{A})} 
+    \mathcal{L}^{(\text{C})} = \mathcal{L}_{\text{pixel}} + \lambda(t) \cdot \mathcal{L}_{\text{feat}}^{(\text{A})}
     + \beta \cdot \mathcal{L}_{\text{consist}}^{(\text{C})},
 \end{equation}
 ```
@@ -408,7 +408,7 @@ A: 使用 `\ref{eq:tia_*}` 即可，例如 `如方程 \ref{eq:tia_angle_loss} �
 
 ---
 
-**验证完成时间**: 2025-12-09 12:15 UTC  
-**验证状态**: ✅ **所有检查通过**  
-**建议下一步**: 开始代码实现与实验验证  
+**验证完成时间**: 2025-12-09 12:15 UTC
+**验证状态**: ✅ **所有检查通过**
+**建议下一步**: 开始代码实现与实验验证
 

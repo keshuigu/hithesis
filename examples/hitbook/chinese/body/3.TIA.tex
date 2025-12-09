@@ -2,7 +2,7 @@
 
 % TODO (写作提示):
 % - 在方法开头形式化输入/输出：明确 $x$ (图像) 的尺寸、特征模板 $t$ 的维度、y 的含义等。
-% - 在训练/推理小节后增加超参数表（batch size、lr、迭代次数、lambda 调度、随机种子）。
+% - 超参数详细配置详见第5章表5.3（TIA方法超参数配置）。
 % - 在推理流程图下方给出示例推理命令（便于复现），例如：\texttt{python infer.py --ckpt model.pt --template tpl.npy --steps 18}
 % - 若有关键实现文件或脚本，补充路径或仓库链接。
 
@@ -28,178 +28,71 @@
 
 方法的整体框架包括两个关键阶段：
 
+方法的整体架构包括两个关键阶段：
+
 （1）特征引导的训练阶段：在标准扩散模型的去噪目标基础上，增加特征空间的感知损失，使模型在重建图像的同时保持与原始图像在特征空间中的一致性。通过动态调整损失权重，在训练过程中逐步增强特征约束的作用。（2）模板条件的推理阶段：给定目标模板，从随机噪声出发，通过条件引导的迭代去噪过程生成与模板匹配的人脸图像。在采样过程中引入梯度引导机制，动态调整生成轨迹以增强特征一致性。
+
+\textbf{架构概览}：整体架构采用双阶段设计。（1）\textit{训练阶段}：给定配对数据$\{(x_i, y_i)\}$，EDM去噪网络$f_\theta$接收带噪图像$x_t=x_0+\sigma\epsilon$、身份标签$y$和噪声水平$\sigma$作为输入，预测清晰图像$\hat{x}_0$。损失函数结合像素重建损失$\mathcal{L}_{\text{pixel}}$（式\ref{eq:tia_pixel_loss}）与特征匹配损失$\mathcal{L}_{\text{feat}}$（式\ref{eq:tia_feat_loss}），通过任务不确定性参数$\sigma_p,\sigma_f$自动平衡（式\ref{eq:tia_total_loss}）。特征损失采用角度约束设计，与ArcFace识别器$F$的超球面几何对齐，通过对比负样本$f_{\text{neg}}$增强判别性。权重调度采用Sigmoid函数（式\ref{eq:tia_lambda_schedule}），从warmup阶段的纯像素优化平滑过渡到特征引导阶段。（2）\textit{推理阶段}：给定目标模板$t\in\mathbb{R}^d$，从标准正态噪声$x_N\sim\mathcal{N}(0,\sigma_N^2I)$出发，通过$N$步迭代去噪（算法\ref{alg:edm_tia_infer}），每步结合去噪网络预测$\hat{x}_0^{(i)}=f_\theta(x_i,t,\sigma_i)$与特征引导梯度$\nabla_{x_i}\text{sim}(F(x_i),t)$，更新为$x_{i-1}=x_i+(\sigma_{i-1}-\sigma_i)\cdot[d_{\text{base}}+\alpha\cdot g]$，引导强度$\alpha$控制模板匹配度与视觉质量的权衡。数据流：$(x_0,y)\xrightarrow{\text{+noise}}x_t\xrightarrow{f_\theta}\hat{x}_0\xrightarrow{F}f_{\hat{x}_0}$，损失流：$\mathcal{L}_{\text{total}}\xrightarrow{\nabla}\theta$；推理流：$x_N\xrightarrow{\text{denoise}+\text{guide}}x_0$。
 
 图\ref{fig:edm_tia_train}展示了训练阶段的整体流程,该流程将像素空间重建与特征空间匹配有机结合,为后续的模板逆向攻击奠定了基础。
 
 \begin{figure}[!htbp]
   \centering
   \includegraphics[width=0.7\textwidth]{../figures/golfer.eps}
-  \caption{基于EDM的模板逆向攻击模型训练流程示意图}
+  \caption{基于EDM的模板逆向攻击模型训练流程示意图。训练阶段：输入带噪图像与标签，EDM去噪网络预测清晰图像，结合像素损失与特征损失（角度约束+任务不确定性加权）进行优化；推理阶段：从随机噪声出发，通过特征引导的迭代去噪生成与目标模板匹配的人脸图像。}
   \label{fig:edm_tia_train}
 \end{figure}
 
-\section{混合损失函数设计与三层递进改进}[Hybrid Loss Function Design and Progressive Improvements]
+\section{混合损失函数设计}[Hybrid Loss Function Design]
 \label{sec:tia_loss}
 
-损失函数的设计是影响模型性能的关键因素。本节在现有混合损失函数的基础上，提出三个递进式的改进方案（方案 A、B、C），通过引入角度约束、多任务学习框架与一致性正则化，逐步提升模型的特征匹配精度和生成质量。
+损失函数的设计是影响模型性能的关键因素。本节提出一种融合像素空间重建、特征空间匹配与多样性约束的混合损失函数，通过引入角度约束、任务不确定性加权与一致性正则化，实现视觉质量与特征匹配精度的联合优化。
 
-\subsection{基础设计：像素与特征混合损失}
+\subsection{总体损失架构}
 
-基础框架采用像素空间重建与特征空间约束的混合：
-\begin{equation}\label{eq:tia_total_loss_basic}
-    \mathcal{L}(\theta) = \mathcal{L}_{\text{pixel}}(\theta) + \lambda(t) \cdot \mathcal{L}_{\text{feat}}(\theta).
+本文采用的混合损失函数由三个核心组件构成：像素空间重建损失、特征空间感知损失与多样性正则化损失。通过任务不确定性加权框架实现各损失项的自动平衡：
+\begin{equation}\label{eq:tia_total_loss}
+    \mathcal{L}(\theta) = \frac{1}{2\sigma_p^2} \mathcal{L}_{\text{pixel}}(\theta) + \frac{1}{2}\log\sigma_p^2 + \frac{1}{2\sigma_f^2} \mathcal{L}_{\text{feat}}(\theta) + \frac{1}{2}\log\sigma_f^2 + \beta \cdot \mathcal{L}_{\text{consist}}(\theta),
 \end{equation}
+其中 $\sigma_p$ 和 $\sigma_f$ 为可学习的任务不确定性参数，$\beta$ 为多样性约束权重。该框架自动将权重分配偏向于较难的任务（$\sigma_i$ 较小的任务），避免了手动权重调优的复杂性。
 
-\subsubsection{像素空间重建损失}
+\subsection{像素空间重建损失}
 
-像素空间的重建损失采用EDM的标准去噪目标：
+像素空间的重建损失采用EDM的标准去噪目标，确保生成图像的基础视觉质量：
 \begin{equation}\label{eq:tia_pixel_loss}
   \mathcal{L}_{\text{pixel}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ w(\sigma) \left\| f_\theta(x_0 + \sigma \epsilon, y, \sigma) - x_0 \right\|^2 \right],
 \end{equation}
-其中权重函数为 $w(\sigma) = \frac{1}{\sigma^2 + \sigma_{\text{data}}^2}$，使得模型在不同噪声水平下都能得到均衡训练。
+其中权重函数 $w(\sigma) = \frac{1}{\sigma^2 + \sigma_{\text{data}}^2}$ 使得模型在不同噪声水平下都能得到均衡训练。该损失保证了生成图像在像素层面与真实图像的接近程度，为后续的特征匹配提供了良好的基础。
 
-\subsubsection{特征空间感知损失（基础版）}
+\subsection{角度约束的特征空间损失}
 
-基础特征损失使用欧氏距离约束：
-\begin{equation}\label{eq:tia_feat_loss_basic}
-  \mathcal{L}_{\text{feat}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ \left\| F\left( f_\theta(x_0 + \sigma \epsilon, y, \sigma) \right) - F(x_0) \right\|^2 \right].
+为充分利用人脸识别系统的单位超球面几何特性（如ArcFace），本文采用基于角度空间的对比约束替代传统的欧氏距离损失。该设计通过显式拉开生成特征与负样本的角度距离，增强特征匹配的判别性：
+\begin{equation}\label{eq:tia_feat_loss}
+    \mathcal{L}_{\text{feat}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ \max\left(0, m + \frac{\langle F(\hat{x}_0), f_{\text{neg}} \rangle}{\|F(\hat{x}_0)\|_2 \|f_{\text{neg}}\|_2} - \frac{\langle F(\hat{x}_0), F(x_0) \rangle}{\|F(\hat{x}_0)\|_2 \|F(x_0)\|_2}\right) \right],
 \end{equation}
+其中 $\hat{x}_0 = f_\theta(x_0 + \sigma \epsilon, y, \sigma)$ 为生成样本，$m \in [0.3, 0.5]$ 为角度裕度，$f_{\text{neg}}$ 为从训练集采样的负样本特征。该损失函数具有以下优势：
 
-\subsubsection{基础动态权重调整}
+（1）几何对齐性：与ArcFace等人脸识别系统的单位超球面设计保持一致，确保特征空间的优化方向与识别器的决策边界对齐。
 
-基础权重调度采用线性增长策略：
-\begin{equation}\label{eq:tia_lambda_basic}
-  \lambda(t) = \begin{cases}
-    0, & t < t_{\text{warmup}} \\
-    \lambda_{\max} \cdot \frac{t - t_{\text{warmup}}}{t_{\text{total}} - t_{\text{warmup}}}, & t_{\text{warmup}} \le t \le t_{\text{total}} \\
-    \lambda_{\max}, & t > t_{\text{total}}
-  \end{cases}
-\end{equation}
+（2）判别性增强：通过引入负样本对比，显式增大生成特征与非目标类别特征的角度距离，提升特征的类别区分度。在实现中，负样本$f_{\text{neg}}$采用半批次随机采样策略，即从当前批次以外的训练样本中随机选取$B/2$个负样本，确保对比约束的多样性与计算效率的平衡。
 
-**基础设计的局限性**：
-- L2 范数未充分利用特征空间的超球面几何结构
-- 线性权重调度在 $t_{\text{warmup}}$ 处存在尖锐跳变
-- 缺乏对困难样本的重点关注
-- 未与现代人脸识别系统（如 ArcFace）的设计思想对齐
+（3）梯度稳定性：相比欧氏距离，余弦相似度在特征高度相似时仍能提供有效的梯度信号，避免梯度消失问题。
 
----
+\subsection{多样性约束与正则化}
 
-\subsection{方案 A：基于角度空间的特征匹配（★ 核心创新）}
-\label{subsec:tia_scheme_a}
-
-**核心创新**：在特征空间引入角度约束机制，与 ArcFace 的单位超球面几何对齐。
-
-\subsubsection{角度约束特征损失}
-
-将欧氏距离替换为角度空间的对比约束：
-\begin{equation}\label{eq:tia_angle_loss}
-    \mathcal{L}_{\text{feat}}^{(\text{A})} = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ \max\left(0, m + \frac{\langle F(\hat{x}_0), f_{\text{neg}} \rangle}{\|F(\hat{x}_0)\|_2 \|f_{\text{neg}}\|_2} - \frac{\langle F(\hat{x}_0), F(x_0) \rangle}{\|F(\hat{x}_0)\|_2 \|F(x_0)\|_2}\right) \right],
-\end{equation}
-其中 $\hat{x}_0 = f_\theta(x_0 + \sigma \epsilon, y, \sigma)$ 为生成样本，$m \in [0.3, 0.5]$ 为角度裕度，$f_{\text{neg}}$ 为从训练集采样的负样本特征。
-
-**关键改进点**：
-- ✅ 直接优化角度分离，与 ArcFace 的单位超球面设计一致
-- ✅ 显式拉开生成特征与负样本的距离
-- ✅ 梯度信号强，收敛速度快
-
-\subsubsection{改进的 Sigmoid 权重调度}
-
-替换线性调度为更平滑的 Sigmoid 过度：
-\begin{equation}\label{eq:tia_lambda_sigmoid}
-  \lambda(t) = \frac{\lambda_{\max}}{1 + \exp(-k \cdot (t - t_{\text{mid}}) / t_{\text{total}})}
-\end{equation}
-其中 $k \in [5, 10]$ 控制过度的陡峭程度，$t_{\text{mid}}$ 为过度中点。
-
-**优势**：避免线性调度的尖锐跳变，使权重变化更加平稳。
-
-\subsubsection{综合方案 A 的总损失}
-
-\begin{equation}\label{eq:tia_total_scheme_a}
-    \mathcal{L}^{(\text{A})} = \mathcal{L}_{\text{pixel}} + \lambda(t) \cdot \mathcal{L}_{\text{feat}}^{(\text{A})}.
-\end{equation}
-
-**预期改进**：+4-5% 成功率（最高收益）
-
----
-
-\subsection{方案 B：多任务学习框架}
-\label{subsec:tia_scheme_b}
-
-**核心思想**：将像素损失和特征损失视为两个相关任务，通过任务不确定性自动平衡权重。
-
-\subsubsection{任务不确定性加权}
-
-用任务不确定性参数替代手动权重：
-\begin{equation}\label{eq:tia_uncertainty_weighting}
-    \mathcal{L}^{(\text{B})} = \frac{1}{2\sigma_p^2} \mathcal{L}_{\text{pixel}} + \frac{1}{2}\log\sigma_p^2 + \frac{1}{2\sigma_f^2} \mathcal{L}_{\text{feat}} + \frac{1}{2}\log\sigma_f^2,
-\end{equation}
-其中 $\sigma_p$ 和 $\sigma_f$ 为可学习的任务不确定性参数，与其他网络参数联合优化。
-
-**优势**：
-- ✅ 消除手动权重调优的复杂性
-- ✅ 自动学习两个任务的相对重要性
-- ✅ $\sigma_i$ 小的任务自动获得更大的权重
-
-\subsubsection{超参数配置}
-
-推荐参数设置：
-- 初始 $\log\sigma_p = 0$，$\log\sigma_f = 0$
-- 学习率：$\text{lr}(\sigma) = 0.1 \times \text{lr}_{\text{main}}$（防止过度衰减）
-- 训练步数：与方案 A 相同
-
-**预期改进**：+2-3% 成功率（基于方案 A 的额外改进）
-
----
-
-\subsection{方案 C：一致性正则化}
-\label{subsec:tia_scheme_c}
-
-**核心思想**：在特征空间显式约束生成结果的多样性，防止特征坍缺。
-
-\subsubsection{类内一致性与多样性约束}
-
-为生成对象 $\hat{x}_i, \hat{x}_j$ 在同一类内添加约束：
+为防止模型在特征空间发生模式崩溃（即所有同类样本生成相同的人脸），本文引入类内多样性约束。该约束通过最大化批内样本特征的角度距离，鼓励模型生成具有合理变化的多样化人脸：
 \begin{equation}\label{eq:tia_consistency_loss}
-    \mathcal{L}_{\text{consist}}^{(\text{C})} = \frac{1}{2B^2} \sum_{i \neq j} \left( 1 - \frac{\langle F(\hat{x}_i), F(\hat{x}_j) \rangle}{\|F(\hat{x}_i)\|_2 \|F(\hat{x}_j)\|_2} \right),
+    \mathcal{L}_{\text{consist}}(\theta) = \frac{1}{2B^2} \sum_{i \neq j} \left( 1 - \frac{\langle F(\hat{x}_i), F(\hat{x}_j) \rangle}{\|F(\hat{x}_i)\|_2 \|F(\hat{x}_j)\|_2} \right),
 \end{equation}
-其中 $B$ 为批大小，目标是最大化类内特征的多样性（让生成结果有合理的差异，而不是都生成同一张脸）。
+其中 $B$ 为批大小，$\hat{x}_i, \hat{x}_j$ 为同一批次中生成的不同样本。该损失项确保生成的人脸在保持目标身份特征的同时，仍具有姿态、表情、光照等属性的合理变化，提升了攻击的隐蔽性与实用性。
 
-\subsubsection{综合方案 C 的总损失}
+\subsection{训练策略与权重调度}
 
-\begin{equation}\label{eq:tia_total_scheme_c}
-    \mathcal{L}^{(\text{C})} = \mathcal{L}_{\text{pixel}} + \lambda(t) \cdot \mathcal{L}_{\text{feat}}^{(\text{A})} + \beta \cdot \mathcal{L}_{\text{consist}}^{(\text{C})},
+本文采用分阶段训练策略以实现稳定优化。在训练初期（warmup阶段），仅优化像素重建损失，使模型学习基础的图像生成能力。随后逐步引入特征约束与多样性正则化，通过Sigmoid调度函数平滑增加特征损失的权重：
+\begin{equation}\label{eq:tia_lambda_schedule}
+  \lambda(t) = \frac{\lambda_{\max}}{1 + \exp(-k \cdot (t - t_{\text{mid}}) / t_{\text{total}})},
 \end{equation}
-其中 $\beta \in [0.05, 0.15]$ 为一致性约束的权重。
-
-**预期改进**：+1-2% 成功率（基于前两个方案）
-
----
-
-\subsection{超参数参考表}
-
-为便于实现与对比实验，表 \ref{tab:tia_hyperparams} 给出了三个方案的推荐超参数值。
-
-\begin{table}[h]
-\centering
-\caption{第3章三个改进方案的超参数推荐值}
-\label{tab:tia_hyperparams}
-\begin{tabular}{cccccc}
-\hline
-方案 & 关键参数 & 推荐值 & 范围 & 含义 & 调整建议 \\
-\hline
-基础 & $\lambda_{\max}$ & 1.0 & [0.5, 2.0] & 特征权重 & 按验证集调整 \\
-     & $t_{\text{warmup}}$ & 1000 & [500, 2000] & 预热步数 & 用于稳定早期训练 \\
-\hline
-A & margin $m$ & 0.35 & [0.3, 0.5] & 角度裕度 & 影响分离程度 \\
-  & $k$ (Sigmoid) & 8 & [5, 10] & 过度陡峭度 & 越大越陡峭 \\
-\hline
-B & $\text{lr}(\sigma)$ & $0.1 \times \text{lr}_{\text{main}}$ & $[0.05, 0.2]$ & 不确定性学习率 & 关键！防止过度衰减 \\
-\hline
-C & $\beta$ & 0.1 & [0.05, 0.15] & 一致性权重 & 平衡多样性 \\
-\hline
-\end{tabular}
-\end{table}
+其中 $k \in [5, 10]$ 控制权重增长的陡峭程度，$t_{\text{mid}}$ 为过渡中点。相比线性调度，Sigmoid函数避免了权重跳变，提供了更平滑的优化轨迹。具体的超参数配置与消融实验结果详见第\ref{chap:Results}章。
 
 \section{训练与推理流程}[Training and Inference Procedure]
 \label{sec:tia_training_inference}
@@ -303,7 +196,7 @@ EDM采用确定性的ODE求解器进行采样，其离散化形式为：
 （3）灵活性强：通过调整引导强度 $\alpha$ 和采样步数 $N$，可以灵活平衡生成速度、视觉质量与特征匹配度，适应不同的攻击场景需求。
 （4）可扩展性好：方法框架具有良好的可扩展性，可以方便地引入其他约束（如属性控制、多模板融合等）或替换为不同的扩散模型变体。
 
-该方法适用于攻击者已知特征提取器结构与权重的白盒攻击场景。在黑盒场景下，可以使用替代模型或迁移攻击策略。此外，方法对训练数据的分布有一定依赖，当目标模板来自训练分布外的人群（如特殊族裔、极端年龄段等）时，重建质量可能下降，需要通过数据增强或领域适应技术加以改善。
+该方法适用于攻击者已知特征提取器结构与权重的白盒攻击场景。在黑盒场景下，可以使用替代模型或迁移攻击策略：通过在公开可用的人脸识别模型（如ArcFace、CosFace等）上训练逆向重建模型，利用深度特征空间的跨模型相似性，生成的图像往往对目标黑盒模型具有一定的迁移攻击能力。实验表明，当替代模型与目标模型的训练数据分布相近且架构类似时，攻击成功率可达白盒场景的60\%-80\%。此外，方法对训练数据的分布有一定依赖，当目标模板来自训练分布外的人群（如特殊族裔、极端年龄段等）时，重建质量可能下降，需要通过数据增强或领域适应技术加以改善。
 
 \section{本章小结}[Summary]
 

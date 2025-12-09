@@ -39,7 +39,7 @@
 
 ##### 方案 A：角度空间特征匹配 ⭐⭐⭐⭐⭐
 - **创新点**: 角度约束 + ArcFace 超球面对齐
-- **关键方程**: 
+- **关键方程**:
   ```
   L_feat^A = max(0, m + cos(θ_neg) - cos(θ_match))
   ```
@@ -262,7 +262,7 @@
 class AngleSpaceFeatureLoss(nn.Module):
     def __init__(self, margin=0.35):
         self.margin = margin
-    
+
     def forward(self, feat_gen, feat_orig, feat_neg):
         # 计算角度相似度
         # 返回对比损失
@@ -272,7 +272,7 @@ class MultiTaskLearning(nn.Module):
     def __init__(self):
         self.log_sigma_p = nn.Parameter(torch.tensor(0.0))
         self.log_sigma_f = nn.Parameter(torch.tensor(0.0))
-    
+
     def forward(self, loss_pixel, loss_feat):
         # 计算加权损失
 
@@ -349,13 +349,13 @@ class ConsistencyRegularization(nn.Module):
 
 1. **方案 A 的价值**
    - 扩散模型的先验知识应用
-   
+
 2. **方案 B 的价值**
    - 多粒度身份约束设计
-   
+
 3. **方案 C 的价值**
    - 属性空间的显式优化
-   
+
 4. **方案 D 的价值**
    - 贝叶斯优化思想的应用
 
@@ -370,13 +370,13 @@ class ConsistencyRegularization(nn.Module):
 3. 在 A+B 基础上酌情添加 C
 
 ### Q2: 如何选择具体的超参数值？
-**A**: 
+**A**:
 - 从表格推荐值开始
 - 在验证集上进行网格搜索
 - 监控训练曲线，调整学习率和权重
 
 ### Q3: 是否需要全部实现三个方案？
-**A**: 
+**A**:
 - 最少: 实现方案 A（4-5% 改进）
 - 推荐: 实现 A+B（6-8% 改进）
 - 完整: 实现 A+B+C（最大收益）
@@ -388,7 +388,7 @@ class ConsistencyRegularization(nn.Module):
 - 各方案的独立贡献估计
 
 ### Q5: 这些改进是否会增加计算成本？
-**A**: 
+**A**:
 - 方案 A: 基本无增加（角度计算替换 L2）
 - 方案 B: 轻微增加（额外参数学习）
 - 方案 C: 轻微增加（批内相似度计算）
@@ -520,7 +520,7 @@ LaTeX 集成: 100% 完成
 
 ---
 
-*项目完成日期: 2025-12-09*  
-*最后编译验证: 75 页 | 0 错误 | ✅ 成功*  
+*项目完成日期: 2025-12-09*
+*最后编译验证: 75 页 | 0 错误 | ✅ 成功*
 *建议行动: 开始代码实现与实验验证阶段*
 
