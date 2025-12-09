@@ -75,11 +75,11 @@ def contrastive_identity_loss(e_hat, e_id, e_neg, margin=0.4):
     e_hat = F.normalize(e_hat)      # (B, D)
     e_id = F.normalize(e_id)        # (D,)
     e_neg = F.normalize(e_neg)      # (N, D)
-    
+
     # 计算余弦相似度
     cos_pos = e_hat @ e_id          # (B,)
     cos_neg = e_hat @ e_neg.T       # (B, N)
-    
+
     # 对比损失
     loss = F.relu(margin + cos_neg.max(1)[0] - cos_pos)
     return loss.mean()

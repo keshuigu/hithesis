@@ -83,13 +83,13 @@ L_cls = L_top-k + α·L_p-reg
 - ⚠️ **关键问题**：top-k中的k值需要手动选择，缺乏适应性
   - 对于少量类别（如10个人脸），k=2可能过小
   - 对于多类别场景（如1000类），k=2可能过大
-  
+
 - ⚠️ p-reg需要预估类别中心，依赖伪标签质量
-  
+
 - ⚠️ 两项的权重比例（α通常0.5-1.0）缺乏原理支撑
-  
+
 - ⚠️ max操作对梯度流有阻碍（梯度只流向最大值）
-  
+
 - ⚠️ 未考虑余量（margin）的动态调整，导致后期训练停滞
 
 **量化分析**:
@@ -118,7 +118,7 @@ L_id = 1 - <E_id(x̂), e_id> / (||E_id(x̂)||_2 · ||e_id||_2)
    - ArcFace特征位于512维单位超球面
    - 存在角度边距（margin）的显式学习
    - 但当前损失未建立任何margin约束
-   
+
    **结果**: 生成的特征可能在超球面上随意分布，不适应ArcFace的决策边界
 
 2. **单向相似度约束**
@@ -160,7 +160,7 @@ L_perc = Σ_ℓ w_ℓ · ||φ_ℓ(x̂) - φ_ℓ(x_src)||²_2
   - 浅层特征(relu1_2)：低级纹理信息
   - 中层特征(relu2_2)：形状与结构
   - 深层特征(relu5_4)：高级语义
-  
+
   **合理配置**: w_shal:w_mid:w_deep = 0.2:0.5:0.3 或 0.3:0.4:0.3
 
 - ⚠️ 与源图像x_src的约束可能过强
@@ -199,7 +199,7 @@ L_reg = Σ_y (||e_y||_2 - 1)² + λ_lora · Σ_ℓ (||A_ℓ||_F² + ||B_ℓ||_F�
 - ⚠️ 对所有LoRA层使用统一λ_lora，但不同层的重要性不同
   - 身份注入层（参考注意力）：重要 → 应允许更大的更新
   - 深层ResBlock：次要 → 应更强的正则
-  
+
 - ⚠️ 缺乏对嵌入向量分布的约束
   - 当前仅约束||e_y||_2 = 1
   - 未约束类别间的分离 → 可能出现类别簇重叠
@@ -320,14 +320,14 @@ L_prior^v2.1 = E_t[w(t) · (1 - cos(ε, ε_θ(z_t, t, e_id)))]
 def contrastive_identity_loss(x_hat, e_id, e_negs, margin=0.5):
     # 正相似度
     sim_pos = F.cosine_similarity(E_id(x_hat), e_id.unsqueeze(0))
-    
+
     # 负相似度（取最大的）
     sim_negs = F.cosine_similarity(
         E_id(x_hat).unsqueeze(1),  # [B, 1, 512]
         e_negs.t().unsqueeze(0)      # [1, num_neg, 512]
     )
     sim_neg_max = sim_negs.max(dim=1)[0]
-    
+
     # 损失
     loss = F.relu(margin + sim_neg_max - sim_pos)
     return loss.mean()
@@ -377,7 +377,7 @@ L_margin = max(0, cos(m + θ_y) - cos(θ_neg_max))
 **完整公式**：
 
 ```latex
-L_cls^improved = -ℓ_y(x) + (1/k_adaptive) · Σ_{top-k j} ℓ_j(x) 
+L_cls^improved = -ℓ_y(x) + (1/k_adaptive) · Σ_{top-k j} ℓ_j(x)
                  + 0.5 · ||p_x - p_center_y||²_2
                  + 0.3 · max(0, 0.5 + cos(x̂_id, x̂_id_neg) - cos(x̂_id, e_id))
 ```
@@ -421,13 +421,13 @@ def attribute_consistency_loss(x_hat, x_src):
     # - 表情参数 (AU coefficients)
     # - 面部关键点
     # - 皮肤明度 (illumination)
-    
+
     pose_hat = extract_head_pose(x_hat)
     pose_src = extract_head_pose(x_src)
     loss_pose = F.mse_loss(pose_hat, pose_src)
-    
+
     # ... 类似处理表情、光照 ...
-    
+
     return loss_pose + loss_expr + loss_illumination
 ```
 
@@ -525,10 +525,10 @@ class UncertaintyWeightedLoss(nn.Module):
         super().__init__()
         # 每个任务一个可学习的log方差
         self.log_vars = nn.ParameterList([
-            nn.Parameter(torch.zeros(1)) 
+            nn.Parameter(torch.zeros(1))
             for _ in range(num_tasks)
         ])
-    
+
     def forward(self, losses):
         """
         losses: dict or list of 5 loss values
@@ -548,7 +548,7 @@ class UncertaintyWeightedLoss(nn.Module):
           ↓
 训练过程: 自动调整σ_i
           ↓
-最终状态: 
+最终状态:
   • 容易的任务（L_cls）: σ_small → 权重大 (1/σ²≈10)
   • 难的任务（L_prior）: σ_large → 权重小 (1/σ²≈0.1)
 ```
@@ -806,7 +806,7 @@ L_reg:   正则化项（嵌入+LoRA）
 
 改进版本引入时间自适应权重与余弦相似度度量：
 \begin{equation}\label{eq:mia_prior_loss_v2}
-    \mathcal{L}_{\text{prior}}^{\text{v2}} = 
+    \mathcal{L}_{\text{prior}}^{\text{v2}} =
     \mathbb{E}_{z_0, \epsilon \sim \mathcal{N}(0,I), t}
     \left[ w(t) \cdot \left(1 - \frac{\langle \epsilon, \epsilon_\theta(z_t, t, e_{\text{id}}) \rangle}
     {\|\epsilon\|_2 \|\epsilon_\theta(z_t, t, e_{\text{id}})\|_2} \right) \right],
@@ -833,8 +833,8 @@ L_reg:   正则化项（嵌入+LoRA）
 
 改进的身份损失定义为：
 \begin{equation}\label{eq:mia_id_contrastive}
-    \mathcal{L}_{\text{id}}^{\text{contrastive}} = 
-    \mathbb{E}_{e_{\text{neg}}} \left[ \max(0, m + 
+    \mathcal{L}_{\text{id}}^{\text{contrastive}} =
+    \mathbb{E}_{e_{\text{neg}}} \left[ \max(0, m +
     \cos(f(\hat{x}), e_{\text{neg}}) - \cos(f(\hat{x}), e_{\text{id}})) \right],
 \end{equation}
 其中 $m \in [0.3, 0.5]$ 为余量参数，$e_{\text{neg}}$ 为负样本（其他类别）的身份嵌入。
@@ -862,8 +862,8 @@ L_reg:   正则化项（嵌入+LoRA）
 
 改进的分类器损失采用均值而非max操作，保证所有top-k类都有梯度：
 \begin{equation}\label{eq:mia_topk_adaptive}
-    \mathcal{L}_{\text{cls}}^{\text{adaptive}} = -\ell_y(x) + 
-    \frac{1}{k_{\text{adaptive}}} \sum_{j \in \text{top-}k_{\text{adaptive}}} \ell_j(x) + 
+    \mathcal{L}_{\text{cls}}^{\text{adaptive}} = -\ell_y(x) +
+    \frac{1}{k_{\text{adaptive}}} \sum_{j \in \text{top-}k_{\text{adaptive}}} \ell_j(x) +
     \alpha \mathcal{L}_{\text{p-reg}},
 \end{equation}
 
@@ -979,6 +979,6 @@ Baseline & 原始 & top-k(k=3) & 余弦 & VGG & 固定 & 78.5 & 0.32 & 0.45 \\
 
 ---
 
-**文档完成时间**：2025年12月8日  
-**适用版本**：第4章 MIA 方法部分  
+**文档完成时间**：2025年12月8日
+**适用版本**：第4章 MIA 方法部分
 **下一步**：确认是否开始实现，我可以提供详细的代码框架

@@ -170,7 +170,7 @@
 │ │                                                               │
 └─────────────────────────────────────────────────────────────────┘
   5min → 60min (阅读时间)
-  
+
 左上 = 快速但肤浅
 右下 = 慢速但深入
 ```
@@ -343,19 +343,19 @@ GUIDE.md         ANALYSIS.md        GUIDE.md
 
 如果你有任何问题：
 
-1. **关于方案选择**  
+1. **关于方案选择**
    → 参考 `SCHEME_COMPARISON_GUIDE.md` 的决策矩阵
 
-2. **关于代码实施**  
+2. **关于代码实施**
    → 参考 `IMPLEMENTATION_QUICK_GUIDE.md` 中的对应部分
 
-3. **关于理论基础**  
+3. **关于理论基础**
    → 参考 `MIA_LOSS_FUNCTION_ANALYSIS.md`
 
-4. **关于项目状态**  
+4. **关于项目状态**
    → 参考 `INTEGRATION_COMPLETE_SUMMARY.md` 或 `PROJECT_COMPLETION_SUMMARY.md`
 
-5. **关于快速查询**  
+5. **关于快速查询**
    → 参考 `QUICK_REFERENCE_CARD.md`（打印版）
 
 ---

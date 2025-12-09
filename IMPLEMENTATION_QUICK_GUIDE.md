@@ -26,20 +26,20 @@ def contrastive_identity_loss(x_hat, e_id, e_neg_buffer, margin=0.4):
     """
     # 计算生成样本的嵌入
     e_hat = E_id(x_hat)
-    
+
     # 余弦相似度计算
     cos_pos = cosine(e_hat, e_id)
     cos_neg = cosine(e_hat, e_neg_buffer)  # 可能是 (batch_size, num_negatives)
-    
+
     # 对比损失（ArcFace 风格）
     loss = max(0, margin + cos_neg.max() - cos_pos)
-    
+
     return loss.mean()
 
 # 在主训练循环中
 loss_id = contrastive_identity_loss(
-    x_hat, 
-    e_id, 
+    x_hat,
+    e_id,
     e_neg_buffer,
     margin=0.4  # 从表中查看推荐值
 )
@@ -56,12 +56,12 @@ import torch.nn.functional as F
 
 class ContrastiveIdentityLoss(torch.nn.Module):
     """ArcFace 风格的对比身份损失"""
-    
+
     def __init__(self, margin=0.4, scale=64):
         super().__init__()
         self.margin = margin
         self.scale = scale  # 数值稳定性缩放
-    
+
     def forward(self, embeddings_hat, embeddings_id, embeddings_neg):
         """
         Args:
@@ -73,16 +73,16 @@ class ContrastiveIdentityLoss(torch.nn.Module):
         embeddings_hat = F.normalize(embeddings_hat, dim=1)
         embeddings_id = F.normalize(embeddings_id, dim=0, keepdim=True)
         embeddings_neg = F.normalize(embeddings_neg, dim=1)
-        
+
         # 计算余弦相似度
         cos_pos = torch.matmul(embeddings_hat, embeddings_id.t())  # (batch_size, 1)
         cos_neg = torch.matmul(embeddings_hat, embeddings_neg.t())  # (batch_size, num_negatives)
-        
+
         # 对比损失
         # L = max(0, margin + cos_neg_max - cos_pos)
         neg_max = cos_neg.max(dim=1)[0]  # (batch_size,)
         loss = F.relu(self.margin + neg_max - cos_pos.squeeze(1))
-        
+
         return loss.mean()
 ```
 
@@ -93,7 +93,7 @@ class ContrastiveIdentityLoss(torch.nn.Module):
   ```python
   # 旧的
   L_id = 1 - cosine_similarity(...)
-  
+
   # 新的
   L_id = self.contrastive_id_loss(e_hat, e_id, e_neg_buffer)
   ```
@@ -118,7 +118,7 @@ def get_time_weight(t, T, schedule='adaptive'):
     schedule: 'adaptive' 为推荐方案
     """
     t_ratio = t / T
-    
+
     if schedule == 'adaptive':
         if t_ratio < 0.2:
             return 0.5  # 高噪声阶段：弱化
@@ -126,11 +126,11 @@ def get_time_weight(t, T, schedule='adaptive'):
             return 1.0  # 中噪声阶段：标准
         else:
             return 1.5  # 低噪声阶段：加强（细节塑造关键）
-    
+
     elif schedule == 'linear':
         # 备选：线性调度
         return 0.5 + t_ratio  # 范围 [0.5, 1.5]
-    
+
     elif schedule == 'cosine':
         # 备选：余弦调度
         return 0.5 + 0.5 * (1 - np.cos(np.pi * t_ratio))  # 范围 [0.5, 1.0]
@@ -144,22 +144,22 @@ def diffusion_prior_loss(eps, eps_theta, t, T, lambda_prior=1.0):
     """
     # 获取时间自适应权重
     w_t = get_time_weight(t, T)
-    
+
     # 原来：L2 范数（梯度消失）
     # loss_old = F.mse_loss(eps, eps_theta)
-    
+
     # 新的：余弦相似度 + 时间权重
     eps_norm = F.normalize(eps, dim=-1)
     eps_theta_norm = F.normalize(eps_theta, dim=-1)
-    
+
     # 使用 1 - cosine_similarity 作为损失
     # 这避免了 L2 范数在相似度高时的梯度消失
     cos_sim = F.cosine_similarity(eps_norm, eps_theta_norm)
     loss = (1 - cos_sim).mean()
-    
+
     # 加上时间权重
     loss = w_t * loss
-    
+
     return lambda_prior * loss
 ```
 
@@ -195,7 +195,7 @@ stage2_config = {
 ```python
 class AttributeLoss(torch.nn.Module):
     """属性保持约束"""
-    
+
     def __init__(self, attr_predictors_dict):
         """
         attr_predictors_dict: {
@@ -211,7 +211,7 @@ class AttributeLoss(torch.nn.Module):
             'expression': 0.3,
             'illumination': 0.2,
         }
-    
+
     def forward(self, x_gen, x_src):
         """
         x_gen: 生成的图像
@@ -221,14 +221,14 @@ class AttributeLoss(torch.nn.Module):
         for attr_name, predictor in self.attr_predictors.items():
             attr_gen = predictor(x_gen)
             attr_src = predictor(x_src)
-            
+
             # 属性距离
             attr_dist = F.l1_loss(attr_gen, attr_src)
-            
+
             # 加权累加
             weight = self.attr_weights.get(attr_name, 0.1)
             loss += weight * attr_dist
-        
+
         return loss
 
 # 多样性约束
@@ -239,7 +239,7 @@ def diversity_loss(embeddings_batch):
     """
     # 计算方差（沿特征维）
     var = torch.var(embeddings_batch, dim=0)
-    
+
     # 负方差作为损失（要最小化=最大化方差）
     return -var.mean()
 ```
@@ -249,29 +249,29 @@ def diversity_loss(embeddings_batch):
 ```python
 class HierarchicalPerceptionLoss(torch.nn.Module):
     """分层的感知损失"""
-    
+
     def __init__(self, feature_extractor):
         """feature_extractor: VGG 或 AlexNet 的特征提取器"""
         super().__init__()
         self.feature_extractor = feature_extractor
-        
+
         # 分层权重
         self.layer_weights = {
             'early': 0.2,    # 低级纹理特征
             'mid': 0.5,      # 中级结构特征
             'deep': 0.3,     # 高级语义特征
         }
-    
+
     def forward(self, x_gen, x_src):
         # 提取多层特征
         features_gen = self.feature_extractor(x_gen, layers=['early', 'mid', 'deep'])
         features_src = self.feature_extractor(x_src, layers=['early', 'mid', 'deep'])
-        
+
         loss = 0
         for layer, weight in self.layer_weights.items():
             feat_dist = F.mse_loss(features_gen[layer], features_src[layer])
             loss += weight * feat_dist
-        
+
         return loss
 ```
 
@@ -289,7 +289,7 @@ class UncertaintyWeightingLoss(torch.nn.Module):
     自动学习任务权重的不确定性框架
     基于：Kendall et al., "Multi-Task Learning Using Uncertainty to Weigh Losses", CVPR 2018
     """
-    
+
     def __init__(self, num_tasks=4):
         """
         num_tasks: 损失任务个数
@@ -299,13 +299,13 @@ class UncertaintyWeightingLoss(torch.nn.Module):
         - task 3: perception loss
         """
         super().__init__()
-        
+
         # 初始化不确定性参数（log-space 以保证正数）
         self.log_vars = torch.nn.Parameter(
             torch.zeros(num_tasks),
             requires_grad=True
         )
-    
+
     def forward(self, losses_dict):
         """
         losses_dict: {
@@ -316,18 +316,18 @@ class UncertaintyWeightingLoss(torch.nn.Module):
         }
         """
         loss = 0
-        
+
         # 对每个任务应用不确定性加权
         for i, (task_name, task_loss) in enumerate(losses_dict.items()):
             # 获取该任务的不确定性参数
             sigma_sq = torch.exp(self.log_vars[i])
-            
+
             # 不确定性加权损失函数
             # L_total = 1/(2*sigma²) * L_task + 1/2 * log(sigma²)
             loss += task_loss / (2 * sigma_sq) + 0.5 * self.log_vars[i]
-        
+
         return loss
-    
+
     def get_weights(self):
         """获取当前的任务权重"""
         sigma_sq = torch.exp(self.log_vars)
@@ -354,15 +354,15 @@ for batch in dataloader:
         'id': compute_id_loss(...),
         'perc': compute_perc_loss(...),
     }
-    
+
     # 使用不确定性加权
     loss_total = uw_loss(losses)
-    
+
     # 反向传播
     optimizer.zero_grad()
     loss_total.backward()
     optimizer.step()
-    
+
     # 打印权重变化
     with torch.no_grad():
         weights = uw_loss.get_weights()
@@ -480,20 +480,20 @@ print(f"Task weights: {weights}")  # 应该在 (0, 1) 之间
 
 ## 💡 常见问题
 
-**Q: 应该从哪个方案开始？**  
+**Q: 应该从哪个方案开始？**
 A: **方案 B3（对比身份损失）**。它投入产出比最高（2-3 小时换 3-5% 提升），且实现相对简单。
 
-**Q: 是否必须按顺序实施 A-B-C-D？**  
+**Q: 是否必须按顺序实施 A-B-C-D？**
 A: 不必须。建议顺序：
 1. **B（必做）** - 核心创新，最高收益
 2. A（推荐）- 补充 B 的不足
 3. C（可选）- 质量改进
 4. D（可选）- 完全自动化
 
-**Q: 方案 D 为什么要单独设置学习率？**  
+**Q: 方案 D 为什么要单独设置学习率？**
 A: σ_i 参数很容易在早期过度衰减，导致某些损失项权重变为 0。用 0.1x 学习率可以防止这种情况。
 
-**Q: 负样本缓冲区怎么维护？**  
+**Q: 负样本缓冲区怎么维护？**
 A: 建议每个 batch 从训练集采样 K 个不同类的样本，计算它们的嵌入，存入缓冲区。每 N 个 batch 轮换一次缓冲区内容。
 
 ---

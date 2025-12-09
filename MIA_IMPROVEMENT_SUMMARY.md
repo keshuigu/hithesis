@@ -75,8 +75,8 @@
 - ✅ 生成真实性：+5-10%
 - ⚠️ 可能略降成功率：-1-2%
 
-**实施难度**：⭐ 极简（改3个参数）  
-**开发时间**：0.5小时  
+**实施难度**：⭐ 极简（改3个参数）
+**开发时间**：0.5小时
 **推荐等级**：⭐⭐⭐⭐
 
 ---
@@ -140,11 +140,11 @@ ArcFace在单位超球面上学习
 def contrastive_identity_loss(x_hat, e_id, e_negs, margin=0.5):
     # 正对：最大化与目标的相似度
     sim_pos = cos_sim(E_id(x_hat), e_id)
-    
+
     # 负对：取其他类别中最高相似度
     sim_negs = cos_sim(E_id(x_hat), e_negs)
     sim_neg_max = sim_negs.max()
-    
+
     # 对比损失：正样本距离 - 负样本距离 > margin
     loss = max(0, margin + sim_neg_max - sim_pos)
     return loss
@@ -179,8 +179,8 @@ L_cls^improved = L_topk_adaptive + α₁·L_p-reg + α₂·L_margin
 - ✅ 自适应性：完全自动调整
 - ✅ 理论依据：充分（基于ArcFace+对比学习）
 
-**实施难度**：⭐⭐⭐ 中等  
-**开发时间**：2-3小时  
+**实施难度**：⭐⭐⭐ 中等
+**开发时间**：2-3小时
 **推荐等级**：⭐⭐⭐⭐⭐ **最强推荐**
 
 ---
@@ -198,7 +198,7 @@ L_cls^improved = L_topk_adaptive + α₁·L_p-reg + α₂·L_margin
 ```latex
 旧: L_perc = Σ_ℓ w_ℓ·||φ_ℓ(x̂) - φ_ℓ(x_src)||²₂
 
-新: L_attr = ||Pose(x̂) - Pose(x_src)||²₂ 
+新: L_attr = ||Pose(x̂) - Pose(x_src)||²₂
            + ||Expr(x̂) - Expr(x_src)||²₂
            + ||Illum(x̂) - Illum(x_src)||²₂
 ```
@@ -227,13 +227,13 @@ def attribute_consistency_loss(x_hat, x_src):
     # Mediapipe/3DDFA 提取属性
     pose_hat = extract_head_pose(x_hat)     # (3,)
     expr_hat = extract_expression(x_hat)    # (52,)
-    
+
     pose_src = extract_head_pose(x_src)
     expr_src = extract_expression(x_src)
-    
+
     loss_pose = MSE(pose_hat, pose_src)
     loss_expr = MSE(expr_hat, expr_src)
-    
+
     return loss_pose + loss_expr
 ```
 
@@ -268,8 +268,8 @@ L_perc^v2 = 0.2·L_shallow + 0.5·L_mid + 0.3·L_deep
 - ✅ 视觉质量：+0.3-0.5
 - ❌ 可能略降成功率：-1-2%
 
-**实施难度**：⭐⭐ 简单  
-**开发时间**：1.5-2小时  
+**实施难度**：⭐⭐ 简单
+**开发时间**：1.5-2小时
 **推荐等级**：⭐⭐⭐⭐ 强烈推荐与B组合
 
 ---
@@ -306,10 +306,10 @@ class UncertaintyWeightedLoss(nn.Module):
         super().__init__()
         # 每个任务一个可学习的log方差
         self.log_vars = nn.ParameterList([
-            nn.Parameter(torch.zeros(1)) 
+            nn.Parameter(torch.zeros(1))
             for _ in range(num_tasks)
         ])
-    
+
     def forward(self, losses):
         """
         losses: [L_prior, L_cls, L_id, L_perc, L_reg]
@@ -336,7 +336,7 @@ for epoch in range(200):
     L_id = compute_id_loss(...)
     L_perc = compute_perc_loss(...)
     L_reg = compute_reg_loss(...)
-    
+
     total_loss = loss_module([L_prior, L_cls, L_id, L_perc, L_reg])
     total_loss.backward()
     optimizer.step()
@@ -380,9 +380,9 @@ L_total^v3 = Σ_i [(1/(2σ_i²))·L_i + (1/2)·log(σ_i²)]
 - ✅ 训练稳定性：+30%（收敛更平稳）
 - ✅ 自动化程度：**100%**（无需任何手工调参）
 
-**实施难度**：⭐⭐⭐⭐ 较复杂  
-**开发时间**：3-4小时  
-**训练时间**：需要更长的收敛期（300+ epochs）  
+**实施难度**：⭐⭐⭐⭐ 较复杂
+**开发时间**：3-4小时
+**训练时间**：需要更长的收敛期（300+ epochs）
 **推荐等级**：⭐⭐⭐⭐⭐ 最强推荐
 
 ---
@@ -420,7 +420,7 @@ L_total^v3 = Σ_i [(1/(2σ_i²))·L_i + (1/2)·log(σ_i²)]
 **目标**：快速获得+3-5%的成功率提升
 
 ```
-Day 1: 
+Day 1:
   □ 阅读ArcFace论文（30分钟）
   □ 实现对比身份损失函数（60分钟）
   □ 测试单独效果（30分钟）
@@ -658,7 +658,7 @@ Day 6-7:
 
 ---
 
-**总结文档生成日期**：2025年12月9日  
-**适用版本**：第4章 MIA 方法部分  
+**总结文档生成日期**：2025年12月9日
+**适用版本**：第4章 MIA 方法部分
 **下一步**：确认实施方案，开始代码实现
 

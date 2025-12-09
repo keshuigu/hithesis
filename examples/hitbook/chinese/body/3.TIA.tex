@@ -39,51 +39,167 @@
   \label{fig:edm_tia_train}
 \end{figure}
 
-\section{混合损失函数设计}[Hybrid Loss Function Design]
+\section{混合损失函数设计与三层递进改进}[Hybrid Loss Function Design and Progressive Improvements]
 \label{sec:tia_loss}
 
-损失函数的设计是影响模型性能的关键因素。本章提出的方法采用混合损失函数,兼顾像素空间的视觉保真度与特征空间的识别一致性。
+损失函数的设计是影响模型性能的关键因素。本节在现有混合损失函数的基础上，提出三个递进式的改进方案（方案 A、B、C），通过引入角度约束、多任务学习框架与一致性正则化，逐步提升模型的特征匹配精度和生成质量。
 
-\subsection{像素空间重建损失}
+\subsection{基础设计：像素与特征混合损失}
 
-像素空间的重建损失采用EDM的标准去噪目标，其形式为：
-\[
-  \mathcal{L}_{\text{pixel}}(\theta) = \mathbb{E}_{x_0 \sim p_{\text{data}}, \sigma \sim p_{\sigma}, \epsilon \sim \mathcal{N}(0,I)} \left[ w(\sigma) \left\|  f_\theta(x_0 + \sigma \epsilon, y, \sigma) - x_0 \right\|^2 \right],
-\]
-其中，$x_0 \in \mathbb{R}^{H \times W \times C}$ 表示从数据分布 $p_{\text{data}}$ 中采样的原始清晰图像，$\sigma$ 为噪声水平参数，从预设分布 $p_{\sigma}$ 中采样，$\epsilon$ 为标准正态噪声，$y$ 为条件信息，$f_\theta$ 为参数化的去噪网络，$w(\sigma)$ 为噪声水平相关的权重函数。
-
-权重函数 $w(\sigma)$ 的设计对模型性能有重要影响。EDM采用的权重函数形式为：
-\[
-  w(\sigma) = \frac{1}{\sigma^2 + \sigma_{\text{data}}^2},
-\]
-其中 $\sigma_{\text{data}}$ 是数据的固有噪声水平。这种权重设计使得模型在不同噪声水平下都能得到均衡的训练，避免了传统扩散模型中高噪声阶段主导训练的问题。
-
-\subsection{特征空间感知损失}
-
-为使生成图像能够匹配目标特征模板，本章在损失函数中引入特征空间约束。令 $F: \mathbb{R}^{H \times W \times C} \to \mathbb{R}^d$ 表示预训练的人脸识别特征提取器，特征空间的感知损失定义为：
-\[
-  \mathcal{L}_{\text{feat}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ \left\| F\left( f_\theta(x_0 + \sigma \epsilon, y, \sigma) \right) - F(x_0) \right\|^2 \right].
-\]
-
-该损失项通过最小化生成图像与原始图像在特征空间中的欧氏距离，确保去噪过程不仅恢复视觉细节，还保持身份相关的语义信息。由于 $F$ 是在大规模人脸数据集上预训练的判别模型，其特征表示具有较强的身份判别能力，因此该损失项能够有效引导模型学习身份相关的特征分布。
-
-\subsection{混合损失与动态权重调整}
-
-综合上述两项损失，完整的训练目标函数为：
-\begin{equation}\label{eq:total_loss}
-  \mathcal{L}(\theta) = \mathcal{L}_{\text{pixel}}(\theta) + \lambda(t) \cdot \mathcal{L}_{\text{feat}}(\theta),
+基础框架采用像素空间重建与特征空间约束的混合：
+\begin{equation}\label{eq:tia_total_loss_basic}
+    \mathcal{L}(\theta) = \mathcal{L}_{\text{pixel}}(\theta) + \lambda(t) \cdot \mathcal{L}_{\text{feat}}(\theta).
 \end{equation}
-其中 $\lambda(t)$ 为随训练步数 $t$ 动态调整的平衡系数。
 
-平衡系数的设置需要在视觉质量与特征一致性之间进行权衡。若 $\lambda$ 过小，模型主要关注像素级重建，可能无法有效学习身份相关特征；若 $\lambda$ 过大，则可能导致生成图像过度拟合特征空间，出现视觉伪影或非自然纹理。为解决这一问题，本章采用渐进式的动态调整策略：
-\[
+\subsubsection{像素空间重建损失}
+
+像素空间的重建损失采用EDM的标准去噪目标：
+\begin{equation}\label{eq:tia_pixel_loss}
+  \mathcal{L}_{\text{pixel}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ w(\sigma) \left\| f_\theta(x_0 + \sigma \epsilon, y, \sigma) - x_0 \right\|^2 \right],
+\end{equation}
+其中权重函数为 $w(\sigma) = \frac{1}{\sigma^2 + \sigma_{\text{data}}^2}$，使得模型在不同噪声水平下都能得到均衡训练。
+
+\subsubsection{特征空间感知损失（基础版）}
+
+基础特征损失使用欧氏距离约束：
+\begin{equation}\label{eq:tia_feat_loss_basic}
+  \mathcal{L}_{\text{feat}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ \left\| F\left( f_\theta(x_0 + \sigma \epsilon, y, \sigma) \right) - F(x_0) \right\|^2 \right].
+\end{equation}
+
+\subsubsection{基础动态权重调整}
+
+基础权重调度采用线性增长策略：
+\begin{equation}\label{eq:tia_lambda_basic}
   \lambda(t) = \begin{cases}
-    0, & t < t_{\text{warmup}}, \\
-    \lambda_{\max} \cdot \frac{t - t_{\text{warmup}}}{t_{\text{total}} - t_{\text{warmup}}}, & t_{\text{warmup}} \le t \le t_{\text{total}}, \\
-    \lambda_{\max}, & t > t_{\text{total}},
+    0, & t < t_{\text{warmup}} \\
+    \lambda_{\max} \cdot \frac{t - t_{\text{warmup}}}{t_{\text{total}} - t_{\text{warmup}}}, & t_{\text{warmup}} \le t \le t_{\text{total}} \\
+    \lambda_{\max}, & t > t_{\text{total}}
   \end{cases}
-\]
-其中 $t_{\text{warmup}}$ 为预热步数，$t_{\text{total}}$ 为总训练步数，$\lambda_{\max}$ 为最大权重值。在训练初期（$t < t_{\text{warmup}}$），模型仅优化像素空间重建，学习图像的基础结构和纹理；随后线性增加特征损失的权重，使模型逐步关注身份一致性；最终稳定在固定权重值进行精细调优。
+\end{equation}
+
+**基础设计的局限性**：
+- L2 范数未充分利用特征空间的超球面几何结构
+- 线性权重调度在 $t_{\text{warmup}}$ 处存在尖锐跳变
+- 缺乏对困难样本的重点关注
+- 未与现代人脸识别系统（如 ArcFace）的设计思想对齐
+
+---
+
+\subsection{方案 A：基于角度空间的特征匹配（★ 核心创新）}
+\label{subsec:tia_scheme_a}
+
+**核心创新**：在特征空间引入角度约束机制，与 ArcFace 的单位超球面几何对齐。
+
+\subsubsection{角度约束特征损失}
+
+将欧氏距离替换为角度空间的对比约束：
+\begin{equation}\label{eq:tia_angle_loss}
+    \mathcal{L}_{\text{feat}}^{(\text{A})} = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ \max\left(0, m + \frac{\langle F(\hat{x}_0), f_{\text{neg}} \rangle}{\|F(\hat{x}_0)\|_2 \|f_{\text{neg}}\|_2} - \frac{\langle F(\hat{x}_0), F(x_0) \rangle}{\|F(\hat{x}_0)\|_2 \|F(x_0)\|_2}\right) \right],
+\end{equation}
+其中 $\hat{x}_0 = f_\theta(x_0 + \sigma \epsilon, y, \sigma)$ 为生成样本，$m \in [0.3, 0.5]$ 为角度裕度，$f_{\text{neg}}$ 为从训练集采样的负样本特征。
+
+**关键改进点**：
+- ✅ 直接优化角度分离，与 ArcFace 的单位超球面设计一致
+- ✅ 显式拉开生成特征与负样本的距离
+- ✅ 梯度信号强，收敛速度快
+
+\subsubsection{改进的 Sigmoid 权重调度}
+
+替换线性调度为更平滑的 Sigmoid 过度：
+\begin{equation}\label{eq:tia_lambda_sigmoid}
+  \lambda(t) = \frac{\lambda_{\max}}{1 + \exp(-k \cdot (t - t_{\text{mid}}) / t_{\text{total}})}
+\end{equation}
+其中 $k \in [5, 10]$ 控制过度的陡峭程度，$t_{\text{mid}}$ 为过度中点。
+
+**优势**：避免线性调度的尖锐跳变，使权重变化更加平稳。
+
+\subsubsection{综合方案 A 的总损失}
+
+\begin{equation}\label{eq:tia_total_scheme_a}
+    \mathcal{L}^{(\text{A})} = \mathcal{L}_{\text{pixel}} + \lambda(t) \cdot \mathcal{L}_{\text{feat}}^{(\text{A})}.
+\end{equation}
+
+**预期改进**：+4-5% 成功率（最高收益）
+
+---
+
+\subsection{方案 B：多任务学习框架}
+\label{subsec:tia_scheme_b}
+
+**核心思想**：将像素损失和特征损失视为两个相关任务，通过任务不确定性自动平衡权重。
+
+\subsubsection{任务不确定性加权}
+
+用任务不确定性参数替代手动权重：
+\begin{equation}\label{eq:tia_uncertainty_weighting}
+    \mathcal{L}^{(\text{B})} = \frac{1}{2\sigma_p^2} \mathcal{L}_{\text{pixel}} + \frac{1}{2}\log\sigma_p^2 + \frac{1}{2\sigma_f^2} \mathcal{L}_{\text{feat}} + \frac{1}{2}\log\sigma_f^2,
+\end{equation}
+其中 $\sigma_p$ 和 $\sigma_f$ 为可学习的任务不确定性参数，与其他网络参数联合优化。
+
+**优势**：
+- ✅ 消除手动权重调优的复杂性
+- ✅ 自动学习两个任务的相对重要性
+- ✅ $\sigma_i$ 小的任务自动获得更大的权重
+
+\subsubsection{超参数配置}
+
+推荐参数设置：
+- 初始 $\log\sigma_p = 0$，$\log\sigma_f = 0$
+- 学习率：$\text{lr}(\sigma) = 0.1 \times \text{lr}_{\text{main}}$（防止过度衰减）
+- 训练步数：与方案 A 相同
+
+**预期改进**：+2-3% 成功率（基于方案 A 的额外改进）
+
+---
+
+\subsection{方案 C：一致性正则化}
+\label{subsec:tia_scheme_c}
+
+**核心思想**：在特征空间显式约束生成结果的多样性，防止特征坍缺。
+
+\subsubsection{类内一致性与多样性约束}
+
+为生成对象 $\hat{x}_i, \hat{x}_j$ 在同一类内添加约束：
+\begin{equation}\label{eq:tia_consistency_loss}
+    \mathcal{L}_{\text{consist}}^{(\text{C})} = \frac{1}{2B^2} \sum_{i \neq j} \left( 1 - \frac{\langle F(\hat{x}_i), F(\hat{x}_j) \rangle}{\|F(\hat{x}_i)\|_2 \|F(\hat{x}_j)\|_2} \right),
+\end{equation}
+其中 $B$ 为批大小，目标是最大化类内特征的多样性（让生成结果有合理的差异，而不是都生成同一张脸）。
+
+\subsubsection{综合方案 C 的总损失}
+
+\begin{equation}\label{eq:tia_total_scheme_c}
+    \mathcal{L}^{(\text{C})} = \mathcal{L}_{\text{pixel}} + \lambda(t) \cdot \mathcal{L}_{\text{feat}}^{(\text{A})} + \beta \cdot \mathcal{L}_{\text{consist}}^{(\text{C})},
+\end{equation}
+其中 $\beta \in [0.05, 0.15]$ 为一致性约束的权重。
+
+**预期改进**：+1-2% 成功率（基于前两个方案）
+
+---
+
+\subsection{超参数参考表}
+
+为便于实现与对比实验，表 \ref{tab:tia_hyperparams} 给出了三个方案的推荐超参数值。
+
+\begin{table}[h]
+\centering
+\caption{第3章三个改进方案的超参数推荐值}
+\label{tab:tia_hyperparams}
+\begin{tabular}{cccccc}
+\hline
+方案 & 关键参数 & 推荐值 & 范围 & 含义 & 调整建议 \\
+\hline
+基础 & $\lambda_{\max}$ & 1.0 & [0.5, 2.0] & 特征权重 & 按验证集调整 \\
+     & $t_{\text{warmup}}$ & 1000 & [500, 2000] & 预热步数 & 用于稳定早期训练 \\
+\hline
+A & margin $m$ & 0.35 & [0.3, 0.5] & 角度裕度 & 影响分离程度 \\
+  & $k$ (Sigmoid) & 8 & [5, 10] & 过度陡峭度 & 越大越陡峭 \\
+\hline
+B & $\text{lr}(\sigma)$ & $0.1 \times \text{lr}_{\text{main}}$ & $[0.05, 0.2]$ & 不确定性学习率 & 关键！防止过度衰减 \\
+\hline
+C & $\beta$ & 0.1 & [0.05, 0.15] & 一致性权重 & 平衡多样性 \\
+\hline
+\end{tabular}
+\end{table}
 
 \section{训练与推理流程}[Training and Inference Procedure]
 \label{sec:tia_training_inference}

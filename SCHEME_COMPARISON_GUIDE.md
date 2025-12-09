@@ -7,7 +7,7 @@
     ↑                ↑              ↑
     |                |              |
  +8%|         D***   |          4小时|    D: 完全自动化（推荐最后做）
-    |      B1/B2*** |          3小时|    
+    |      B1/B2*** |          3小时|
     |    C*    B3****|         2小时|    B: 最高投入产出比 ⭐⭐⭐⭐⭐
     |   A*          |        0.5小时|    A: 快速补充
  +1%|_______________|_______________|    C: 质量优化
@@ -178,7 +178,7 @@ loss = mse(feature, centers[y])
 ```
 原来：minimize (1 - cos_pos)
 新的：minimize max(0, margin + cos_neg - cos_pos)
-     
+
 直观解释：
 - 让真实类特征更近 (cos_pos 大)
 - 让其他类特征更远 (cos_neg 小)
@@ -212,7 +212,7 @@ L_id_contrast = max(0, margin + cos(x̂, e_neg) - cos(x̂, e_id))
 
 **解决**：显式约束属性
 ```python
-L_attr = ||Pose(x̂) - Pose(x_src)|| 
+L_attr = ||Pose(x̂) - Pose(x_src)||
        + ||Expression(x̂) - Expression(x_src)||
        + ||Illumination(x̂) - Illumination(x_src)||
 ```

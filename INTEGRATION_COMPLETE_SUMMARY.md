@@ -46,7 +46,7 @@
 原来: k=3 固定
 改进: k_adapt = max(2, min(5, ⌊C/20⌋))
       其中 C 为类别总数
-      
+
 原来: max(top-3) 聚合
 改进: mean(top-k_adapt) 聚合 → 更稳定的梯度
 ```
@@ -66,7 +66,7 @@
       无法利用人脸识别的单位超球面几何性质
 
 改进: L_id^contrast = max(0, m + cos(x̂, e_neg) - cos(x̂, e_id))
-      
+
 关键优点：
 - 显式增强真实身份vs负样本的分离
 - 与 ArcFace 架构对齐（角度裕度机制）
@@ -123,9 +123,9 @@ L_perc+attr^(C) = L_perc^(C3) + β·L_attr^(C1) + γ·L_diversity^(C2)
 
 #### D1：改进的正则化项
 ```latex
-L_reg^(D1) = Σ(||e_y||_2 - 1)² + λ_lora·Σ(||A_ℓ||_F² + ||B_ℓ||_F²) 
+L_reg^(D1) = Σ(||e_y||_2 - 1)² + λ_lora·Σ(||A_ℓ||_F² + ||B_ℓ||_F²)
              + λ_sep·Σ max(0, m - ||e_y - e_y'||_2)
-             
+
 新增：嵌入分离正则化项，强制类别嵌入间隔
 ```
 - 新增方程：`eq:mia_reg_separation`
@@ -205,7 +205,7 @@ L_total^(D) = Σ_i ( 1/(2σ_i²)·L_i + 1/2·log(σ_i²) )
 
 ### 删除的过时方程：3 个
 - `eq:mia_prior_loss` (L2范数版本) → 被 v2 替代
-- `eq:mia_cls_loss` (简单top-k版本) → 被B方案替代  
+- `eq:mia_cls_loss` (简单top-k版本) → 被B方案替代
 - `eq:mia_id_cosine_loss` (简单cosine版本) → 被B3对比版本替代
 
 ---
@@ -279,16 +279,16 @@ L_total^(D) = Σ_i ( 1/(2σ_i²)·L_i + 1/2·log(σ_i²) )
 
 所有方案都基于 2018-2023 年的顶级会议论文：
 
-1. **ArcFace: Additive Angular Margin Loss for Deep Face Recognition**  
+1. **ArcFace: Additive Angular Margin Loss for Deep Face Recognition**
    CVPR 2019
 
-2. **Multi-Task Learning Using Uncertainty to Weigh Losses**  
+2. **Multi-Task Learning Using Uncertainty to Weigh Losses**
    Kendall et al., CVPR 2018
 
-3. **A Simple Framework for Contrastive Learning of Visual Representations**  
+3. **A Simple Framework for Contrastive Learning of Visual Representations**
    ICML 2020 (SimCLR)
 
-4. **Denoising Diffusion Probabilistic Models**  
+4. **Denoising Diffusion Probabilistic Models**
    ICCV 2021
 
 ---
@@ -346,7 +346,7 @@ L_total^(D) = Σ_i ( 1/(2σ_i²)·L_i + 1/2·log(σ_i²) )
 
 ---
 
-**集成完成时间**：2025-12-09  
-**编译验证**：✅ 成功  
-**状态**：✅ 完成就绪  
+**集成完成时间**：2025-12-09
+**编译验证**：✅ 成功
+**状态**：✅ 完成就绪
 
