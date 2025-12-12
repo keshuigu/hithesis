@@ -4,11 +4,11 @@
 
 \section{引言}
 
-模型反演攻击旨在从训练好的分类模型中重建其训练数据的敏感特征，对生物特征识别系统的隐私安全构成严重威胁。传统基于梯度优化的方法直接在像素空间进行优化，面临生成质量低下、缺乏语义约束、优化效率低等问题。近年来，生成式先验模型的引入为模型反演攻击提供了新的技术路径，其中换脸模型因其独特的身份控制能力而成为理想选择。
+模型反演攻击旨在从训练好的分类模型中重建其训练数据的敏感特征，对生物特征识别系统的隐私安全构成严重威胁。传统基于梯度优化的方法直接在像素空间进行优化，面临生成质量低下、缺乏语义约束、优化效率低等问题。近年来，现有MIA工作主要采用通用生成模型（如GAN、扩散模型）作为先验，虽然取得一定进展，但在身份控制精度与生成保真度的协同优化上仍存在瓶颈。
 
-然而，换脸模型通常需要目标图像作为身份输入，而在模型反演攻击场景中，攻击者仅拥有类别标签而无法获取目标身份的真实图像。本章针对这一核心挑战，提出了一种基于换脸先验与标签条件嵌入的模型反演攻击方法。该方法通过设计标签条件嵌入层将类别标签映射为身份表示，并采用低秩适配技术对换脸模型进行参数高效微调，在保持生成质量的同时实现对目标分类器的高效适配。
+本章探索将扩散换脸模型应用于MIA任务。换脸模型具有显式的身份-属性解耦机制和专用的身份控制接口，相比通用生成模型更适合身份重建任务。然而，换脸模型通常需要目标图像作为身份输入，而MIA场景中攻击者仅拥有类别标签——这构成了本方法面临的核心技术挑战。针对这一挑战，本章提出两项关键技术：（1）设计标签条件嵌入层，通过MLP将类别标签映射为512维身份嵌入，替代图像编码器实现无真实图像的身份控制；（2）提出渐进式微调策略，通过三阶段训练（图像预热→混合过渡→纯标签生成）结合余弦退火调度，实现从图像条件到标签条件的平滑模态迁移。同时采用LoRA技术进行参数高效微调，以1\%-5\%的参数量快速适配目标分类器。
 
-本章首先对模型反演攻击问题进行形式化定义，明确威胁模型与评估标准；随后详细阐述基于换脸先验的方法架构，包括标签条件嵌入层设计、LoRA微调策略以及多目标优化损失函数框架；最后给出完整的训练与推理流程，为方法的实现与复现提供系统化指导。
+本章首先对模型反演攻击问题进行形式化定义，明确威胁模型与评估标准；随后详细阐述换脸先验的选择与分析、标签条件嵌入层设计、LoRA微调策略、渐进式训练流程以及多目标优化损失函数框架；最后给出完整的训练与推理流程，为方法的实现与复现提供系统化指导。
 
 \section{形式化问题定义}
 \label{sec:mia_problem}
@@ -24,24 +24,9 @@
 
 换脸模型作为本章方法的核心生成先验，其选择对最终攻击性能有决定性影响。理想的换脸模型应满足：（1）高质量的身份迁移能力；（2）显式的身份-属性解耦机制；（3）高感知质量与真实感；（4）支持端到端梯度反向传播。
 
-基于上述要求，本章选择REFace~\cite{sanoojan2024reface}作为换脸先验模型。REFace是一种统一的基于扩散模型的换脸方法，将换脸重构为训练时自监督修复任务，通过训练时多步DDIM采样增强与CLIP特征解耦机制实现高保真的身份迁移。该方法在CelebA-HQ数据集上达到98.8\%的身份检索准确率与6.09的FID分数，显著优于其他基于扩散的换脸方法。
+基于上述要求，本章选择REFace~\cite{sanoojan2024reface}作为换脸先验模型。REFace是一种基于扩散模型的统一换脸方法，其将换脸任务重构为训练时自监督修复任务，通过多步DDIM采样增强与CLIP特征解耦机制实现高保真的身份迁移。该方法在CelebA-HQ数据集上取得98.8\%的身份检索准确率和6.09的FID分数，在生成质量和身份保持能力方面显著优于现有的基于扩散的换脸方法。
 
-\textbf{与REFace原始方法的核心区别：}REFace在推理阶段需要提供真实的目标图像$x_{\text{target}}$，通过预训练的ArcFace编码器提取其身份嵌入$e_{\text{id}}=E_{\text{id}}(x_{\text{target}})$作为身份控制信号。然而在模型反演攻击场景中，攻击者仅拥有目标类别标签$y_{\text{target}}$而无法获取真实目标图像，这是本方法面临的核心挑战。为解决该问题，本章设计标签条件嵌入层$\mathcal{E}_\psi$直接将类别标签映射为身份嵌入$e_{\text{id}}=\mathcal{E}_\psi(y_{\text{target}})$，无缝替代REFace的ArcFace编码器，从而实现"无目标图像"的模型反演攻击。该设计保留了REFace强大的生成先验，同时通过LoRA微调使模型适配新的身份嵌入分布，在保持生成质量的同时实现对目标分类器的高效攻击。
-
-在模型反演攻击场景中，REFace的核心优势在于：（1）使用预训练ArcFace模型提取512维身份嵌入$e_{\text{id}} = E_{\text{id}}(x) \in \mathbb{R}^{512}$，通过参考注意力机制$\text{RefAttn}(Q, K_{\text{ref}}, V_{\text{ref}}) = \text{Softmax}(QK_{\text{ref}}^T/\sqrt{d}) V_{\text{ref}}$注入U-Net去噪网络，该接口可被本章的标签条件嵌入层无缝替代，无需真实目标图像即可实现身份控制；（2）基于潜在扩散模型在VAE潜在空间进行条件生成，支持端到端梯度反向传播，使分类器损失能够直接指导生成过程；（3）在大规模人脸数据集上预训练的模型已学习到强大的生成先验，为高质量的模型反演攻击提供了坚实基础。
-
-\subsection{总体架构与前向传播}
-
-如图~\ref{fig:mia_architecture}所示，该架构由三个核心模块组成：标签条件嵌入层$\mathcal{E}_\psi$、预训练换脸模型$G_\phi$与LoRA微调模块、目标分类器$F_\theta$。
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.9\textwidth]{images/train_mia.drawio.pdf}
-    \caption{基于换脸先验的模型反演攻击架构示意图。左侧为标签条件嵌入层，将类别标签映射为身份嵌入；中间为换脸模型，接受身份嵌入与源图像生成目标图像；右侧为目标分类器，提供分类损失用于微调。}
-    \label{fig:mia_architecture}
-\end{figure}
-
-前向传播流程如下：给定目标类别标签$y_{\text{target}}\in\{1,2,\ldots,C\}$，标签条件嵌入层将其映射为身份嵌入向量$e_{\text{id}} = \mathcal{E}_{\psi}(y_{\text{target}})\in\mathbb{R}^{d_e}$；预训练换脸模型接受$e_{\text{id}}$与源图像$x_{\text{src}}$生成目标图像$\hat{x} = G_{\phi}(e_{\text{id}}, x_{\text{src}})$；生成图像输入目标分类器获得置信度$p_{y_{\text{target}}} = F_\theta(\hat{x})_{y_{\text{target}}}$，用于计算分类器引导损失并通过反向传播更新参数。
+REFace的标准推理流程需要提供真实的目标图像$x_{\text{target}}$，利用预训练ArcFace编码器提取512维身份嵌入$e_{\text{id}} = E_{\text{id}}(x_{\text{target}}) \in \mathbb{R}^{512}$，并通过参考注意力机制$\text{RefAttn}(Q, K_{\text{ref}}, V_{\text{ref}}) = \text{Softmax}(QK_{\text{ref}}^T/\sqrt{d}) V_{\text{ref}}$将身份信息注入U-Net去噪网络实现身份控制。然而在模型反演攻击场景中，攻击者仅拥有目标类别标签$y_{\text{target}}$而无法获取真实目标图像，这构成了本方法面临的核心技术挑战。深入分析表明，REFace在MIA场景中具备三项关键技术优势：（1）其身份控制接口采用标准化的512维嵌入向量，该接口可被标签条件嵌入层$\mathcal{E}_\psi$无缝替代，无需对换脸模型架构进行实质性修改；（2）其基于潜在扩散模型的生成范式在VAE潜在空间进行条件生成，支持端到端的梯度反向传播，确保分类器损失能够有效指导生成过程；（3）其在大规模人脸数据集上预训练所获得的强生成先验，为高质量的模型反演攻击提供了坚实的理论和实践基础。鉴于上述技术特性，本章提出标签条件嵌入层$\mathcal{E}_\psi$，将离散类别标签映射为连续身份嵌入$e_{\text{id}}=\mathcal{E}_\psi(y_{\text{target}})$，以替代原有的ArcFace编码器，并结合LoRA参数高效微调技术使模型适配新的身份嵌入分布，从而实现无需目标图像的模型反演攻击。
 
 \subsection{标签条件嵌入层设计}
 
@@ -67,7 +52,7 @@
     W_V^{\ell\prime} = W_V^{\ell} + \frac{\alpha}{r} B_V^{\ell} A_V^{\ell},
 \end{aligned}
 \end{equation}
-其中$A_K^{\ell}, A_V^{\ell}\in\mathbb{R}^{r\times 512}$，$B_K^{\ell}, B_V^{\ell}\in\mathbb{R}^{d_h\times r}$（$d_h$为注意力头维度，通常为64或128），$r$为LoRA秩（通常取4-16），$\alpha$为缩放因子（通常与$r$相等）。这些矩阵直接控制身份嵌入编码，是身份信息注入的核心机制。
+其中$A_K^{\ell}, A_V^{\ell}\in\mathbb{R}^{r\times 512}$，$B_K^{\ell}, B_V^{\ell}\in\mathbb{R}^{d_h\times r}$,$d_h$为注意力头维度，$r$为LoRA秩，$\alpha$为缩放因子。这些矩阵直接控制身份嵌入编码，是身份信息注入的核心机制。
 
 （2）U-Net注意力层：对去噪U-Net的自注意力和交叉注意力的投影矩阵应用LoRA：
 \begin{equation}\label{eq:mia_lora_attn}
@@ -80,11 +65,11 @@
 \end{equation}
 其中$W_Q, W_K, W_V, W_O$分别为Query、Key、Value与输出投影矩阵。注意力机制负责特征全局聚合，微调这些投影可优先生成分类器敏感的身份特征。
 
-（3）残差块卷积层：对U-Net残差块中的$1\times1$点卷积应用LoRA。点卷积权重$W\in\mathbb{R}^{C_{\text{out}}\times C_{\text{in}}\times 1\times 1}$重塑为二维矩阵后分解：
+（3）残差块卷积层：对U-Net残差块中的$1\times1$点卷积应用LoRA。$1\times1$卷积因其空间感受野为单位窗口，本质上执行通道间的线性变换，可等价为矩阵乘法操作。设原始卷积权重为$W\in\mathbb{R}^{C_{\text{out}}\times C_{\text{in}}\times 1\times 1}$，由于空间维度均为1，可将其视为二维权重矩阵$\tilde{W}\in\mathbb{R}^{C_{\text{out}}\times C_{\text{in}}}$进行低秩分解。微调后的权重表示为：
 \begin{equation}\label{eq:mia_lora_conv}
     W' = W + \frac{\alpha}{r} \text{reshape}(B A, [C_{\text{out}}, C_{\text{in}}, 1, 1]),
 \end{equation}
-其中$A\in\mathbb{R}^{r\times C_{\text{in}}}, B\in\mathbb{R}^{C_{\text{out}}\times r}$。
+其中$A\in\mathbb{R}^{r\times C_{\text{in}}}$为下投影矩阵，$B\in\mathbb{R}^{C_{\text{out}}\times r}$为上投影矩阵，$\text{reshape}(\cdot)$为张量重塑操作，将矩阵乘积$BA\in\mathbb{R}^{C_{\text{out}}\times C_{\text{in}}}$转换为卷积核格式$\mathbb{R}^{C_{\text{out}}\times C_{\text{in}}\times 1\times 1}$以匹配原始权重$W$的形状，从而可进行张量加法。
 
 \section{多目标优化损失函数设计}
 \label{sec:mia_loss}
@@ -95,206 +80,122 @@
 
 本文采用任务不确定性加权框架统一各损失项，避免手动权重调优的复杂性：
 \begin{equation}\label{eq:mia_total_loss}
-    \mathcal{L}_{\text{total}} = \sum_{i \in \{\text{prior, cls, id, perc, reg}\}} \left( \frac{1}{2\sigma_i^2} \mathcal{L}_i + \frac{1}{2}\log\sigma_i^2 \right),
+    \mathcal{L}_{\text{total}} = \sum_{i \in \{\text{prior, cls, p-reg, id, perc, reg}\}} \left( \frac{1}{2\sigma_i^2} \mathcal{L}_i + \frac{1}{2}\log\sigma_i^2 \right),
 \end{equation}
-其中 $\sigma_i$ 为第 $i$ 个任务的可学习不确定性参数，与网络参数联合优化。该框架自动将权重分配偏向于较难的任务（$\sigma_i$ 较小），确保各目标均衡发展。训练时 $\sigma_i$ 采用较小学习率以避免早期过度衰减。
+其中 $\sigma_i$ 为第 $i$ 个任务的可学习不确定性参数，与网络参数联合优化。该框架通过自适应调整各任务权重实现动态平衡：对于难以优化的任务，$\sigma_i$自动增大以降低其在总损失中的权重$\frac{1}{2\sigma_i^2}$，避免单一任务主导训练过程；对于易于优化的任务，$\sigma_i$保持较小以维持较高权重，确保充分收敛。训练时$\sigma_i$采用较小学习率以避免早期过度衰减。注意$\mathcal{L}_{\text{cls}}$与$\mathcal{L}_{\text{p-reg}}$作为独立损失项分别调权，两者协同驱动分类器攻击：前者通过top-k max-margin直接优化logits以远离决策边界，后者通过特征空间正则化稳定优化轨迹。
 
 \subsection{扩散先验损失}
 
-扩散先验损失确保微调后的模型保持预训练扩散模型的生成能力，避免在攻击优化过程中偏离自然人脸流形。该损失基于扩散模型的去噪目标，训练去噪网络$\epsilon_\theta$预测在扩散前向过程中添加的噪声。
-
-给定源图像的潜在表示$z_0 = \text{VAE}_{\text{enc}}(x_{\text{src}})$，扩散前向过程在时间步$t$添加高斯噪声得到$z_t = \sqrt{\bar{\alpha}_t} z_0 + \sqrt{1-\bar{\alpha}_t} \epsilon$，其中$\epsilon \sim \mathcal{N}(0, I)$为标准高斯噪声，$\bar{\alpha}_t$为噪声调度系数。去噪网络以$z_t$、时间步$t$与身份嵌入$e_{\text{id}}$为条件，预测噪声$\hat{\epsilon} = \epsilon_\theta(z_t, t, e_{\text{id}})$。
-
-本文采用余弦相似度度量预测噪声与真实噪声的一致性，并引入时间步加权机制：
+扩散先验损失确保LoRA微调不破坏预训练换脸模型的生成能力，保持生成图像的自然性。沿用扩散模型的标准去噪目标（详见第\ref{sec:diffusion_models}节），采用余弦相似度度量预测噪声与真实噪声的一致性：
 \begin{equation}\label{eq:mia_prior_loss}
     \mathcal{L}_{\text{prior}} = \mathbb{E}_{z_0, \epsilon\sim\mathcal{N}(0,I), t} \left[ w(t) \cdot \left(1 - \frac{\langle \epsilon, \epsilon_\theta(z_t, t, e_{\text{id}}) \rangle}{\|\epsilon\|_2 \|\epsilon_\theta(z_t, t, e_{\text{id}})\|_2} \right) \right],
 \end{equation}
-其中余弦相似度$(1 - \cos(\epsilon, \hat{\epsilon}))$比传统的$L_2$损失更关注方向一致性。时间步权重$w(t)$根据扩散阶段动态调整，采用单调递减函数$w(t) = 1 + \beta \cdot (1 - t/T)$，其中$\beta$为调节系数（推荐值1.0-2.0），$T$为最大时间步（通常1000）。该设计在低噪声阶段（$t$较小，接近真实图像）赋予更高权重以强化细节塑造，在高噪声阶段（$t$较大）使用较低权重以关注全局结构。该损失确保LoRA微调不会破坏预训练模型的生成先验，保持生成图像的自然性与真实感。
+其中$z_t$为加噪潜在变量，$\epsilon_\theta$为去噪网络。引入时间步加权$w(t) = 1 + \beta \cdot (1 - t/T)$在低噪声阶段强化细节优化，确保生成图像保持高视觉真实度。
 
 \subsection{分类器引导损失}
 
-分类器引导损失驱动生成图像被目标分类器识别为目标类别，是模型反演攻击的核心驱动力。传统交叉熵损失$-\log p_y$仅最大化目标类别概率，易导致生成图像在决策边界附近徘徊。本文采用top-k max-margin损失，不仅提升目标类别置信度，还显式增大其与最易混淆类别间的裕度。
+分类器引导损失驱动生成图像被目标分类器识别为目标类别，是模型反演攻击的核心驱动力。传统交叉熵损失$-\log p_y$仅最大化目标类别概率，易导致生成图像在决策边界附近徘徊。本文采用Li等人\cite{li2024diffmi}提出的top-k max-margin损失，该损失将传统max-margin损失\cite{carlini2017towards}中的"hard max"（仅考虑单个最大的非目标类别logit）替换为"top-k平均"（考虑前k个最大的非目标类别logit），更充分地利用软标签信息增强判别性。
 
-设目标分类器输出logits为$\{\ell_1, \ldots, \ell_C\}$，目标类别为$y$。top-k max-margin损失定义为：
+设目标分类器输出logits为$\{\ell_1, \ldots, \ell_C\}$，目标类别为$y$，损失定义为：
 \begin{equation}\label{eq:mia_topk_loss}
-    \mathcal{L}_{\text{cls}} = -\ell_y + \frac{1}{k_{\text{adapt}}} \sum_{j \in \text{top-}k_{\text{adapt}}(J \setminus \{y\})} \ell_j,
+    \mathcal{L}_{\text{cls}} = -\ell_y + \frac{1}{k} \sum_{j \in \text{top-}k(J \setminus \{y\})} \ell_j,
 \end{equation}
-其中$J = \{1, \ldots, C\}$为所有类别集合，$\text{top-}k_{\text{adapt}}(J \setminus \{y\})$选取除目标类别外logit最高的$k_{\text{adapt}}$个类别。该损失同时最小化目标类别logit$\ell_y$的负值（即最大化$\ell_y$）和最大化混淆类别logit的平均值，从而在高维空间中推动生成图像远离决策边界。参数$k_{\text{adapt}} = \max(2, \min(5, \lfloor C / 20 \rfloor))$根据类别总数$C$自适应调整：类别数少时关注更多混淆类别，类别数多时聚焦于最具竞争性的类别。
+其中$J = \{1, \ldots, C\}$为所有类别集合，$\text{top-}k(J \setminus \{y\})$选取除目标类别外logit最高的$k$个类别，$k$根据数据集类别数设定（本文实验中CelebA设为5，CIFAR-10设为2）。该损失同时最小化目标类别logit$\ell_y$的负值（即最大化$\ell_y$）和最大化混淆类别logit的平均值，从而在高维空间中推动生成图像远离决策边界。
 
-为进一步稳定优化过程，引入基于可学习特征中心的正则化约束（p-reg）。设$p_x = F_\theta^{\text{feat}}(\hat{x}) \in \mathbb{R}^{d_{\text{feat}}}$为分类器倒数第二层的特征表示（$d_{\text{feat}}$为特征维度，对于ResNet等常见架构通常为512或2048），$c_y \in \mathbb{R}^{d_{\text{feat}}}$为目标类别$y$的可学习特征中心。p-reg损失定义为：
+为进一步稳定优化过程，本文采用Nguyen等人\cite{nguyen2023rethinking}提出并由Li等人\cite{li2024diffmi}改进的p-reg损失，在特征空间对生成图像进行正则化约束。该损失通过最小化生成图像的特征表示与预计算的类别特征中心之间的距离，避免优化过程中的振荡。设$p_x = F_\theta^{\text{feat}}(\hat{x}) \in \mathbb{R}^{d_{\text{feat}}}$为分类器倒数第二层的特征表示，$c_y \in \mathbb{R}^{d_{\text{feat}}}$为目标类别$y$的特征中心。p-reg损失定义为：
 \begin{equation}\label{eq:mia_preg_loss}
-    \mathcal{L}_{\text{p-reg}} = \left\|p_x - c_y\right\|_2^2,
+    \mathcal{L}_{\text{p-reg}} = \left\|p_x - c_y\right\|_2^2.
 \end{equation}
-该损失显式约束生成图像的特征表示接近目标类别的原型中心，避免优化过程中的振荡。特征中心$c_y$通过动量更新自动学习：
-\begin{equation}
-    c_y \leftarrow (1-\rho) c_y + \rho \cdot E_{\text{id}}(\hat{x}),
-\end{equation}
-其中$E_{\text{id}}$为身份编码器（如ArcFace），$\rho$为动量系数。该更新机制使特征中心逐渐聚合目标类别的身份特征，为后续优化提供稳定的吸引子。
+特征中心$c_y$通过在公共数据集上使用目标分类器预先计算获得：对每个类别$y$，将其在公共数据集中所有样本的特征表示平均化，得到该类别的原型中心。这种预计算方式提供了稳定的正则化目标，使生成图像在特征空间向真实数据分布靠拢。
 
 \subsection{身份一致性损失}
 
-身份一致性损失确保生成图像的身份特征与标签条件嵌入$e_{\text{id}}$一致，建立类别标签与视觉身份特征的稳定映射关系。本文采用对比学习框架，利用人脸识别系统（如ArcFace）在单位超球面上的几何性质，显式增强目标身份与负样本身份的角度分离。
+身份一致性损失确保生成图像的身份特征与标签条件嵌入$e_{\text{id}}$一致，建立类别标签与视觉身份特征的稳定映射关系。本文采用对比学习框架，利用人脸识别系统在单位超球面上的几何性质，显式增强目标身份与负样本身份的角度分离。
 
-\textbf{损失设计的核心思想：}给定目标类别$y_{\text{target}}$，标签条件嵌入层生成身份嵌入$e_{\text{id}} = \mathcal{E}_\psi(y_{\text{target}})$，该嵌入代表了"我们希望生成图像具备的身份特征"。同时，使用预训练的ArcFace编码器$E_{\text{id}}$提取生成图像$\hat{x}$的实际身份特征$e_{\text{gen}} = E_{\text{id}}(\hat{x})$。身份一致性损失通过对比学习确保$e_{\text{gen}}$接近目标身份嵌入$e_{\text{id}}$，同时远离其他类别的嵌入。\textbf{注意：这里不涉及任何真实的隐私图像}——$e_{\text{id}}$是由MLP从类别标签直接生成的，$E_{\text{id}}$仅用于评估生成图像的身份特征是否符合预期。
+给定目标类别$y_{\text{target}}$，标签条件嵌入层生成身份嵌入$e_{\text{id}} = \mathcal{E}_\psi(y_{\text{target}})$，该嵌入代表希望生成图像具备的身份特征。同时，使用预训练的ArcFace编码器$E_{\text{id}}$提取生成图像$\hat{x}$的实际身份特征$e_{\text{gen}} = E_{\text{id}}(\hat{x})$。身份一致性损失通过对比学习确保$e_{\text{gen}}$接近目标身份嵌入$e_{\text{id}}$，同时远离其他类别的嵌入。$e_{\text{id}}$由MLP从类别标签直接生成，$E_{\text{id}}$仅用于评估生成图像的身份特征是否符合预期。
 
 身份一致性损失采用对比学习形式：
 \begin{equation}\label{eq:mia_identity_loss}
     \mathcal{L}_{\text{id}} = \mathbb{E}\left[\max\left(0, m + \frac{\langle E_{\text{id}}(\hat{x}), e_{\text{neg}} \rangle}{\|E_{\text{id}}(\hat{x})\|_2 \|e_{\text{neg}}\|_2} - \frac{\langle E_{\text{id}}(\hat{x}), e_{\text{id}} \rangle}{\|E_{\text{id}}(\hat{x})\|_2 \|e_{\text{id}}\|_2}\right)\right],
 \end{equation}
-其中：
-\begin{itemize}
-    \item $e_{\text{gen}} = E_{\text{id}}(\hat{x})$：预训练ArcFace编码器提取的\textbf{生成图像}的身份特征（512维归一化向量）
-    \item $e_{\text{id}} = \mathcal{E}_\psi(y_{\text{target}})$：标签条件嵌入层生成的\textbf{目标身份嵌入}（无需真实图像）
-    \item $e_{\text{neg}} = \mathcal{E}_\psi(y_{\text{neg}})$：从内存库$\mathcal{M}$中采样的\textbf{负样本类别嵌入}（$y_{\text{neg}} \neq y_{\text{target}}$）
-    \item $m$：角度裕度超参数（推荐值0.3-0.5），控制正负样本间的最小角度间隔
-\end{itemize}
+其中$e_{\text{gen}} = E_{\text{id}}(\hat{x})$是预训练ArcFace编码器提取的生成图像的身份特征，$e_{\text{id}} = \mathcal{E}_\psi(y_{\text{target}})$是标签条件嵌入层生成的目标身份嵌入，$e_{\text{neg}} = \mathcal{E}_\psi(y_{\text{neg}})$是从内存库$\mathcal{M}$中采样的负样本类别嵌入（$y_{\text{neg}} \neq y_{\text{target}}$），$m$是角度裕度参数，控制正负样本间的最小角度间隔。
 
-\textbf{内存库构建：}内存库$\mathcal{M}=\{e_1, e_2, \ldots, e_C\}$存储所有$C$个类别通过标签条件嵌入层生成的嵌入向量，即$e_i = \mathcal{E}_\psi(i), \forall i \in \{1,\ldots,C\}$。在训练开始时随机初始化嵌入层参数后构建初始内存库，在阶段1训练过程中每50步更新一次（使用当前嵌入层的最新输出）。负样本$e_{\text{neg}}$从内存库中均匀采样，确保对比学习覆盖所有类别。
+内存库$\mathcal{M}=\{e_1, e_2, \ldots, e_C\}$存储所有$C$个类别的嵌入向量快照，即$e_i = \mathcal{E}_\psi(i), \forall i \in \{1,\ldots,C\}$。训练时，当前目标类别$y_{\text{target}}$的嵌入$e_{\text{id}} = \mathcal{E}_\psi(y_{\text{target}})$通过前向传播实时计算并参与梯度更新，而负样本$e_{\text{neg}}$则从内存库中采样其他$C-1$个类别的嵌入（$y_{\text{neg}} \neq y_{\text{target}}$）。为平衡计算效率与嵌入一致性，内存库每一定步后更新一次，将所有类别的嵌入重新生成并存储，形成周期性快照机制。初始内存库在训练开始时由随机初始化的嵌入层构建，随训练进行逐步演化为超球面上分离良好的类别表示。
 
-该损失通过hinge loss形式，仅在正样本相似度与负样本相似度之差小于裕度$m$时施加惩罚，驱动优化过程同时满足：（1）最大化$\cos(e_{\text{gen}}, e_{\text{id}})$，使生成图像的身份特征接近目标身份；（2）最小化$\cos(e_{\text{gen}}, e_{\text{neg}})$，使生成图像远离其他类别身份。该对比机制确保不同类别的身份嵌入在超球面上具有明确的角度分离，防止类别间的身份混淆。
+该损失通过hinge loss形式，仅在正样本相似度与负样本相似度之差小于裕度$m$时施加惩罚，驱动优化过程同时满足：（1）最大化$\cos(e_{\text{gen}}, e_{\text{id}})$，使生成图像的身份特征接近目标身份；（2）最小化$\cos(e_{\text{gen}}, e_{\text{neg}})$，使生成图像远离其他类别身份。该对比机制确保不同类别的身份嵌入在超球面上具有明确的角度分离，增加类间隔，防止类别间的身份混淆。内存库的作用包括：（1）提供负样本池，避免每步重复计算所有类别嵌入；（2）记录嵌入层的演化轨迹，辅助对比学习的稳定性；（3）确保全局类间分离的一致性。
 
-在总体损失架构（式~\ref{eq:mia_total_loss}）中，分类器引导损失$\mathcal{L}_{\text{cls}}$、p-reg损失$\mathcal{L}_{\text{p-reg}}$与身份一致性损失$\mathcal{L}_{\text{id}}$作为独立的损失项分别加权。实际实现中，可将$\mathcal{L}_{\text{cls}}$与$\mathcal{L}_{\text{p-reg}}$组合为单一项$\mathcal{L}_{\text{cls+p-reg}} = \mathcal{L}_{\text{cls}} + \alpha \mathcal{L}_{\text{p-reg}}$，其中$\alpha$为p-reg的相对权重（推荐值0.1-0.5）。
+\subsection{感知质量损失}
 
-\subsection{感知质量与属性保持损失}
-
-感知质量损失确保生成图像的视觉真实性，防止优化过程产生不自然的伪影或失真。本文采用分层感知损失（LPIPS），基于预训练深度网络的多层特征度量生成图像与源图像的感知距离。
-
-给定预训练特征提取器$\phi$（如VGG或AlexNet），从浅层到深层提取特征$\{\phi_{\text{early}}, \phi_{\text{mid}}, \phi_{\text{deep}}\}$。浅层特征捕获纹理与细节，中层特征编码局部结构，深层特征表示语义内容。分层感知损失定义为：
-\begin{equation}\label{eq:mia_perc_hierarchical}
-\begin{split}
-    \mathcal{L}_{\text{perc}} = & w_{\text{shallow}} \|\phi_{\text{early}}(\hat{x}) - \phi_{\text{early}}(x_{\text{src}})\|_2 \\
-    & + w_{\text{mid}} \|\phi_{\text{mid}}(\hat{x}) - \phi_{\text{mid}}(x_{\text{src}})\|_2 \\
-    & + w_{\text{deep}} \|\phi_{\text{deep}}(\hat{x}) - \phi_{\text{deep}}(x_{\text{src}})\|_2,
-\end{split}
-\end{equation}
-其中$x_{\text{src}}$为源图像，$w_{\text{shallow}}, w_{\text{mid}}, w_{\text{deep}}$为不同层级的权重系数。该损失确保生成图像保持源图像的视觉风格与结构，同时通过深度特征比对避免像素级过拟合。
-
-属性保持损失显式约束源图像的非身份属性（姿态、表情、光照等）正确迁移至生成图像。换脸任务要求仅改变身份特征，保持其他属性不变。本文采用预训练属性估计器提取属性向量并计算$L_2$距离：
-\begin{equation}\label{eq:mia_attr_loss}
-    \mathcal{L}_{\text{attr}} = \sum_{k=1}^K w_k \|\text{Attr}_k(\hat{x}) - \text{Attr}_k(x_{\text{src}})\|_2,
-\end{equation}
-其中$\text{Attr}_k$为第$k$个属性估计器（如姿态估计器HopeNet、表情分类器、光照估计器等），$K$为属性类型总数，$w_k$为属性权重。该损失确保生成图像在改变身份的同时保持源图像的场景属性，提升换脸结果的自然性。
-
-多样性损失防止批内样本坍缩到相同的生成结果，确保模型为同一类别生成多样化的样本。本文通过最大化批内身份嵌入的方差实现：
-\begin{equation}\label{eq:mia_diversity_loss}
-    \mathcal{L}_{\text{diversity}} = -\text{Var}(E_{\text{id}}(\{\hat{x}_1, \ldots, \hat{x}_B\})),
-\end{equation}
-其中$B$为批大小，$\text{Var}(\cdot)$计算嵌入向量的方差。该损失鼓励批内不同源图像生成的结果在身份空间中保持多样性，避免模式坍缩。
-
-综合上述三项约束，形成感知与属性保持的联合损失：
+为确保生成图像的视觉真实性，本文采用LPIPS~\cite{zhang2018unreasonable}度量生成图像$\hat{x}$与源图像$x_{\text{src}}$的感知距离。LPIPS基于预训练深度网络提取多层特征进行比对，相比像素级损失能更好地保持视觉风格与结构，避免过拟合：
 \begin{equation}\label{eq:mia_perception_combined}
-    \mathcal{L}_{\text{perc+attr}} = \mathcal{L}_{\text{perc}} + \beta \mathcal{L}_{\text{attr}} + \gamma \mathcal{L}_{\text{diversity}},
+    \mathcal{L}_{\text{perc}} = \mathcal{L}_{\text{LPIPS}}(\hat{x}, x_{\text{src}}).
 \end{equation}
-其中$\beta$和$\gamma$为权重系数，平衡感知质量、属性一致性与样本多样性三个目标。
 
-\subsection{正则化损失与训练策略}
+\subsection{正则化损失}
 \label{subsec:mia_regularization}
 
-正则化损失确保模型训练的稳定性与泛化能力，防止过拟合并维护嵌入空间的良好几何性质。本文设计三项正则化约束，分别针对嵌入范数、LoRA参数与类别分离：
+正则化损失包括嵌入归一化约束和LoRA权重正则化，确保模型训练的稳定性与泛化能力：
 \begin{equation}\label{eq:mia_reg_loss}
-    \mathcal{L}_{\text{reg}} = \mathcal{L}_{\text{emb-norm}} + \lambda_{\text{lora}} \mathcal{L}_{\text{lora}} + \lambda_{\text{sep}} \mathcal{L}_{\text{sep}},
+    \mathcal{L}_{\text{reg}} = \mathcal{L}_{\text{emb-norm}} + \lambda_{\text{lora}} \mathcal{L}_{\text{lora}} = \sum_{y=1}^C (\|e_{\text{id}}^{(y)}\|_2 - 1)^2 + \lambda_{\text{lora}} \sum_{\ell} (\|A_{\ell}\|_F^2 + \|B_{\ell}\|_F^2),
 \end{equation}
-其中各项定义如下。
-
-\textbf{嵌入归一化约束：}标签条件嵌入层输出的身份嵌入$e_{\text{id}}^{(y)} = \mathcal{E}_\psi(y)$应与预训练身份编码器（ArcFace）的输出保持一致的范数，以确保与换脸模型的参考注意力模块兼容。该约束定义为：
-\begin{equation}
-    \mathcal{L}_{\text{emb-norm}} = \sum_{y=1}^C (\|e_{\text{id}}^{(y)}\|_2 - 1)^2,
-\end{equation}
-即强制所有类别的嵌入向量位于单位超球面上。该约束确保嵌入空间的几何一致性，避免范数差异导致的不均衡优化。
-
-\textbf{LoRA权重正则化：}LoRA参数$\{A_{\ell}, B_{\ell}\}$通过Frobenius范数约束，防止权重过大导致的过拟合：
-\begin{equation}
-    \mathcal{L}_{\text{lora}} = \sum_{\ell} (\|A_{\ell}\|_F^2 + \|B_{\ell}\|_F^2),
-\end{equation}
-其中$\ell$遍历所有应用LoRA的层，$\|\cdot\|_F$为Frobenius范数。该正则化保持LoRA增量的小幅修正，确保微调不会显著偏离预训练权重，从而保留原始生成先验。
-
-\textbf{类别分离约束：}不同类别的身份嵌入应在嵌入空间中保持足够的间隔，避免类别混淆。该约束通过hinge loss实现：
-\begin{equation}
-    \mathcal{L}_{\text{sep}} = \sum_{y \neq y'} \max(0, m_{\text{sep}} - \|e_{\text{id}}^{(y)} - e_{\text{id}}^{(y')}\|_2),
-\end{equation}
-其中$m_{\text{sep}}$为最小间隔超参数（推荐值0.5-1.0，注意与身份对比损失中的角度裕度$m$区分）。仅当两个类别嵌入间的欧氏距离小于$m_{\text{sep}}$时施加惩罚，推动不同类别在嵌入空间中远离。该约束确保模型学习到判别性的类别表示。
-
-\subsubsection{渐进式训练策略}
-\label{subsubsec:mia_progressive_training}
-
-标签条件嵌入层替换原始身份编码器后，模型面临从"图像条件生成"到"标签条件生成"的模态转换挑战。直接使用随机初始化的标签嵌入会导致生成图像呈现随机噪声，训练极不稳定。借鉴课程学习(Curriculum Learning)与知识蒸馏中的教师退火(Teacher Annealing)思想，本文提出\textbf{渐进式微调策略}：在训练初期同时提供真实图像与类别标签，通过插值混合真实图像的身份嵌入与标签嵌入层输出，随训练进程逐步增大标签嵌入的权重，最终平滑过渡至纯标签条件生成。该策略将困难的模态转换分解为易于优化的渐进式任务，显著提升训练稳定性与收敛速度。
-
-\textbf{阶段0：图像条件预热}（Warm-up with Image Conditioning）
-
-该阶段利用公开人脸数据集（如CelebA、FFHQ）的真实图像，让模型先学会"如何利用身份嵌入进行换脸"，为后续的标签嵌入学习奠定基础。
-
-\textit{身份嵌入来源：}完全使用预训练ArcFace编码器从真实图像提取身份嵌入：
-\begin{equation}
-    e_{\text{id}} = E_{\text{id}}(x_{\text{real}}),
-\end{equation}
-其中$x_{\text{real}}$为训练集中与目标类别$y$对应的真实图像（可从公开数据集随机采样）。此时标签条件嵌入层$\mathcal{E}_\psi$尚未参与前向传播。
-
-\textit{优化目标：}冻结换脸模型主干与扩散U-Net，仅训练LoRA参数$\{A_\ell, B_\ell\}$：
-\begin{equation}\label{eq:mia_stage0_loss}
-    \mathcal{L}_{\text{stage0}} = \mathcal{L}_{\text{prior}} + \mathcal{L}_{\text{perc}}.
-\end{equation}
-该阶段不涉及标签嵌入层，损失函数聚焦于扩散先验保真度与感知质量，使LoRA适配层学习如何在保持生成质量的前提下利用外部身份嵌入进行换脸。
-
-\textit{训练步数：}通常200-500步，直至生成图像FID稳定在较低水平（如FID<50）。该阶段训练速度快，因仅优化少量LoRA参数且无需标签嵌入层的梯度计算。
-
-\textbf{阶段1：混合条件过渡}（Hybrid Transition with Annealing）
-
-该阶段是核心创新，通过插值混合真实图像嵌入与标签嵌入，实现从"图像条件"到"标签条件"的平滑迁移。
-
-\textit{身份嵌入来源：}采用时间依赖的线性插值策略：
-\begin{equation}\label{eq:mia_hybrid_embedding}
-    e_{\text{id}}(t) = (1-\lambda(t)) \cdot E_{\text{id}}(x_{\text{real}}) + \lambda(t) \cdot \mathcal{E}_\psi(y),
-\end{equation}
-其中$t$为当前训练步数，$\lambda(t)$为退火系数，控制标签嵌入的权重。本文采用余弦退火调度：
-\begin{equation}\label{eq:mia_annealing_schedule}
-    \lambda(t) = \frac{1}{2}\left(1 - \cos\left(\frac{\pi \cdot \min(t, T_{\text{anneal}})}{T_{\text{anneal}}}\right)\right),
-\end{equation}
-其中$T_{\text{anneal}}$为退火周期（推荐值500-1000步）。余弦调度在初期缓慢增长（给予模型充分适应时间），中期快速过渡（避免长期停留在混合状态），后期平滑收敛（确保稳定进入纯标签模式）。相比线性退火$\lambda(t)=t/T_{\text{anneal}}$，余弦调度提供更平稳的过渡曲线。
-
-\textit{优化目标：}解冻标签条件嵌入层$\mathcal{E}_\psi$，联合优化嵌入层与LoRA参数：
-\begin{equation}\label{eq:mia_stage1_loss}
-    \mathcal{L}_{\text{stage1}} = \mathcal{L}_{\text{prior}} + \mathcal{L}_{\text{perc}} + \mathcal{L}_{\text{emb-norm}} + \beta \mathcal{L}_{\text{align}},
-\end{equation}
-其中引入\textbf{身份对齐损失}(Identity Alignment Loss)，确保标签嵌入逐步接近真实图像的身份特征：
-\begin{equation}\label{eq:mia_align_loss}
-    \mathcal{L}_{\text{align}} = \|E_{\text{id}}(x_{\text{real}}) - \mathcal{E}_\psi(y)\|_2^2.
-\end{equation}
-该损失为标签嵌入层提供显式的监督信号，避免其学习到与真实身份空间偏离的表示。权重系数$\beta$随退火进程动态调整：$\beta(t) = \beta_0 \cdot (1 - \lambda(t))$（推荐$\beta_0=1.0$），即在初期强化对齐约束，后期逐步减弱以赋予标签嵌入更大的自由度。
-
-\textit{训练步数与切换判据：}该阶段通常需500-1000步。切换至下一阶段的判据为：(1)退火系数$\lambda(t)$达到1.0；(2)对齐损失$\mathcal{L}_{\text{align}}$收敛至较小值（如$<0.1$）；(3)生成图像质量稳定（FID波动$<5$）。实践中以退火完成为主要依据，对齐损失与FID作为辅助验证。
-
-\textbf{阶段2：纯标签条件适配}（Label-Only Adaptation）
-
-该阶段完全移除真实图像依赖，进入最终的分类器攻击优化。
-
-\textit{身份嵌入来源：}完全使用标签条件嵌入层：
-\begin{equation}
-    e_{\text{id}} = \mathcal{E}_\psi(y).
-\end{equation}
-此时模型已学会从类别标签生成有效的身份嵌入，无需真实图像辅助。
-
-\textit{优化目标：}解冻U-Net注意力层与残差块卷积的LoRA参数，引入完整损失函数$\mathcal{L}_{\text{total}}$（式~\ref{eq:mia_total_loss}）：
-\begin{equation}\label{eq:mia_stage2_loss}
-    \mathcal{L}_{\text{stage2}} = \mathcal{L}_{\text{total}} = \sum_{i \in \{\text{prior, cls, id, perc, reg}\}} \left( \frac{1}{2\sigma_i^2} \mathcal{L}_i + \frac{1}{2}\log\sigma_i^2 \right).
-\end{equation}
-该阶段同时优化攻击有效性与生成质量：分类器损失$\mathcal{L}_{\text{cls}}$驱动生成图像被目标分类器识别，身份对比损失$\mathcal{L}_{\text{id}}$建立类别标签与视觉身份的映射，先验与感知损失保持生成质量。各损失权重通过任务不确定性框架自动学习，LoRA参数采用较小学习率（如阶段1的0.1-0.5倍）以避免遗忘已学习的生成能力。
-
-\textit{训练步数：}该阶段通常需1000-2000步，直至攻击成功率与生成质量同时达到预期。相比传统的"从零开始"训练标签嵌入的方案，该阶段收敛更快，因标签嵌入已在阶段1获得良好初始化。
-
-\textbf{渐进式策略的理论优势：}
-
-（1）\textit{稳定性提升：}阶段0提供强身份信号，避免训练初期的随机噪声状态；阶段1的插值机制防止模态转换过程中的梯度爆炸或消失。
-
-（2）\textit{收敛加速：}标签嵌入层在阶段1获得有监督的初始化（通过对齐损失），无需从随机初始化摸索有效的嵌入分布，相比传统方案可节省30\%-50\%的训练步数。
-
-（3）\textit{泛化能力增强：}阶段0-1使用大规模公开数据集（如CelebA 20万+图像），标签嵌入层学习到的身份表示受益于丰富的人脸变化模式，而非仅针对目标分类器过拟合。
-
-（4）\textit{过拟合风险降低：}混合阶段的真实图像嵌入充当正则化项，约束标签嵌入不能偏离真实身份空间太远，防止学习到病态的嵌入分布。
-
-该渐进式策略将模型反演攻击中的模态转换难题转化为易于优化的课程学习任务，确保训练过程稳定、高效且泛化性强。
+其中嵌入归一化约束强制所有类别的嵌入向量位于单位超球面上，LoRA正则化防止权重过大导致的过拟合。
 
 \section{训练与推理流程}
 \label{sec:mia_training}
+
+本节详细阐述基于换脸先验的模型反演攻击方法的训练与推理流程。首先介绍渐进式三阶段训练策略，通过图像条件预热、混合条件过渡和纯标签条件适配实现从图像条件到标签条件的平滑模态转换；随后描述整体架构的前向传播与反向传播流程，明确各模块的数据流向与梯度更新机制；最后给出完整的训练算法与推理策略，为方法的实现与复现提供系统化指导。
+
+\subsection{渐进式训练策略}
+\label{subsec:mia_progressive_training}
+
+标签条件嵌入层替换原始身份编码器后，模型面临从图像条件生成到标签条件生成的模态转换挑战。直接使用随机初始化的标签嵌入会导致生成图像呈现随机噪声，训练极不稳定。借鉴课程学习与知识蒸馏中的教师退火思想，本文采用渐进式微调策略，通过三个阶段实现平滑的模态转换。
+
+第一阶段为图像条件预热。该阶段利用公开人脸数据集（如CelebA、FFHQ）的真实图像，使用预训练ArcFace编码器从图像提取身份嵌入$e_{\text{id}} = E_{\text{id}}(x_{\text{real}})$。标签条件嵌入层$\mathcal{E}_\psi$在此阶段完全不参与训练，目的是让LoRA适配层专注学习如何利用外部提供的身份嵌入进行换脸，建立"身份嵌入向量→高质量换脸生成"的映射能力，而不是学习如何生成这些嵌入。这种解耦训练策略确保LoRA层能够接受任意符合ArcFace嵌入空间分布的向量，为后续标签嵌入的注入奠定基础。冻结换脸模型主干与扩散U-Net，仅训练LoRA参数$\{A_\ell, B_\ell\}$，损失函数为
+\begin{equation}\label{eq:mia_stage0_loss}
+    \mathcal{L}_{\text{stage0}} = \mathcal{L}_{\text{prior}} + \mathcal{L}_{\text{perc}}.
+\end{equation}
+该阶段聚焦于扩散先验保真度与感知质量，使LoRA适配层学习如何在保持生成质量的前提下利用外部身份嵌入进行换脸。训练持续至生成图像FID稳定在较低水平。
+
+第二阶段为混合条件过渡。该阶段通过插值混合真实图像嵌入与标签嵌入，实现从图像条件到标签条件的平滑迁移。采用时间依赖的线性插值策略
+\begin{equation}\label{eq:mia_hybrid_embedding}
+    e_{\text{id}}(t) = (1-\lambda(t)) \cdot E_{\text{id}}(x_{\text{real}}) + \lambda(t) \cdot \mathcal{E}_\psi(y),
+\end{equation}
+其中$t$为当前训练步数，$\lambda(t)$为退火系数，控制标签嵌入的权重。采用余弦退火调度
+\begin{equation}\label{eq:mia_annealing_schedule}
+    \lambda(t) = \frac{1}{2}\left(1 - \cos\left(\frac{\pi \cdot \min(t, T_{\text{anneal}})}{T_{\text{anneal}}}\right)\right),
+\end{equation}
+其中$T_{\text{anneal}}$为退火周期。相比线性退火$\lambda(t)=t/T_{\text{anneal}}$，余弦调度在初期缓慢增长，中期快速过渡，后期平滑收敛，提供更稳定的过渡曲线。
+
+该阶段解冻标签条件嵌入层$\mathcal{E}_\psi$，联合优化嵌入层与LoRA参数。为实现从图像条件到标签条件的平滑过渡，损失函数在保持基础生成质量约束的前提下，通过退火机制逐步引入攻击相关损失：
+\begin{equation}\label{eq:mia_stage1_loss}
+    \mathcal{L}_{\text{stage1}} = \mathcal{L}_{\text{prior}} + \mathcal{L}_{\text{perc}} + \lambda(t) \cdot (\mathcal{L}_{\text{cls}} + \mathcal{L}_{\text{p-reg}} + \mathcal{L}_{\text{id}} + \mathcal{L}_{\text{reg}}),
+\end{equation}
+其中$\mathcal{L}_{\text{prior}} + \mathcal{L}_{\text{perc}}$为基础生成质量约束（式~\ref{eq:mia_stage0_loss}），$\mathcal{L}_{\text{cls}} + \mathcal{L}_{\text{p-reg}} + \mathcal{L}_{\text{id}} + \mathcal{L}_{\text{reg}}$为攻击优化相关损失，$\lambda(t)$为余弦退火系数（式~\ref{eq:mia_annealing_schedule}）。注意各攻击损失项采用任务不确定性加权框架（式~\ref{eq:mia_total_loss}）进行自动权重调整，此处为简化表示未显式写出$\sigma_i$参数。
+
+该设计遵循课程学习原理，通过退火系数实现训练目标的动态平衡：（1）初期$\lambda(t)\approx 0$时，仅优化扩散先验保真度$\mathcal{L}_{\text{prior}}$与感知质量$\mathcal{L}_{\text{perc}}$，模型专注于利用真实图像嵌入学习高质量换脸生成；（2）中期$\lambda(t)\approx 0.5$时，攻击损失权重增加至基础损失的一半，标签嵌入在分类器引导$\mathcal{L}_{\text{cls}}$、特征正则化$\mathcal{L}_{\text{p-reg}}$与身份一致性$\mathcal{L}_{\text{id}}$的共同作用下逐步接管身份控制；（3）后期$\lambda(t)\approx 1.0$时，攻击损失与基础损失权重相当，模型完全适配标签条件生成并优化分类器攻击效果。该策略确保生成质量约束始终存在，避免攻击优化破坏图像真实性，同时通过平滑的退火机制实现从生成先验保持到攻击优化的自然过渡。
+
+当退火系数$\lambda(t)$达到1.0，分类器损失$\mathcal{L}_{\text{cls}}$与身份一致性损失$\mathcal{L}_{\text{id}}$完全激活，且生成图像在目标分类器上的置信度与FID指标同时稳定时，切换至下一阶段。
+
+第三阶段为纯标签条件适配。该阶段完全移除真实图像依赖，进入最终的分类器攻击优化。完全使用标签条件嵌入层生成身份嵌入$e_{\text{id}} = \mathcal{E}_\psi(y)$，此时模型已学会从类别标签生成有效的身份嵌入。解冻U-Net注意力层与残差块卷积的LoRA参数，引入完整损失函数
+\begin{equation}\label{eq:mia_stage2_loss}
+    \mathcal{L}_{\text{stage2}} = \mathcal{L}_{\text{total}} = \sum_{i \in \{\text{prior, cls, p-reg, id, perc, reg}\}} \left( \frac{1}{2\sigma_i^2} \mathcal{L}_i + \frac{1}{2}\log\sigma_i^2 \right).
+\end{equation}
+该阶段同时优化攻击有效性与生成质量，各损失权重通过任务不确定性框架自动学习。其中$\mathcal{L}_{\text{cls}}$（top-k max-margin）与$\mathcal{L}_{\text{p-reg}}$（特征中心正则化）协同驱动分类器攻击，前者最大化目标类别置信度并远离决策边界，后者稳定优化轨迹并约束特征表示向类别原型靠拢。LoRA参数采用较小学习率以避免遗忘已学习的生成能力。训练持续至攻击成功率与生成质量同时达到预期目标。
+
+\subsection{整体架构}
+
+如图~\ref{fig:mia_architecture}所示，本章提出的模型反演攻击架构由三个核心模块组成：标签条件嵌入层$\mathcal{E}_\psi$、预训练换脸模型$G_\phi$与LoRA微调模块、目标分类器$F_\theta$。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/train_mia.drawio.pdf}
+    \caption{基于换脸先验的模型反演攻击架构示意图。标签条件嵌入层（左）将类别标签映射为512维身份嵌入；换脸模型（中）通过参考注意力机制将身份嵌入注入U-Net去噪网络，结合源图像生成目标图像；目标分类器（右）提供分类损失梯度用于端到端微调。虚线表示梯度反向传播路径。}
+    \label{fig:mia_architecture}
+\end{figure}
+
+给定目标类别标签$y_{\text{target}}\in\{1,2,\ldots,C\}$与随机采样的源图像$x_{\text{src}}$，系统首先通过标签条件嵌入层将类别标签的one-hot编码映射为512维身份嵌入向量$e_{\text{id}} = \mathcal{E}_{\psi}(y_{\text{target}})\in\mathbb{R}^{512}$，并进行$L_2$归一化使其位于单位超球面上。随后，VAE编码器将源图像压缩为潜在表示$z_0 = \text{VAE}_{\text{enc}}(x_{\text{src}}) \in \mathbb{R}^{4\times64\times64}$。在扩散去噪阶段，系统采样扩散时间步$t\sim\mathcal{U}(0,T)$并添加噪声$z_t = \sqrt{\bar{\alpha}_t}z_0 + \sqrt{1-\bar{\alpha}_t}\epsilon$（$\epsilon\sim\mathcal{N}(0,I)$），U-Net去噪网络结合身份嵌入$e_{\text{id}}$预测噪声$\hat{\epsilon} = \epsilon_\theta(z_t, t, e_{\text{id}})$，通过多步DDIM采样恢复干净潜在表示$\hat{z}_0$。最后，VAE解码器生成最终图像$\hat{x} = \text{VAE}_{\text{dec}}(\hat{z}_0)$，并输入目标分类器获得logits$\ell = F_\theta(\hat{x})\in\mathbb{R}^C$用于计算分类损失与身份损失。
+
+训练过程中，多目标损失函数$\mathcal{L}_{\text{total}}$（式~\ref{eq:mia_total_loss}）对可训练参数进行端到端梯度反向传播，包括标签条件嵌入层$\psi$、LoRA适配矩阵$\{A_\ell, B_\ell\}$以及任务不确定性权重$\{\sigma_i\}$。本方法冻结换脸模型主干（VAE、U-Net主体）与目标分类器参数，仅更新LoRA增量与嵌入层，从而确保生成先验不被破坏。嵌入层采用较大学习率$\eta_{\text{emb}}=10^{-3}$以快速学习类别映射，LoRA参数使用较小学习率$\eta_{\text{lora}}=10^{-4}\text{-}10^{-5}$以保持微调稳定性。此外，采用梯度裁剪（最大范数1.0-5.0）防止扩散模型训练中常见的梯度爆炸现象。
 
 \subsection{训练流程}
 
@@ -307,7 +208,7 @@
     \REQUIRE 公开数据集$\mathcal{D}_{\text{public}}=\{(x_i, y_i)\}$（如CelebA、FFHQ），换脸模型$G_\phi$（主干冻结），预训练身份编码器$E_{\text{id}}$，学习率$\eta_{\text{lora}}$
     \ENSURE 初步训练的LoRA参数$\{A_\ell, B_\ell\}$
     \STATE 初始化LoRA参数$\{A_\ell, B_\ell\}$（仅参考注意力层）
-    \FOR{训练步数$t=1$ 到 $T_0$（通常200-500步）}
+    \FOR{训练步数$t=1$ 到 $T_0$}
     \STATE 从$\mathcal{D}_{\text{public}}$中采样批数据$\{(x_{\text{real}}^{(i)}, y_i)\}_{i=1}^B$
     \STATE 采样源图像批$\{x_{\text{src}}^{(i)}\}_{i=1}^B$
     \FOR{批内样本$i=1$ 到 $B$}
@@ -333,22 +234,23 @@
   \begin{algorithmic}[1]
     \REQUIRE 公开数据集$\mathcal{D}_{\text{public}}$，阶段0训练的LoRA参数，嵌入层$\mathcal{E}_\psi$，退火周期$T_{\text{anneal}}$，学习率$\eta_{\text{emb}}, \eta_{\text{lora}}$
     \ENSURE 训练后的嵌入层$\psi$与LoRA参数$\{A_\ell, B_\ell\}$
-    \STATE 初始化嵌入层参数$\psi$
-    \FOR{训练步数$t=1$ 到 $T_1$（通常500-1000步）}
+    \STATE 初始化嵌入层参数$\psi$与身份嵌入内存库$\mathcal{M} = \{\mathcal{E}_\psi(1), \ldots, \mathcal{E}_\psi(C)\}$
+    \STATE 初始化任务不确定性参数$\{\sigma_i\}_{i\in\{\text{prior,cls,p-reg,id,perc,reg}\}}$（用于阶段2损失）
+    \FOR{训练步数$t=1$ 到 $T_1$}
     \STATE 计算退火系数：$\lambda(t) = \frac{1}{2}(1 - \cos(\frac{\pi \cdot \min(t, T_{\text{anneal}})}{T_{\text{anneal}}}))$
-    \STATE 计算对齐权重：$\beta(t) = \beta_0 \cdot (1 - \lambda(t))$
     \STATE 从$\mathcal{D}_{\text{public}}$中采样批数据$\{(x_{\text{real}}^{(i)}, y_i)\}_{i=1}^B$与源图像$\{x_{\text{src}}^{(i)}\}$
     \FOR{批内样本$i=1$ 到 $B$}
     \STATE 提取真实图像嵌入：$e_{\text{real}}^{(i)} = E_{\text{id}}(x_{\text{real}}^{(i)})$
     \STATE 生成标签嵌入：$e_{\text{label}}^{(i)} = \mathcal{E}_\psi(y_i)$
     \STATE 混合身份嵌入：$e_{\text{id}}^{(i)} = (1-\lambda(t)) \cdot e_{\text{real}}^{(i)} + \lambda(t) \cdot e_{\text{label}}^{(i)}$
-    \STATE 采样时间步并生成噪声潜在变量（同阶段0）
-    \STATE 计算$\mathcal{L}_{\text{prior}}^{(i)}, \mathcal{L}_{\text{perc}}^{(i)}$
-    \STATE 计算嵌入归一化损失：$\mathcal{L}_{\text{emb-norm}}^{(i)} = (\|e_{\text{label}}^{(i)}\|_2 - 1)^2$
-    \STATE 计算对齐损失：$\mathcal{L}_{\text{align}}^{(i)} = \|e_{\text{real}}^{(i)} - e_{\text{label}}^{(i)}\|_2^2$
+    \STATE 采样时间步并生成噪声潜在变量，执行去噪生成图像$\hat{x}^{(i)}$（同阶段0）
+    \STATE 计算基础生成损失：$\mathcal{L}_{\text{prior}}^{(i)}, \mathcal{L}_{\text{perc}}^{(i)}$
+    \STATE 从内存库采样负样本：$e_{\text{neg}}^{(i)} \sim \mathcal{M} \setminus \{\mathcal{E}_\psi(y_i)\}$
+    \STATE 计算攻击相关损失：$\mathcal{L}_{\text{cls}}^{(i)}, \mathcal{L}_{\text{p-reg}}^{(i)}, \mathcal{L}_{\text{id}}^{(i)}, \mathcal{L}_{\text{reg}}^{(i)}$（带任务不确定性权重）
+    \STATE 计算攻击损失和：$\mathcal{L}_{\text{attack}}^{(i)} = \sum_{j\in\{\text{cls,p-reg,id,reg}\}} (\frac{1}{2\sigma_j^2}\mathcal{L}_j^{(i)} + \frac{1}{2}\log\sigma_j^2)$
     \ENDFOR
-    \STATE 计算总损失：
-    \STATE \quad $\mathcal{L}_{\text{stage1}} = \frac{1}{B}\sum_{i=1}^B [\mathcal{L}_{\text{prior}}^{(i)} + \mathcal{L}_{\text{perc}}^{(i)} + \mathcal{L}_{\text{emb-norm}}^{(i)} + \beta(t)\mathcal{L}_{\text{align}}^{(i)}]$
+    \STATE 计算总损失：$\mathcal{L}_{\text{stage1}} = \frac{1}{B}\sum_{i=1}^B [\mathcal{L}_{\text{prior}}^{(i)} + \mathcal{L}_{\text{perc}}^{(i)} + \lambda(t) \cdot \mathcal{L}_{\text{attack}}^{(i)}]$
+    \STATE 每100步更新内存库：$\mathcal{M} \leftarrow \{\mathcal{E}_\psi(1), \ldots, \mathcal{E}_\psi(C)\}$
     \STATE 更新嵌入层：$\psi \leftarrow \psi - \eta_{\text{emb}} \cdot \nabla_\psi \mathcal{L}_{\text{stage1}}$
     \STATE 更新LoRA：$\{A_\ell, B_\ell\} \leftarrow \{A_\ell, B_\ell\} - \eta_{\text{lora}} \cdot \nabla_{\{A_\ell, B_\ell\}} \mathcal{L}_{\text{stage1}}$
     \ENDFOR
@@ -362,17 +264,17 @@
   \begin{algorithmic}[1]
     \REQUIRE 目标分类器训练集$\mathcal{D}_{\text{target}}=\{(x_i, y_i)\}$，阶段1训练的$\psi$与$\{A_\ell, B_\ell\}$，目标分类器$F_\theta$，学习率$\eta_{\text{emb}}, \eta_{\text{lora}}$
     \ENSURE 最终微调的$\psi$与$\{A_\ell, B_\ell\}$
-    \STATE 初始化任务不确定性参数$\{\sigma_i\}$
+    \STATE 初始化任务不确定性参数$\{\sigma_i\}_{i\in\{\text{prior,cls,p-reg,id,perc,reg}\}}$
     \STATE 初始化U-Net注意力与残差块的LoRA参数（权重迁移自阶段1）
-    \FOR{训练步数$t=1$ 到 $T_2$（通常1000-2000步）}
+    \FOR{训练步数$t=1$ 到 $T_2$}
     \STATE 从$\mathcal{D}_{\text{target}}$中采样批数据$\{(x_i, y_i)\}_{i=1}^B$与源图像$\{x_{\text{src}}^{(i)}\}$
     \FOR{批内样本$i=1$ 到 $B$}
     \STATE 生成标签嵌入：$e_{\text{id}}^{(i)} = \mathcal{E}_\psi(y_i)$
-    \STATE 执行扩散去噪与完整采样（同阶段1）
-    \STATE 计算所有损失项：$\mathcal{L}_{\text{prior}}^{(i)}, \mathcal{L}_{\text{cls}}^{(i)}, \mathcal{L}_{\text{id}}^{(i)}, \mathcal{L}_{\text{perc}}^{(i)}, \mathcal{L}_{\text{reg}}^{(i)}$
+    \STATE 执行扩散去噪与完整采样生成$\hat{x}^{(i)}$（同阶段1）
+    \STATE 计算所有损失项：$\mathcal{L}_{\text{prior}}^{(i)}, \mathcal{L}_{\text{cls}}^{(i)}, \mathcal{L}_{\text{p-reg}}^{(i)}, \mathcal{L}_{\text{id}}^{(i)}, \mathcal{L}_{\text{perc}}^{(i)}, \mathcal{L}_{\text{reg}}^{(i)}$
     \ENDFOR
     \STATE 通过任务不确定性框架计算总损失：
-    \STATE \quad $\mathcal{L}_{\text{stage2}} = \sum_{i\in\{\text{prior,cls,id,perc,reg}\}} \left(\frac{1}{2\sigma_i^2}\bar{\mathcal{L}}_i + \frac{1}{2}\log\sigma_i^2\right)$
+    \STATE \quad $\mathcal{L}_{\text{stage2}} = \sum_{i\in\{\text{prior,cls,p-reg,id,perc,reg}\}} \left(\frac{1}{2\sigma_i^2}\bar{\mathcal{L}}_i + \frac{1}{2}\log\sigma_i^2\right)$
     \STATE 更新参数：
     \STATE \quad $\psi \leftarrow \psi - \eta_{\text{emb}} \cdot \nabla_\psi \mathcal{L}_{\text{stage2}}$
     \STATE \quad $\{A_\ell, B_\ell\} \leftarrow \{A_\ell, B_\ell\} - 0.1\eta_{\text{lora}} \cdot \nabla_{\{A_\ell, B_\ell\}} \mathcal{L}_{\text{stage2}}$（注意降低学习率）
