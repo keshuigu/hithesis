@@ -5,13 +5,13 @@
 
 本章系统性地呈现和分析本文提出的模板逆向攻击（TIA）与模型反演攻击（MIA）方法的实验结果。实验围绕以下核心问题展开：
 
-（1）方法有效性验证。通过定量与定性实验，验证TIA和MIA方法在实际攻击场景中的有效性。
+（1）\textbf{方法有效性验证}。通过定量与定性实验，验证TIA和MIA方法在实际攻击场景中的有效性。
 
-（2）关键模块贡献量化。通过消融实验验证角度约束特征匹配、任务不确定性加权、标签条件嵌入、LoRA微调、渐进式训练等核心设计的实际价值。
+（2）\textbf{关键模块贡献量化}。通过消融实验验证角度约束特征匹配、任务不确定性加权、标签条件嵌入、LoRA微调、渐进式训练等核心设计的实际价值。
 
-（3）方法优势分析。对比现有SOTA方法，分析本文方法在生成质量、攻击成功率、计算效率等方面的优势。
+（3）\textbf{方法优势分析}。对比现有SOTA方法，分析本文方法在生成质量、攻击成功率、计算效率等方面的优势。
 
-（4）泛化性评估。评估方法在不同数据集、不同识别器架构下的性能表现。
+（4）\textbf{泛化性评估}。评估方法在不同数据集、不同识别器架构下的性能表现。
 
 \section[实验配置与评估指标]{实验配置与评估指标}
 \label{sec:results_setup}
@@ -22,20 +22,68 @@
 
 \subsubsection{训练与测试数据集}
 
-本研究使用多个标准人脸数据集进行实验。CelebA~\cite{liu2015deep}包含200,000张人脸图像及40种属性标注，用作辅助训练数据。FFHQ~\cite{karras2019style}包含70,000张高质量人脸图像，用于MIA分布偏移实验。FaceScrub~\cite{ng2014data}包含106,863张图像，用作MIA辅助数据。LFW~\cite{huang2008labeled}包含13,233张图像覆盖5,749个身份，用作测试集。MegaFace~\cite{kemelmacher2016megaface}的distractors子集用于TAR@FAR计算。VGGFace2~\cite{cao2018vggface2}包含300万张图像覆盖9,131个身份，用于训练目标分类器和MIA评估。
+本研究使用多个标准人脸数据集进行实验，各数据集的用途与详细信息如下：
+
+\textbf{CelebA}~\cite{liu2015deep}：包含超过200,000张名人人脸图像的大规模数据集，提供40种属性标注与5个关键点坐标。本研究使用CelebA作为辅助训练数据集，以增强模型对多样化人脸特征的学习能力。
+
+\textbf{FFHQ}~\cite{karras2019style}：包含70,000张高质量人脸图像，具有丰富的年龄、种族和背景变化。本研究将其作为MIA实验中分布偏移设置下的公共数据集。
+
+\textbf{FaceScrub}~\cite{ng2014data}：包含530个名人的106,863张图像。本研究将其作为MIA实验的辅助数据集。
+
+\textbf{LFW（Labeled Faces in the Wild）}~\cite{huang2008labeled}：经典的无约束人脸识别benchmark，包含13,233张图像，覆盖5,749个身份。本研究使用LFW作为测试集，评估生成图像的身份识别性能。
+
+\textbf{MegaFace}~\cite{kemelmacher2016megaface}：大规模人脸识别benchmark，包含超过100万张图像。本研究使用MegaFace的distractors子集用于计算TAR@FAR指标。
+
+\textbf{VGGFace2}~\cite{cao2018vggface2}：包含超过300万张图像，覆盖9,131个身份的大规模人脸数据集。本研究使用VGGFace2训练目标分类器，并用于MIA方法的评估。
 
 \subsection{目标模型配置}
-本研究采用ArcFace~\cite{deng2019arcface}骨干网络的分类模型，提取512维特征向量作为模板，通过全连接层映射为1000维输出。从CelebA选取1000个身份的所有图像作为私有训练数据，训练1000类分类模型。该数据严格隔离，生成模型训练不使用，确保攻击评估的公平性。
+本研究采用以ArcFace~\cite{deng2019arcface}为骨干网络的基准分类模型。该模型首先提取512维的人脸特征向量作为模板，随后接入一个全连接层将其映射为1000维的输出，最终输出各类别的置信度概率。
+
+\textbf{训练数据配置}：我们从CelebA数据集中选取了1000个身份及其对应的所有图像作为私有训练数据，用于训练上述1000类的分类模型。需要强调的是，这部分数据被严格隔离，后续的生成模型训练均不使用这部分数据，以确保攻击评估的公平性与真实性。
 
 \subsubsection{数据预处理流程}
 
-所有数据集经标准预处理流程：（1）使用dlib~\cite{king2009dlib}检测人脸并提取5个关键点，计算相似变换矩阵对齐至标准姿态；（2）中心裁剪完整面部区域，缩放至$256\times256$（扩散模型）或$112\times112$（识别器）；（3）像素归一化至$[0,1]$或$[-1,1]$，训练阶段使用随机翻转、亮度对比度调整、高斯模糊等数据增强；（4）TIA实验使用ArcFace提取512维归一化模板，每个测试身份随机选取一张图像提取模板，剩余图像用于评估。
+为确保实验的一致性与公平性，所有数据集均经过标准化的预处理流程：
+
+步骤1：人脸检测与对齐。使用dlib~\cite{king2009dlib}进行人脸检测，提取5个关键点（双眼中心、鼻尖、嘴角）。基于关键点计算相似变换矩阵，将人脸对齐至标准姿态（双眼水平线，鼻尖位于图像中心）。
+
+步骤2：裁剪与缩放。根据关键点位置进行中心裁剪，保留完整的面部区域（包括额头、下巴、部分头发与背景）。将裁剪后的图像缩放至统一分辨率：扩散模型使用$256\times256$，人脸识别器使用$112\times112$（与ArcFace预训练分辨率一致）。
+
+步骤3：归一化与增强。像素值归一化至$[0,1]$或$[-1,1]$。训练阶段采用数据增强策略，包括随机水平翻转（概率0.5）、随机亮度与对比度调整（$\pm10\%$）、随机高斯模糊（核大小3，概率0.2），以提升模型的鲁棒性。测试阶段不使用数据增强。
+
+步骤4：模板提取。对于TIA实验，使用预训练的ArcFace模型提取512维归一化嵌入向量作为模板。对于每个测试身份，从其所有图像中随机选择一张提取模板，剩余图像用于评估生成质量与身份一致性。
 
 \subsubsection{训练与推理配置}
 
-TIA训练配置。基于EDM的条件生成训练：批大小16（梯度累积至64），学习率$1\times10^{-5}$（余弦退火，预热500步），AdamW优化器（$\beta_1=0.9$, $\beta_2=0.999$，权重衰减$1\times10^{-4}$），训练20轮（CelebA 172,561张图像），损失权重$\lambda_{\text{denoise}}=1.0$、$\lambda_{\text{feat}}$由Sigmoid调度0$\to$1.0、$\lambda_{\text{reg}}=0.01$，角度约束裕度$m=0.35$对齐ArcFace超球面，任务不确定性加权自动平衡损失项，推理使用40步确定性采样，ArcFace模板嵌入通过交叉注意力注入U-Net，Sigmoid预热$t_{\text{warmup}}=1000$、$k=8$、$\lambda_{\max}=1.0$。
+\textbf{TIA训练配置。}对于模板逆向政击，基于明晰扩散模型（EDM）的条件生成训练采用以下超参数设置：
+\begin{itemize}
+  \item \textbf{批大小}：16，有效批大小通过梯度累积达到64；
+  \item \textbf{学习率}：$1\times10^{-5}$，采用余弦退火学习率调度，预热步数为500；
+  \item \textbf{优化器}：AdamW，$\beta_1=0.9$，$\beta_2=0.999$，权重衰减$1\times10^{-4}$；
+  \item \textbf{训练轮数}：20 epochs，基于CelebA数据集172,561张图像，每个epoch约2700步；
+  \item \textbf{损失函数权重}：$\lambda_{\text{denoise}}=1.0$，$\lambda_{\text{feat}}$通过Sigmoid调度从0增加到1.0，$\lambda_{\text{reg}}=0.01$；
+  \item \textbf{角度约束}：使用角度裕度$m=0.35$的对比学习损失，与ArcFace超球面对齐；
+  \item \textbf{不确定性加权}：使用任务不确定性框架自动平衡去噪损失与特征匹配损失，$\sigma$采用$0.1\times\text{lr}_{\text{main}}$的学习率；
+  \item \textbf{采样策略}：训练时使用EDM的随机噪声采样策略，推理时使用确定性采样（18步）加速生成；
+  \item \textbf{条件引导}：使用ArcFace模板嵌入作为条件信息，通过交叉注意力机制注入U-Net；
+  \item \textbf{权重调度}：Sigmoid预热调度参数$t_{\text{warmup}}=1000$，陡岭度$k=8$，最大权重$\lambda_{\max}=1.0$。
+\end{itemize}
 
-MIA训练配置。基于REFace换脸先验与LoRA微调：批大小8（梯度累积至32），学习率$5\times10^{-6}$（LoRA）/$1\times10^{-4}$（嵌入层，线性预热+余弦退火），AdamW（$\beta_1=0.5$, $\beta_2=0.999$，权重衰减$1\times10^{-4}$），阶段1嵌入预训练500-1000步、阶段2 LoRA微调1000-2000步，LoRA秩$r=16$缩放$\alpha=32$应用于U-Net注意力和卷积层（$A$高斯初始化$B$零初始化，$L_2$正则$\lambda_{\text{lora}}=0.01$），任务不确定性加权平衡五项损失（扩散先验、分类引导、身份一致、感知质量、正则化），MLP标签嵌入层（隐藏层256维输出512维，$L_2$归一化），REFace预训练于FFHQ与CelebA-HQ，DDIM 50步采样（$\sigma_{\text{min}}=0.002$, $\sigma_{\text{max}}=80$），推理时LoRA增量合并至原权重。
+\textbf{MIA训练配置。}对于模型反演政击，基于REFace扩散模型的换脸先验与LoRA微调采用以下设置：
+\begin{itemize}
+  \item \textbf{批大小}：8，有效批大小通过梯度累积达到32；
+  \item \textbf{学习率}：$5\times10^{-6}$（LoRA参数），$1\times10^{-4}$（标签嵌入层），采用线性预热+余弦退火；
+  \item \textbf{优化器}：AdamW，$\beta_1=0.5$，$\beta_2=0.999$，权重衰减$1\times10^{-4}$；
+  \item \textbf{训练轮数}：阶段1（嵌入预训练）500-1000步，阶段2（LoRA微调）1000-2000步，基于CelebA数据集172,561张图像；
+  \item \textbf{LoRA配置}：秩$r=16$，缩放因子$\alpha=32$，应用于REFace U-Net的参考注意力投影矩阵、自注意力层和残差块卷积层；
+  \item \textbf{LoRA初始化}：矩阵$A$采用高斯随机初始化$A\sim\mathcal{N}(0, \sigma^2)$，矩阵$B$采用零初始化，确保训练开始时模型行为与预训练状态一致；
+  \item \textbf{LoRA正则化}：对LoRA参数施加$L_2$正则化（权重$\lambda_{\text{lora}}=0.01$），抑制参数过度增长；
+  \item \textbf{损失函数}：使用任务不确定性加权框架自动平衡五个损失项：扩散先验$\mathcal{L}_{\text{prior}}$、分类引导$\mathcal{L}_{\text{cls}}$、身份一致$\mathcal{L}_{\text{id}}$、感知质量$\mathcal{L}_{\text{perc}}$、正则化$\mathcal{L}_{\text{reg}}$；
+  \item \textbf{嵌入层策略}：使用基于MLP的标签条件嵌入层，隐藏层维度$d_h=256$，输出维度512，配备$L_2$归一化约束；
+  \item \textbf{预训练模型}：使用REFace作为基础换脸模型，预训练于FFHQ与CelebA-HQ；
+  \item \textbf{扩散采样}：使用DDIM 50步采样，噪声调度参数$\sigma_{\text{min}}=0.002$，$\sigma_{\text{max}}=80$；
+  \item \textbf{推理优化}：训练完成后将LoRA增量合并到原始权重中，消除推理时的额外计算开销。
+\end{itemize}
 
 \subsection{评估指标体系}
 
@@ -43,7 +91,7 @@ MIA训练配置。基于REFace换脸先验与LoRA微调：批大小8（梯度累
 
 \subsubsection{识别一致性指标}
 
-（1）TAR@FAR（True Accept Rate at Fixed False Accept Rate）。该指标衡量在固定误识率（FAR）下的真接受率（TAR），是评估生物特征识别系统性能的标准指标。具体计算流程如下：
+\textbf{（1）TAR@FAR（True Accept Rate at Fixed False Accept Rate）。}该指标衡量在固定误识率（FAR）下的真接受率（TAR），是评估生物特征识别系统性能的标准指标。具体计算流程如下：
 
 给定gallery集合$\mathcal{G}=\{(x_i, y_i)\}_{i=1}^{N_g}$（其中$x_i$为图像，$y_i$为身份标签）与probe集合$\mathcal{P}=\{(x_j, y_j)\}_{j=1}^{N_p}$，首先提取所有图像的特征嵌入$e_i=F(x_i)$，然后计算probe与gallery之间的余弦相似度矩阵$S\in\mathbb{R}^{N_p\times N_g}$，其中$S_{jk}=\text{CosSim}(e_j, e_k)$。对于每个probe，找到gallery中相似度最高的匹配$k^*=\arg\max_k S_{jk}$，若$y_j=y_{k^*}$则判定为真接受（TA），否则为假接受（FA）。
 
@@ -54,29 +102,29 @@ MIA训练配置。基于REFace换脸先验与LoRA微调：批大小8（梯度累
 \end{equation}
 其中$\mathcal{Y}_{\text{genuine}}$为gallery中存在的身份集合。本研究报告FAR=1e-3与FAR=1e-4下的TAR值，分别对应高安全性与超高安全性场景。
 
-（2）平均余弦相似度。计算生成图像与目标模板之间的平均余弦相似度：
+\textbf{（2）平均余弦相似度。}计算生成图像与目标模板之间的平均余弦相似度：
 \begin{equation}
 \text{AvgCosSim} = \frac{1}{N}\sum_{i=1}^N \frac{F(\hat{x}_i)\cdot t_i}{\|F(\hat{x}_i)\|_2\|t_i\|_2},
 \end{equation}
 其中$\hat{x}_i$为生成图像，$t_i$为目标模板。该指标越高表示生成图像与目标模板在特征空间中越接近。
 
-（3）Top-k准确率。在包含$N_c$个类别的分类任务中，计算生成图像被目标分类器正确识别为目标类别（位于Top-k预测中）的比例。本研究报告Top-1与Top-5准确率。
+\textbf{（3）Top-k准确率。}在包含$N_c$个类别的分类任务中，计算生成图像被目标分类器正确识别为目标类别（位于Top-k预测中）的比例。本研究报告Top-1与Top-5准确率。
 
 \subsubsection{视觉质量指标}
 
-（1）Fréchet Inception Distance（FID）。衡量生成图像分布与真实图像分布在Inception-v3特征空间中的距离。设真实图像特征的均值与协方差为$\mu_r, \Sigma_r$，生成图像特征的均值与协方差为$\mu_g, \Sigma_g$，则：
+\textbf{（1）Fréchet Inception Distance（FID）。}衡量生成图像分布与真实图像分布在Inception-v3特征空间中的距离。设真实图像特征的均值与协方差为$\mu_r, \Sigma_r$，生成图像特征的均值与协方差为$\mu_g, \Sigma_g$，则：
 \begin{equation}
 \text{FID} = \|\mu_r - \mu_g\|_2^2 + \text{Tr}(\Sigma_r + \Sigma_g - 2(\Sigma_r\Sigma_g)^{1/2}).
 \end{equation}
-FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{pytorch-fid}库计算FID，样本数量根据数据集规模确定以确保统计可靠性。
+FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{pytorch-fid}库计算FID，基于10,000张真实图像与10,000张生成图像。
 
-（2）Learned Perceptual Image Patch Similarity（LPIPS）。基于深度特征的感知相似度度量。对于生成图像$\hat{x}$与参考图像$x_{\text{ref}}$，使用预训练的AlexNet提取多层特征$\{\phi_\ell(\cdot)\}_{\ell=1}^L$，计算加权$L_2$距离：
+\textbf{（2）Learned Perceptual Image Patch Similarity（LPIPS）。}基于深度特征的感知相似度度量。对于生成图像$\hat{x}$与参考图像$x_{\text{ref}}$，使用预训练的AlexNet提取多层特征$\{\phi_\ell(\cdot)\}_{\ell=1}^L$，计算加权$L_2$距离：
 \begin{equation}
 \text{LPIPS}(\hat{x}, x_{\text{ref}}) = \sum_{\ell=1}^L w_\ell \|\phi_\ell(\hat{x}) - \phi_\ell(x_{\text{ref}})\|_2^2,
 \end{equation}
 其中权重$w_\ell$由人类感知实验标定。LPIPS值越低表示感知相似度越高。对于无参考图像的生成任务（如MIA），本研究计算生成图像与目标类别所有真实图像的平均LPIPS。
 
-（3）Inception Score（IS）。衡量生成图像的清晰度与多样性：
+\textbf{（3）Inception Score（IS）。}衡量生成图像的清晰度与多样性：
 \begin{equation}
 \text{IS} = \exp\left(\mathbb{E}_{\hat{x}}[D_{\text{KL}}(p(y|\hat{x})\|p(y))]\right),
 \end{equation}
@@ -84,36 +132,53 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
 
 \subsubsection{身份一致性指标}
 
-（1）身份保持度（Identity Preservation）。使用预训练的人脸识别模型计算生成图像与目标身份真实图像的平均余弦相似度：
+\textbf{（1）身份保持度（Identity Preservation）。}使用预训练的人脸识别模型计算生成图像与目标身份真实图像的平均余弦相似度：
 \begin{equation}
 \text{ID-Pres} = \frac{1}{N\cdot M}\sum_{i=1}^N\sum_{j=1}^M \text{CosSim}(F(\hat{x}_i), F(x_{i,j}^{\text{real}})),
 \end{equation}
 其中$\hat{x}_i$为目标身份$i$的生成图像，$\{x_{i,j}^{\text{real}}\}_{j=1}^M$为该身份的$M$张真实图像。
 
-（2）欧氏距离。在嵌入空间中计算生成图像与目标身份真实图像的平均欧氏距离，作为身份相似度的补充度量。
+\textbf{（2）欧氏距离。}在嵌入空间中计算生成图像与目标身份真实图像的平均欧氏距离，作为身份相似度的补充度量。
 
-（3）KNN Distance (KNN Dist)。计算重建图像与对应类别私有图像在特征空间中的最短欧氏距离，数值越低表示特征越接近。该指标主要用于评估MIA攻击中重建图像与私有训练数据的接近程度。
+\textbf{（3）KNN Distance (KNN Dist)。}计算重建图像与对应类别私有图像在特征空间中的最短欧氏距离，数值越低表示特征越接近。该指标主要用于评估MIA攻击中重建图像与私有训练数据的接近程度。
 
 \subsubsection{多样性指标}
 
-（1）嵌入空间方差。计算生成图像在人脸识别嵌入空间中的协方差矩阵的迹：
+\textbf{（1）嵌入空间方差。}计算生成图像在人脸识别嵌入空间中的协方差矩阵的迹：
 \begin{equation}
 \text{Var}_{\text{emb}} = \text{Tr}(\text{Cov}(\{F(\hat{x}_i)\}_{i=1}^N)).
 \end{equation}
 方差越大表示生成图像的多样性越高，避免模式崩溃。
 
-（2）LPIPS多样性。计算生成图像之间的平均LPIPS距离：
+\textbf{（2）LPIPS多样性。}计算生成图像之间的平均LPIPS距离：
 \begin{equation}
 \text{Div}_{\text{LPIPS}} = \frac{2}{N(N-1)}\sum_{i<j}\text{LPIPS}(\hat{x}_i, \hat{x}_j).
 \end{equation}
 
-\subsubsection{评估协议}
+\subsubsection{评估协议与实验设置}
 
-本研究聚焦白盒模式：攻击者完全了解目标识别器架构与参数，可计算梯度优化，但无法访问训练数据。TIA实验从LFW选取500个身份（每个至少2张图像），MIA实验从VGGFace2选取100个类别（每个至少10张图像）。
+\textbf{评估模式分类。}本研究聚焦于白盒模式的评估：攻击者完全了解目标识别器的架构与参数，可以直接计算梯度进行优化，但无法访问其训练数据。本模式评估方法的理论上界性能，为隐私风险分析提供最严格的基准。
 
-基准方法配置：DeepInversion~\cite{yin2020dreaming}（5000步，lr=$1\times10^{-2}$，TV正则$1\times10^{-4}$），GAN Inversion~\cite{xia2022gan}（StyleGAN2 W+空间，1000步，lr=$1\times10^{-2}$），NBNet~\cite{mai2021neural}和BREP-MI~\cite{yuan2023breaching}（10k查询）均使用官方实现。
+对于TIA实验，从LFW测试集中随机选择500个身份（每个身份至少有2张图像）；对于MIA实验，从VGGFace2测试集中随机选择100个类别（每个类别至少有10张图像）。
 
-指标计算统一使用：ArcFace (ResNet-100，insightface)、FID (Inception-v3 pool3，pytorch-fid)、LPIPS (AlexNet，lpips库)、IS (Inception-v3，batch=50，splits=10)、关键点检测 (2D-FAN，face-alignment)。所有配置记录于\texttt{configs/models.yaml}。
+\textbf{基准方法配置。}为公平对比，所有基准方法使用相同的数据集、评估指标与实验环境，具体配置如下：
+\begin{itemize}
+  \item \textbf{DeepInversion}~\cite{yin2020dreaming}：使用官方实现，优化步数5000，学习率$1\times10^{-2}$，TV正则化权重$1\times10^{-4}$；
+  \item \textbf{GAN Inversion}~\cite{xia2022gan}：使用StyleGAN2作为生成器，W+空间优化，优化步数1000，学习率$1\times10^{-2}$；
+  \item \textbf{NBNet}~\cite{mai2021neural}：使用官方预训练模型，在我们的测试集上进行评估；
+  \item \textbf{BREP-MI}~\cite{yuan2023breaching}：使用官方实现，查询预算设为10,000次。
+\end{itemize}
+
+\textbf{评估指标计算细节。}为确保指标计算的一致性，本研究统一使用以下预训练模型与库：
+\begin{itemize}
+  \item \textbf{人脸识别器}：ArcFace (ResNet-100, MS1MV3训练)，来自insightface库；
+  \item \textbf{FID计算}：使用Inception-v3 (ImageNet预训练)，特征提取自pool3层，来自pytorch-fid库；
+  \item \textbf{LPIPS计算}：使用AlexNet作为骨干网络，权重来自官方lpips库；
+  \item \textbf{IS计算}：使用Inception-v3，batch size=50，splits=10；
+  \item \textbf{人脸关键点检测}：使用2D-FAN (Face Alignment Network)，来自face-alignment库。
+\end{itemize}
+
+所有预训练模型的权重文件与配置参数均固定并记录在\texttt{configs/models.yaml}中，确保不同实验间的一致性。
 
 \subsection{超参数配置详情}
 \label{subsec:hyperparameter_configs}
@@ -130,7 +195,7 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
 \label{tab:tia_hyperparams_detail}
 \begin{tabular}{lcccp{5cm}}
 \hline
-组件 & 参数 & 最终值 & 搜索范围 & 说明 \\
+\textbf{组件} & \textbf{参数} & \textbf{最终值} & \textbf{搜索范围} & \textbf{说明} \\
 \hline
 \multirow{3}{*}{权重调度}
   & $\lambda_{\max}$ & 1.0 & $[0.5, 2.0]$ & 特征损失最大权重，通过验证集选定 \\
@@ -155,12 +220,12 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
 \end{tabular}
 \end{table}
 
-参数选择依据：
+\textbf{参数选择依据：}
 \begin{itemize}
-\item $\lambda_{\max=1.0}$：在验证集上测试了$[0.5, 1.0, 1.5, 2.0]$四个值，发现1.0时SAR与FID的平衡最优。
-\item $t_{\text{warmup}=1000}$：较短的预热期（500步）导致训练初期不稳定；较长的预热期（2000步）延缓特征学习，1000步为最优折中。
-\item $m=0.35$：角度裕度过小（0.3）导致优化困难，过大（0.5）削弱判别性，0.35达到最佳平衡。
-\item $\beta=0.1$：多样性权重过小（0.05）无法有效防止模式坍缩，过大（0.15）会损害特征匹配精度。
+\item \textbf{$\lambda_{\max}=1.0$}：在验证集上测试了$[0.5, 1.0, 1.5, 2.0]$四个值，发现1.0时SAR与FID的平衡最优。
+\item \textbf{$t_{\text{warmup}}=1000$}：较短的预热期（500步）导致训练初期不稳定；较长的预热期（2000步）延缓特征学习，1000步为最优折中。
+\item \textbf{$m=0.35$}：角度裕度过小（0.3）导致优化困难，过大（0.5）削弱判别性，0.35达到最佳平衡。
+\item \textbf{$\beta=0.1$}：多样性权重过小（0.05）无法有效防止模式坍缩，过大（0.15）会损害特征匹配精度。
 \end{itemize}
 
 \subsubsection{MIA方法超参数配置}
@@ -174,7 +239,7 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
 \small
 \begin{tabular}{lcccp{4.5cm}}
 \hline
-组件 & 参数 & 最终值 & 搜索范围 & 说明 \\
+\textbf{组件} & \textbf{参数} & \textbf{最终值} & \textbf{搜索范围} & \textbf{说明} \\
 \hline
 \multirow{2}{*}{扩散先验}
   & $w(t)_{\text{low}}$ & 1.5 & $[1.0, 2.0]$ & 低噪声阶段权重，强调细节 \\
@@ -202,26 +267,26 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
 \end{tabular}
 \end{table}
 
-参数选择依据：
+\textbf{参数选择依据：}
 \begin{itemize}
-\item $w(t)_{\text{low}=1.5}$：低噪声阶段（$t<0.3$）增加权重，强调细节重建，1.5时FID最优。
-\item $\lambda_{\text{prior}}$动态调整：阶段1使用0.5避免过度约束，阶段2提升至2.0强化扩散先验。
-\item $k$的设定：对于小规模数据集（如CelebA 1000类）设置$k=5$，对于大规模数据集按$\lfloor C/20 \rfloor$自适应调整，平衡覆盖率与精确度。
-\item $m=0.4$ (MIA) vs $m=0.35$ (TIA)：MIA需要更强的角度分离以应对类间混淆。
-\item LoRA $r=16, \alpha=32$：在多个$r\in\{8,16,32\}$中，$r=16$达到参数效率与性能的最佳平衡。
+\item \textbf{$w(t)_{\text{low}}=1.5$}：低噪声阶段（$t<0.3$）增加权重，强调细节重建，1.5时FID最优。
+\item \textbf{$\lambda_{\text{prior}}$动态调整}：阶段1使用0.5避免过度约束，阶段2提升至2.0强化扩散先验。
+\item \textbf{$k$的设定}：对于小规模数据集（如CelebA 1000类）设置$k=5$，对于大规模数据集按$\lfloor C/20 \rfloor$自适应调整，平衡覆盖率与精确度。
+\item \textbf{$m=0.4$ (MIA) vs $m=0.35$ (TIA)}：MIA需要更强的角度分离以应对类间混淆。
+\item \textbf{LoRA $r=16, \alpha=32$}：在多个$r\in\{8,16,32\}$中，$r=16$达到参数效率与性能的最佳平衡。
 \end{itemize}
 
 \subsubsection{超参数敏感性分析}
 
 为验证超参数选择的鲁棒性，我们进行了敏感性分析。主要发现包括：
 
-（1）权重调度参数：$\lambda_{\max}$在$[0.8, 1.2]$范围内性能稳定（SAR变化$<0.5\%$），表明方法对权重设置具有一定鲁棒性。
+\textbf{（1）权重调度参数}：$\lambda_{\max}$在$[0.8, 1.2]$范围内性能稳定（SAR变化$<0.5\%$），表明方法对权重设置具有一定鲁棒性。
 
-（2）角度裕度：$m$的影响较为显著，偏离最优值$\pm0.1$会导致1-2\%的性能下降，需要根据目标识别器特性仔细调整。
+\textbf{（2）角度裕度}：$m$的影响较为显著，偏离最优值$\pm0.1$会导致1-2\%的性能下降，需要根据目标识别器特性仔细调整。
 
-（3）LoRA配置：秩$r$在$[8, 32]$范围内，$r=16$时性能最优；继续增加秩至64带来的性能提升不足0.3\%，但参数量增加一倍。
+\textbf{（3）LoRA配置}：秩$r$在$[8, 32]$范围内，$r=16$时性能最优；继续增加秩至64带来的性能提升不足0.3\%，但参数量增加一倍。
 
-（4）训练策略：阶段迭代比$N_1:N_2$从$1:1$调整至$1:2$带来约1.5\%的FID改进，进一步增加至$1:3$收益递减。
+\textbf{（4）训练策略}：阶段迭代比$N_1:N_2$从$1:1$调整至$1:2$带来约1.5\%的FID改进，进一步增加至$1:3$收益递减。
 
 \section[TIA实验结果与分析]{TIA实验结果与分析}
 \label{sec:tia_results}
@@ -246,7 +311,7 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
   \label{tab:tia_sota_comparison_1e2}
   \begin{tabular}{lcccc}
     \hline
-    方法 & MOBIO & LFW & AgeDB & IJB-C \\
+    \textbf{方法} & \textbf{MOBIO} & \textbf{LFW} & \textbf{AgeDB} & \textbf{IJB-C} \\
     \hline
     NBNetA-M~\cite{mai2019reconstruction} & 99.50 & 98.57 & 96.33 & 88.17 \\
     NBNetB-M~\cite{mai2019reconstruction} & 99.67 & 99.17 & 97.00 & 89.50 \\
@@ -255,7 +320,7 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
     Dong et al.~\cite{dong2023reconstruct} & 97.17 & 95.67 & 90.50 & 82.67 \\
     GaFaR~\cite{shahreza2023template} & 99.83 & 99.50 & 98.17 & 92.50 \\
     \hline
-    Ours & 100.00$^{*}$ & 99.83$^{*}$ & 99.33$^{**}$ & 95.67$^{**}$ \\
+    \textbf{Ours} & \textbf{100.00$^{*}$} & \textbf{99.83$^{*}$} & \textbf{99.33$^{**}$} & \textbf{95.67$^{**}$} \\
     \hline
   \end{tabular}
   \\
@@ -269,7 +334,7 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
   \label{tab:tia_sota_comparison_1e3}
   \begin{tabular}{lcccc}
     \hline
-    方法 & MOBIO & LFW & AgeDB & IJB-C \\
+    \textbf{方法} & \textbf{MOBIO} & \textbf{LFW} & \textbf{AgeDB} & \textbf{IJB-C} \\
     \hline
     NBNetA-M~\cite{mai2019reconstruction} & 92.33 & 82.33 & 75.67 & 62.17 \\
     NBNetB-M~\cite{mai2019reconstruction} & 94.17 & 85.67 & 78.33 & 65.50 \\
@@ -278,7 +343,7 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
     Dong et al.~\cite{dong2023reconstruct} & 81.33 & 68.33 & 55.67 & 42.17 \\
     GaFaR~\cite{shahreza2023template} & 96.50 & 92.17 & 85.33 & 75.50 \\
     \hline
-    Ours & 99.17$^{**}$ & 98.50$^{**}$ & 95.67$^{**}$ & 88.33$^{**}$ \\
+    \textbf{Ours} & \textbf{99.17$^{**}$} & \textbf{98.50$^{**}$} & \textbf{95.67$^{**}$} & \textbf{88.33$^{**}$} \\
     \hline
   \end{tabular}
   \\
@@ -287,8 +352,8 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
 \end{table}
 
 从实验结果可以看出：
-（1）显著优于现有方法。 在所有数据集和安全阈值下，本文提出的方法均取得了最高的攻击成功率。特别是在高安全性阈值（FMR=$10^{-3}$）下，本文方法在LFW上的SAR达到98.50\%，相比GaFaR提升了6.33\%，相比NBNetB-M提升了12.83\%。
-（2）高分辨率重建优势。 相比于NBNet等生成低分辨率（$112\times112$）图像的方法，本文方法利用StyleGAN生成$1024\times1024$的高分辨率图像，不仅在识别性能上更优，在视觉质量上也更具优势。
+\textbf{（1）显著优于现有方法。} 在所有数据集和安全阈值下，本文提出的方法均取得了最高的攻击成功率。特别是在高安全性阈值（FMR=$10^{-3}$）下，本文方法在LFW上的SAR达到98.50\%，相比GaFaR提升了6.33\%，相比NBNetB-M提升了12.83\%。
+\textbf{（2）高分辨率重建优势。} 相比于NBNet等生成低分辨率（$112\times112$）图像的方法，本文方法利用StyleGAN生成$1024\times1024$的高分辨率图像，不仅在识别性能上更优，在视觉质量上也更具优势。
 
 \subsection{消融实验}
 
@@ -404,7 +469,7 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
 \section[MIA实验结果与分析]{MIA实验结果与分析}
 \label{sec:mia_results}
 
-本节系统性地呈现和分析模型反演攻击（MIA）方法的实验结果。如第四章所述，本文提出了一种基于换脸先验与标签条件嵌入的模型反演攻击方法。该方法采用REFace换脸模型作为生成先验，通过标签条件嵌入层将类别标签映射为身份嵌入，并使用LoRA（低秩适配）技术进行参数高效微调。方法的核心创新包括：（1）标签到嵌入的MLP映射机制；（2）LoRA应用于参考注意力、自注意力和卷积层；（3）时间自适应扩散先验损失；（4）任务不确定性加权的多目标优化框架，自动平衡扩散先验、分类引导、身份一致性、感知质量和正则化五个目标。训练采用渐进式三阶段策略：阶段1仅使用图像条件预热嵌入层，阶段2通过混合条件实现从图像到标签的平滑过渡，阶段3使用纯标签条件精细化。本节从标准设置、分布偏移设置以及图像质量评估等多个维度验证方法的有效性。
+本节系统性地呈现和分析模型反演攻击（MIA）方法的实验结果。如第四章所述，本文提出了一种基于换脸先验与标签条件嵌入的模型反演攻击方法。该方法采用REFace换脸模型作为生成先验，通过标签条件嵌入层将类别标签映射为身份嵌入，并使用LoRA（低秩适配）技术进行参数高效微调。方法的核心创新包括：（1）标签到嵌入的MLP映射机制；（2）LoRA应用于参考注意力、自注意力和卷积层；（3）时间自适应扩散先验损失；（4）任务不确定性加权的多目标优化框架，自动平衡扩散先验、分类引导、身份一致性、感知质量和正则化五个目标。训练采用两阶段策略：阶段1冻结换脸模型仅训练嵌入层（500-1000步），阶段2联合优化嵌入层与LoRA参数（1000-2000步）。本节从标准设置、分布偏移设置以及图像质量评估等多个维度验证方法的有效性。
 
 \subsection{实验设置}
 
@@ -424,15 +489,15 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
   \resizebox{\textwidth}{!}{
   \begin{tabular}{lcccccccccccc}
     \hline
-    \multirow{2}{*}{方法} & \multicolumn{4}{c}{Target: VGG16} & \multicolumn{4}{c}{Target: IR152} & \multicolumn{4}{c}{Target: Face.evoLVe} \\
+    \multirow{2}{*}{\textbf{方法}} & \multicolumn{4}{c}{\textbf{Target: VGG16}} & \multicolumn{4}{c}{\textbf{Target: IR152}} & \multicolumn{4}{c}{\textbf{Target: Face.evoLVe}} \\
     \cmidrule(lr){2-5} \cmidrule(lr){6-9} \cmidrule(lr){10-13}
-     & Acc1$\uparrow$ & Acc5$\uparrow$ & FID$\downarrow$ & KNN$\downarrow$ & Acc1$\uparrow$ & Acc5$\uparrow$ & FID$\downarrow$ & KNN$\downarrow$ & Acc1$\uparrow$ & Acc5$\uparrow$ & FID$\downarrow$ & KNN$\downarrow$ \\
+     & \textbf{Acc1}$\uparrow$ & \textbf{Acc5}$\uparrow$ & \textbf{FID}$\downarrow$ & \textbf{KNN}$\downarrow$ & \textbf{Acc1}$\uparrow$ & \textbf{Acc5}$\uparrow$ & \textbf{FID}$\downarrow$ & \textbf{KNN}$\downarrow$ & \textbf{Acc1}$\uparrow$ & \textbf{Acc5}$\uparrow$ & \textbf{FID}$\downarrow$ & \textbf{KNN}$\downarrow$ \\
     \hline
     GMI & 23.40\% & 47.07\% & 28.04 & 1272.2 & 35.87\% & 58.53\% & 29.03 & 1269.3 & 30.87\% & 53.33\% & 31.13 & 1297.4 \\
     KED-MI & 63.13\% & 88.33\% & 30.49 & 1233.0 & 68.53\% & 88.07\% & 41.10 & 1249.9 & 75.00\% & 94.67\% & 33.21 & 1233.0 \\
-    PLG-MI & 97.47\% & 99.47\% & 33.27 & 1133.4 & 99.67\% & 99.73\% & 33.16 & 1044.6 & 99.67\% & 99.93\% & 31.48 & 1113.2 \\
+    PLG-MI & \textbf{97.47\%} & \textbf{99.47\%} & 33.27 & 1133.4 & \textbf{99.67\%} & 99.73\% & 33.16 & 1044.6 & \textbf{99.67\%} & \textbf{99.93\%} & 31.48 & 1113.2 \\
     \hline
-    Ours & 93.47\% & 99.20\% & 23.82$^{**}$ & 1081.9$^{*}$ & 97.40\% & 99.80\% & 25.77$^{**}$ & 1010.7$^{*}$ & 94.93\% & 99.33\% & 28.16$^{*}$ & 1025.4$^{**}$ \\
+    \textbf{Ours} & 93.47\% & 99.20\% & \textbf{23.82$^{**}$} & \textbf{1081.9$^{*}$} & 97.40\% & \textbf{99.80\%} & \textbf{25.77$^{**}$} & \textbf{1010.7$^{*}$} & 94.93\% & 99.33\% & \textbf{28.16$^{*}$} & \textbf{1025.4$^{**}$} \\
     \hline
   \end{tabular}
   }
@@ -442,8 +507,8 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
 \end{table}
 
 从表~\ref{tab:mia_standard}可以观察到：
-（1）生成保真度显著提升。 本文方法在所有目标模型上均取得了最低FID值和KNN距离。例如在VGG16上，FID从PLG-MI的33.27降低至23.82，降幅达28\%。这表明基于REFace换脸先验的方法能够生成分布更接近真实私有数据的高质量图像，有效克服了GAN基方法存在的模式崩塌和分布失真问题。
-（2）攻击准确率保持竞争力。 尽管PLG-MI在Acc1上略微领先，但本文方法在Acc5上与其持平甚至更高（如IR152上99.80\% vs 99.73\%），且Acc1也保持93\%以上的极高水平。考虑到本文方法在FID上的巨大优势，这体现了基于REFace+LoRA的方法在攻击准确率与生成保真度之间取得了更优的平衡（Accuracy-Fidelity Balance）。
+\textbf{（1）生成保真度显著提升。} 本文方法在所有目标模型上均取得了最低FID值和KNN距离。例如在VGG16上，FID从PLG-MI的33.27降低至23.82，降幅达28\%。这表明基于REFace换脸先验的方法能够生成分布更接近真实私有数据的高质量图像，有效克服了GAN基方法存在的模式崩塌和分布失真问题。
+\textbf{（2）攻击准确率保持竞争力。} 尽管PLG-MI在Acc1上略微领先，但本文方法在Acc5上与其持平甚至更高（如IR152上99.80\% vs 99.73\%），且Acc1也保持93\%以上的极高水平。考虑到本文方法在FID上的巨大优势，这体现了基于REFace+LoRA的方法在攻击准确率与生成保真度之间取得了更优的平衡（Accuracy-Fidelity Balance）。
 
 \subsection{分布偏移设置下的性能评估}
 
@@ -455,15 +520,15 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
   \label{tab:mia_shift}
   \begin{tabular}{lcccccccc}
     \hline
-    \multirow{2}{*}{方法} & \multicolumn{4}{c}{Target: VGG16} & \multicolumn{4}{c}{Target: IR152} \\
+    \multirow{2}{*}{\textbf{方法}} & \multicolumn{4}{c}{\textbf{Target: VGG16}} & \multicolumn{4}{c}{\textbf{Target: IR152}} \\
     \cmidrule(lr){2-5} \cmidrule(lr){6-9}
-     & Acc1 & Acc5 & FID & KNN & Acc1 & Acc5 & FID & KNN \\
+     & \textbf{Acc1} & \textbf{Acc5} & \textbf{FID} & \textbf{KNN} & \textbf{Acc1} & \textbf{Acc5} & \textbf{FID} & \textbf{KNN} \\
     \hline
     GMI & 8.40\% & 21.07\% & 41.55 & 1406.7 & 14.93\% & 33.13\% & 41.87 & 1402.5 \\
     KED-MI & 33.93\% & 64.93\% & 37.37 & 1353.5 & 44.60\% & 74.07\% & 46.97 & 1320.2 \\
-    PLG-MI & 87.07\% & 95.73\% & 43.55 & 1277.5 & 96.67\% & 99.67\% & 44.15 & 1159.1 \\
+    PLG-MI & \textbf{87.07\%} & \textbf{95.73\%} & 43.55 & 1277.5 & \textbf{96.67\%} & \textbf{99.67\%} & 44.15 & 1159.1 \\
     \hline
-    Ours & 78.07\% & 93.87\% & 28.82$^{**}$ & 1250.0$^{*}$ & 94.73\% & 99.67\% & 37.82$^{**}$ & 1140.1$^{*}$ \\
+    \textbf{Ours} & 78.07\% & 93.87\% & \textbf{28.82$^{**}$} & \textbf{1250.0$^{*}$} & 94.73\% & \textbf{99.67\%} & \textbf{37.82$^{**}$} & \textbf{1140.1$^{*}$} \\
     \hline
   \end{tabular}
   \\
@@ -483,13 +548,13 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
   \label{tab:mia_quality}
   \begin{tabular}{lcccc}
     \hline
-    方法 & PSNR$\uparrow$ & SSIM$\uparrow$ & LPIPS-Alex$\downarrow$ & LPIPS-VGG$\downarrow$ \\
+    \textbf{方法} & \textbf{PSNR}$\uparrow$ & \textbf{SSIM}$\uparrow$ & \textbf{LPIPS-Alex}$\downarrow$ & \textbf{LPIPS-VGG}$\downarrow$ \\
     \hline
     GMI & 13.09 & 0.39 & - & - \\
     KED-MI & 14.13 & - & - & - \\
     PLG-MI & 14.79 & - & - & - \\
     \hline
-    Ours (基础) & 15.64 & 0.45 & 0.28 & 0.35 \\
+    \textbf{Ours (基础)} & 15.64 & 0.45 & 0.28 & 0.35 \\
     \hline
   \end{tabular}
 \end{table}
@@ -657,12 +722,12 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
     \hline
     NBNet-M & 45.3M & 18h & 12ms & 8.2GB & 1 \\
     GaFaR & 58.7M & 32h & 85ms & 12.5GB & 50 \\
-    Ours & 62.1M & 24h & 92ms & 14.3GB & 40 \\
+    \textbf{Ours} & 62.1M & 24h & 92ms & 14.3GB & 40 \\
     \hline
   \end{tabular}
 \end{table}
 
-从表~\ref{tab:tia_efficiency}可以看出,本文方法的参数量与GaFaR接近,推理时间也相当(92ms vs 85ms)。训练时间方面,本文方法为24小时,相比GaFaR的32小时减少25\%。这主要得益于角度约束特征匹配和任务不确定性加权机制加速了损失函数的收敛。虽然扩散模型需要多步去噪,但EDM采用的确定性采样策略(DDIM 40步)相比随机采样器显著减少了采样步数,使得推理效率可接受。GPU内存占用方面,本文方法为14.3GB,略高于GaFaR但仍在单卡可承受范围内。
+从表~\ref{tab:tia_efficiency}可以看出,本文方法的参数量与GaFaR接近,推理时间也相当(92ms vs 85ms)。训练时间方面,本文方法为24小时,相比GaFaR的32小时减少25\%。这主要得益于角度约束特征匹配和任务不确定性加权机制加速了损失函数的收敛。虽然扩散模型需要多步去噪,但EDM采用的确定性采样器(40步)相比随机采样器显著减少了采样步数,使得推理效率可接受。GPU内存占用方面,本文方法为14.3GB,略高于GaFaR但仍在单卡可承受范围内。
 
 \subsection{MIA方法计算效率}
 
@@ -733,11 +798,11 @@ FID值越低表示生成分布与真实分布越接近。本研究使用\texttt{
 
 本章通过系统的实验验证和深入分析，全面评估了TIA和MIA方法的有效性及关键模块贡献。
 
-TIA方法在白盒场景下取得优异性能。在LFW数据集上，完整方法在FMR=$10^{-3}$下的SAR达到99.67\%，FID为40.15，显著优于现有方法。消融实验表明，身份损失起决定性作用，角度约束特征匹配、任务不确定性加权和多样性正则化使基线性能从98.50\%提升至99.67\%。
+\textbf{TIA方法}在白盒场景下取得优异性能。在LFW数据集上，完整方法在FMR=$10^{-3}$下的SAR达到99.67\%，FID为40.15，显著优于现有方法。消融实验表明，身份损失起决定性作用，角度约束特征匹配、任务不确定性加权和多样性正则化使基线性能从98.50\%提升至99.67\%。
 
-MIA方法在攻击准确率与生成保真度之间达到优异平衡。标准设置下，方法Acc1为93.47\%，FID为23.82，相比PLG-MI（FID 33.27）降低28\%。消融实验显示，三阶段训练相比单阶段提升31个百分点，LoRA秩$r=16$仅训练0.18\%参数即可达到接近全参数微调的性能。分布偏移设置下（FFHQ $\rightarrow$ CelebA），方法依然表现出强大的泛化能力。
+\textbf{MIA方法}在攻击准确率与生成保真度之间达到优异平衡。标准设置下，方法Acc1为93.47\%，FID为23.82，相比PLG-MI（FID 33.27）降低28\%。消融实验显示，三阶段训练相比单阶段提升31个百分点，LoRA秩$r=16$仅训练0.18\%参数即可达到接近全参数微调的性能。分布偏移设置下（FFHQ $\rightarrow$ CelebA），方法依然表现出强大的泛化能力。
 
-计算效率方面，TIA训练时间减少25\%，MIA通过LoRA微调训练效率提升16倍、存储空间压缩533倍。实验结果为人脸识别系统的隐私风险评估提供了重要参考，同时为防御机制设计提供指导。
+\textbf{计算效率}方面，TIA训练时间减少25\%，MIA通过LoRA微调训练效率提升16倍、存储空间压缩533倍。实验结果为人脸识别系统的隐私风险评估提供了重要参考，同时为防御机制设计提供指导。
 
 % Local Variables:
 % TeX-master: "../main"
