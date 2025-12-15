@@ -59,11 +59,13 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 
 验证任务旨在判断两幅输入图像是否属于同一身份。评估时，通常构造正样本对与负样本对，计算嵌入相似度，并根据不同阈值计算以下指标：
 
-（1）真接受率（True Accept Rate, TAR）：正样本对中相似度高于阈值的比例；（2）假接受率（False Accept Rate, FAR）：负样本对中相似度高于阈值的比例；（3）TAR@FAR：在指定FAR水平下的真接受率，实际应用中常考察 FAR=0.01\% 或 FAR=0.1\% 等严格条件下的表现，这是衡量系统安全性与便捷性的关键指标；（4）接收者操作特征（Receiver Operating Characteristic, ROC）曲线与曲线下面积（Area Under Curve, AUC）：接收者操作特征曲线展示了不同阈值下 TAR 与 FAR 的权衡关系，曲线下面积越大表示系统性能越优。
+(1)真接受率(True Accept Rate, TAR):正样本对中相似度高于阈值的比例;(2)假接受率(False Accept Rate, FAR):负样本对中相似度高于阈值的比例;(3)接收者操作特征(Receiver Operating Characteristic, ROC)曲线与曲线下面积(Area Under Curve, AUC):接收者操作特征曲线展示了不同阈值下 TAR 与 FAR 的权衡关系,曲线下面积越大表示系统性能越优。
 
-识别任务在给定的候选集中对查询样本进行检索，选出最匹配的身份。常用评估指标包括：
+对于模板逆向攻击评估,本研究采用攻击成功率(Success Attack Rate, SAR)作为核心指标,即在指定误识率(False Match Rate, FMR)阈值下重建图像成功通过身份验证的比例。实际应用中常考察 FMR=$10^{-2}$ 或 FMR=$10^{-3}$ 等不同安全级别下的攻击表现。
 
-（1）Top-k 准确率（Rank-k Accuracy）：查询样本的真实身份出现在前 $k$ 个检索结果中的比例，尤其关注首位命中率Top-1；（2）平均精度均值（Mean Average Precision, mAP）：综合考虑精度与召回率的指标，常用于大规模检索场景。
+识别任务在给定的候选集中对查询样本进行检索,选出最匹配的身份。常用评估指标包括:
+
+(1)Top-k 准确率(Rank-k Accuracy):查询样本的真实身份出现在前 $k$ 个检索结果中的比例,尤其关注首位命中率Top-1与Top-5准确率;(2)平均精度均值(Mean Average Precision, mAP):综合考虑精度与召回率的指标,常用于大规模检索场景。
 
 \subsection{小结}
 

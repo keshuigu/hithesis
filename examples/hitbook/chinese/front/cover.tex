@@ -61,24 +61,24 @@
   estudenttype={Master of Engineering},
   %
   % 关键词用“英文逗号”分割
-  ckeywords={人脸识别, 模板逆向攻击, 模型反演, 扩散生成模型, 隐私泄露},
+  ckeywords={人脸识别, 模板逆向攻击, 模型反演攻击, 扩散生成模型, 隐私泄露},
   ekeywords={face recognition, template inversion attack, model inversion attack, diffusion models, privacy leakage},
 }
   % 关键词是为了文献标引工作、用以表示全文主要内容信息的单词或术语。关键词不超过 5
   % 个，每个关键词中间用分号分隔。（模板作者注：关键词分隔符不用考虑，模板会自动处
   % 理。英文关键词同理。）
 \begin{cabstract}
-随着深度学习技术的快速发展，人脸识别系统已广泛应用于身份验证、访问控制等关键领域。然而，系统中暴露的特征表示与模型输出为攻击者提供了可乘之机。本文针对人脸识别系统的两类隐私威胁展开研究：模板逆向攻击（TIA）从泄露的生物特征模板重建人脸图像，模型反演攻击（MIA）从分类模型重建特定身份样本。
+随着深度学习技术的快速发展，人脸识别系统已在身份认证、访问控制等关键领域广泛部署。然而，系统在实现高识别性能的同时，不可避免地在特征表示与模型输出中暴露了与原始图像高度相关的语义信息，为隐私攻击提供了可能。本文针对人脸识别系统面临的隐私泄露风险，系统研究了模板逆向攻击与模型反演攻击两类典型威胁，提出了基于扩散模型的高效逆向重建方法。
 
-本文建立了统一的白盒威胁建模框架。基于扩散概率模型理论，为逆向重建提供了数学工具与算法支撑。针对TIA，提出基于明晰扩散模型（EDM）的方法，通过混合目标函数融合像素空间重建与特征空间感知，采用梯度引导机制动态调整生成轨迹，实现精确的特征匹配。针对MIA，首次将换脸模型应用于模型反演，设计标签条件嵌入层将类别标签映射为身份向量，采用LoRA技术进行参数高效微调。
+本文建立了攻击的形式化框架，明确了攻击者的知识边界与能力假设。针对模板逆向攻击，提出了基于明晰扩散模型的方法，通过角度约束特征匹配对齐超球面特征空间，引入任务不确定性加权框架自动平衡像素去噪与特征感知的协同优化，并采用多样性正则化防止特征空间崩塌。针对模型反演攻击，本文将换脸模型的先验能力引入该任务，通过标签条件嵌入层将类别标签映射为512维身份向量，采用低秩适配技术仅需微调约1\%的参数即可实现对目标分类器决策边界的精确匹配，并采用渐进式三阶段训练策略实现从图像到标签的平滑模态迁移。
 
-实验验证了方法的有效性。TIA方法在LFW数据集误识率$10^{-3}$阈值下攻击成功率达98.50\%，相比现有方法提升6.33\%。MIA方法Top-1准确率达93\%以上，FID值降至23.82{\textasciitilde}28.16，相比最佳基线降低约28\%。本文建立了多维度评估体系，建立了完整的理论框架与方法论规范，为人脸识别系统的隐私风险评估与防御策略设计提供了理论支撑。
+系统性实验验证了所提方法的有效性与先进性。针对模板逆向攻击，所提方法在LFW数据集上于误识率$10^{-3}$阈值下实现X\%的攻击成功率，相比最优基线方法GaFaR提升X\%，在MOBIO、AgeDB、IJB-C数据集上同样取得显著优势。消融实验表明，角度约束特征匹配使攻击成功率从基础模型的X\%提升至X\%，引入任务不确定性加权后进一步提升至X\%，完整模型最终达到X\%，充分验证了各模块的有效性。针对模型反演攻击，所提方法在VGGFace2数据集训练的VGG16分类器上实现X\%的Top-1准确率和X的FID值，相比PLG-MI的FID降低约X\%。在IR152架构上达到X\%的Top-1准确率，在Face.evoLVe上达到X\%，展现出优异的跨架构泛化能力。渐进式三阶段训练策略使Top-1准确率从单阶段的X\%提升至X\%，LoRA配置$r=16$仅需微调0.18\%参数即可实现目标分类器的高效适配。实验充分证明了所提方法在攻击有效性与生成质量上的显著优势，揭示了人脸识别系统面临的隐私泄露风险。
 \end{cabstract}
 
 \begin{eabstract}
-Face recognition systems have been widely deployed in identity verification and access control applications. However, exposed feature representations and model outputs provide opportunities for privacy attacks. This dissertation investigates two core privacy threats: Template Inversion Attack (TIA) reconstructs face images from leaked biometric templates; Model Inversion Attack (MIA) reconstructs identity samples from classification model outputs.
+With the rapid development of deep learning, face recognition systems have been widely deployed in critical domains. However, these systems inevitably expose semantic information, providing opportunities for privacy attacks. This dissertation investigates template inversion attack and model inversion attack, proposing efficient inverse reconstruction methods based on diffusion models.
 
-This dissertation establishes a unified white-box threat model where attackers have model access but no training data. Based on diffusion probabilistic model theory, it provides mathematical tools for inverse reconstruction. For TIA, an EDM-based method is proposed with hybrid objective function combining pixel-space reconstruction and feature-space perception, employing gradient guidance mechanisms to dynamically adjust generation trajectories for precise template matching. For MIA, face-swapping models are first applied to model inversion through label-conditioned embedding layers that map labels to identity vectors, with LoRA-based parameter-efficient fine-tuning.
+For template inversion attack, a method based on Elucidating Diffusion Models is proposed, aligning with ArcFace's hyperspherical feature space through angle-constrained feature matching, introducing task uncertainty weighting to balance pixel denoising and feature perception, and employing diversity regularization. For model inversion attack, this dissertation integrates REFace face-swapping model by designing a label-conditioned embedding layer, using Low-Rank Adaptation to match target classifier decision boundaries with only 1\% parameters, and adopting a progressive three-stage training strategy.
 
-Experimental results validate method effectiveness. The TIA method achieves 98.50\% attack success rate at FMR threshold of $10^{-3}$ on LFW, improving 6.33\% over state-of-the-art. The MIA method maintains Top-1 accuracy above 93\% with FID values of 23.82{\textasciitilde}28.16, approximately 28\% lower than the best baseline. This dissertation establishes comprehensive evaluation framework and method standards, providing theoretical support for privacy risk assessment and defense strategy design in face recognition systems.
+Systematic experiments validate the effectiveness of the proposed methods. For template inversion attack, the method achieves X\% attack success rate at FMR=$10^{-3}$ on LFW dataset, improving by X percentage points over GaFaR, with significant advantages on MOBIO, AgeDB, and IJB-C datasets. Ablation studies show that angle-constrained feature matching improves attack success rate from X\% to X\%, task uncertainty weighting further boosts it to X\%, and the complete model achieves X\%. For model inversion attack, the method achieves X\% Top-1 accuracy and X FID on VGG16 classifier, representing approximately X\% FID reduction compared to PLG-MI. It achieves X\% Top-1 accuracy on IR152 and X\% on Face.evoLVe, demonstrating excellent cross-architecture generalization. The progressive training strategy improves Top-1 accuracy from X\% to X\%, and LoRA $r=16$ achieves efficient adaptation with only 0.18\% parameters fine-tuned. The experiments demonstrate significant advantages in attack effectiveness and generation quality, revealing severe privacy leakage risks in face recognition systems.
 \end{eabstract}
