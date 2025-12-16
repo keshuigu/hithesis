@@ -2,7 +2,7 @@
 \chapter[面向人脸特征提取模型的逆向重建方法]{面向人脸特征提取模型的逆向重建方法}[Reconstruction Method for Face Feature Extraction Models]\label{chap:TIA}
 \section{引言}[Introduction]
 
-本章针对第\ref{sec:background}节所述的基于模板匹配的人脸识别系统，系统研究将已泄露或可获取的特征模板逆向重建为可感知人脸图像的技术方法。根据第\ref{sec:thesis_structure}节对模板逆向重建攻击的定义，本章在明确的威胁模型与形式化任务框架基础上，提出一种基于明晰扩散模型的高保真重建方法。
+本章针对第\ref{sec:background}节所述的基于模板匹配的人脸识别系统，系统研究将已泄露或可获取的特征模板逆向重建为可感知人脸图像的技术方法。根据第\ref{sec:thesis_structure}节对模板逆向重建攻击的定义，本章在明确的威胁模型与形式化任务框架基础上，提出一种基于扩散模型的高保真重建方法。
 
 该方法的核心思想是将扩散模型的强大生成能力与人脸识别的特征匹配目标深度融合，通过设计兼顾像素空间视觉保真度与特征空间识别一致性的混合目标函数，实现两者的协同优化。为解决计算资源受限条件下的高效训练问题，本章采用条件引导、动态权重平衡与采样优化等工程策略，在有限资源下仍获得高质量重建与攻击成功率。此外，本章建立了统一的多维度评估协议，从识别一致性、视觉质量与攻击成功率等角度全面衡量方法性能，为实验验证与对比分析奠定基础。
 
@@ -14,21 +14,23 @@
 \end{equation}
 其中 $\mathrm{sim}(\cdot,\cdot)$ 为余弦相似度，$\tau$ 为系统的验证阈值，$\mathcal{M}_{\text{natural}}$ 表示自然人脸图像分布。攻击成功判据包括：（1）强成功：满足式\eqref{eq:tia_goal}，图像能直接通过身份验证；（2）弱成功：虽未达到 $\tau$ 但显著高于随机基线，泄露部分生物特征信息；（3）视觉质量：重构图像具有合理人脸特征与自然外观。详见第\ref{sec:thesis_structure}节的完整讨论。
 
-\section{基于明晰扩散模型的模板逆向重建方法}[Method Architecture Based on Elucidating Diffusion Models]
+\section{基于扩散模型的重建架构与角度约束损失设计}[Diffusion-based Reconstruction Architecture and Angular Constraint Loss Design]
 \label{sec:tia_architecture}
 
-本章提出一种基于明晰扩散模型(Elucidating Diffusion Models, EDM)的模板逆向重建方法。该方法将扩散模型的生成能力与人脸识别的特征匹配目标相结合,通过设计混合损失函数和条件引导机制,实现从特征模板到高质量人脸图像的逆向重建。相比基于优化的方法,扩散模型具有训练稳定、模式崩塌风险低、生成质量高等优势。
+\subsection{整体架构}
+
+本章提出一种基于扩散模型的模板逆向重建方法，采用EDM\cite{karrasEluvidatingDiffusionModels2022}作为生成骨干网络。该方法将扩散模型的生成能力与人脸识别的特征匹配目标相结合,通过设计混合损失函数和条件引导机制,实现从特征模板到高质量人脸图像的逆向重建。相比基于优化的方法,扩散模型具有训练稳定、模式崩塌风险低、生成质量高等优势。
 
 方法的核心由两个神经网络构成:(1)去噪生成网络 $f_\theta$:可训练的EDM去噪网络,参数为$\theta$,负责从带噪图像生成清晰人脸图像;(2)人脸识别网络 $F$:预训练的固定特征提取器，负责提取图像特征用于身份匹配。两个网络在训练中协同工作但优化目标不同:$f_\theta$通过反向传播更新参数以提升生成质量和特征匹配度,而$F$保持固定仅提供梯度信号指导$f_\theta$的优化方向。
 
-训练阶段通过混合损失函数优化去噪网络,使其在保持视觉质量的同时学习目标身份的特征表示。推理阶段从随机噪声出发,通过迭代去噪并结合目标模板的梯度引导,逐步生成与目标模板匹配的人脸图像。完整的损失函数设计、训练策略与推理流程将在后续章节详细阐述。
+训练阶段通过混合损失函数优化去噪网络,使其在保持视觉质量的同时学习目标身份的特征表示。推理阶段从随机噪声出发,通过迭代去噪并结合目标模板的梯度引导,逐步生成与目标模板匹配的人脸图像。完整的损失函数设计、训练策略与推理流程将在后续小节详细阐述。
 
-\section{混合损失函数设计}[Hybrid Loss Function Design]
+\subsection{混合损失函数设计}
 \label{sec:tia_loss}
 
-损失函数的设计是影响模型性能的关键因素。本节提出一种融合像素空间重建、特征空间匹配与多样性约束的混合损失函数，通过引入角度约束、任务不确定性加权与一致性正则化，实现视觉质量与特征匹配精度的联合优化。
+损失函数的设计是影响模型性能的关键因素。本小节提出一种融合像素空间重建、特征空间匹配与多样性约束的混合损失函数，通过引入角度约束、任务不确定性加权与一致性正则化，实现视觉质量与特征匹配精度的联合优化。
 
-\subsection{总体损失架构}
+\subsubsection{总体损失架构}
 
 本文采用的混合损失函数由三个核心组件构成:像素空间重建损失、特征空间感知损失与多样性正则化损失。通过任务不确定性加权框架实现各损失项的自动平衡:
 \begin{equation}\label{eq:tia_total_loss}
@@ -36,7 +38,7 @@
 \end{equation}
 其中 $\sigma_p$ 和 $\sigma_f$ 为可学习的任务不确定性参数,$\beta$ 为多样性约束权重。 该设计允许模型在训练过程中动态调整各损失项的相对重要性，避免了手动调参的繁琐过程，同时提升了训练稳定性与最终性能。
 
-\subsection{像素空间重建损失}
+\subsubsection{像素空间重建损失}
 
 像素空间的重建损失采用EDM的标准去噪目标,确保生成图像的基础视觉质量:
 \begin{equation}\label{eq:tia_pixel_loss}
@@ -44,7 +46,7 @@
 \end{equation}
 其中 $f_\theta$ 表示去噪网络,输入为带噪图像 $x_0 + \sigma \epsilon$、身份标签 $y$ 和噪声水平 $\sigma$,输出为预测的清晰图像。权重函数 $w(\sigma) = \frac{1}{\sigma^2 + \sigma_{\text{data}}^2}$ 使得模型在不同噪声水平下都能得到均衡训练。该损失保证了生成图像在像素层面与真实图像的接近程度,为后续的特征匹配提供了良好的基础。
 
-\subsection{角度约束的特征空间损失}
+\subsubsection{角度约束的特征空间损失}
 
 为充分利用人脸识别系统的单位超球面几何特性,本文采用基于角度空间的对比约束替代传统的欧氏距离损失。该设计通过显式拉开生成特征与负样本的角度距离,增强特征匹配的判别性:
 \begin{equation}\label{eq:tia_feat_loss}
@@ -54,7 +56,7 @@
 
 （1）几何对齐性：与ArcFace等人脸识别系统的单位超球面设计保持一致，确保特征空间的优化方向与识别器的决策边界对齐。（2）判别性增强：通过引入负样本对比，显式增大生成特征与非目标类别特征的角度距离，提升特征的类别区分度。在实现中，负样本 $x_{\text{neg}}$ 采用半批次随机采样策略，即从当前批次以外的训练样本中随机选取 $B/2$ 个负样本图像，通过识别器 $F$ 提取其特征 $F(x_{\text{neg}})$ 用于对比学习，确保对比约束的多样性与计算效率的平衡。（3）梯度稳定性：相比欧氏距离，余弦相似度在特征高度相似时仍能提供有效的梯度信号，避免梯度消失问题。
 
-\subsection{多样性约束与正则化}
+\subsubsection{多样性约束与正则化}
 
 为防止模型在特征空间发生模式崩溃，即所有同类样本生成相同的人脸,本文引入类内多样性约束。该约束通过最大化批内样本特征的角度距离,鼓励模型生成具有合理变化的多样化人脸:
 \begin{equation}\label{eq:tia_diversity_loss}
@@ -62,7 +64,7 @@
 \end{equation}
 其中 $B$ 为批大小,$\hat{x}_i, \hat{x}_j$ 为同一批次中生成的不同样本。该损失项确保生成的人脸在保持目标身份特征的同时,仍具有姿态、表情、光照等属性的合理变化,提升了攻击的隐蔽性与实用性。
 
-\section{训练与推理流程}[Training and Inference Procedure]
+\section{分阶段训练策略与模板引导推理}[Multi-stage Training Strategy and Template-guided Inference]
 \label{sec:tia_training_inference}
 
 \subsection{训练流程与分阶段策略}
@@ -75,7 +77,7 @@
 \begin{equation}\label{eq:tia_warmup_loss}
   \mathcal{L}_{\text{warmup}}(\theta) = \mathcal{L}_{\text{pixel}}(\theta),
 \end{equation}
-仅优化去噪网络参数$\theta$，不引入任务不确定性参数。该阶段确保模型在像素空间建立良好的先验知识，生成具有合理人脸结构的图像，为后续特征匹配优化奠定基础。预热阶段的训练过程如图~\ref{fig:edm_tia_train}所示。
+仅优化去噪网络参数$\theta$，不引入任务不确定性参数。该阶段确保模型在像素空间建立良好的先验知识，生成具有合理人脸结构的图像，为后续特征匹配优化奠定基础。
 
 \subsubsection{主训练阶段}
 
@@ -85,46 +87,33 @@
 
 \subsubsection{完整训练算法}
 
-综合上述两阶段策略，完整的训练流程如算法\ref{alg:edm_tia_train}所示。训练过程采用标准的随机梯度下降优化，每次迭代从训练集中随机采样一批数据，生成带噪样本，根据当前训练阶段计算相应的损失函数并更新模型参数。具体而言，在预热阶段仅计算并优化像素损失，而在主训练阶段则计算包含像素损失、特征损失和多样性损失的完整混合损失，并同时更新网络参数$\theta$与任务不确定性参数$\sigma_p, \sigma_f$。
+综合上述两阶段策略，完整的训练流程如算法\ref{alg:edm_tia_train}所示。图~\ref{fig:edm_tia_train}展示了训练流程的整体架构，去噪网络$f_\theta$接收带噪图像预测清晰图像$\hat{x}_0$，通过像素损失$\mathcal{L}_{\text{pixel}}$与特征损失$\mathcal{L}_{\text{feat}}$的混合优化，结合任务不确定性加权机制实现联合学习。训练过程采用标准的随机梯度下降优化，每次迭代从训练集中随机采样一批数据，生成带噪样本，根据当前训练阶段计算相应的损失函数并更新模型参数。具体而言，在预热阶段仅计算并优化像素损失，而在主训练阶段则计算包含像素损失、特征损失和多样性损失的完整混合损失，并同时更新网络参数$\theta$与任务不确定性参数$\sigma_p, \sigma_f$。
 
 \begin{figure}[!htbp]
   \centering
   \includegraphics[width=0.8\textwidth]{images/train.drawio.pdf}
-  \caption{模板逆向攻击模型训练流程。去噪网络$f_\theta$接收带噪图像预测清晰图像$\hat{x}_0$，通过像素损失$\mathcal{L}_{\text{pixel}}$与特征损失$\mathcal{L}_{\text{feat}}$的混合优化，结合任务不确定性加权机制实现联合学习。}
+  \caption{模板逆向攻击模型训练流程}
   \label{fig:edm_tia_train}
 \end{figure}
 
-\subsubsection{完整训练算法}
-
-综合上述两阶段策略，完整的训练流程如算法\ref{alg:edm_tia_train}所示。训练过程采用标准的随机梯度下降优化，每次迭代从训练集中随机采样一批数据，生成带噪样本，根据当前训练阶段计算相应的损失函数并更新模型参数。具体而言，在预热阶段仅计算并优化像素损失，而在主训练阶段则计算包含像素损失、特征损失和多样性损失的完整混合损失，并同时更新网络参数$\theta$与任务不确定性参数$\sigma_p, \sigma_f$。
-
-\begin{algorithm}[htbp]
+\begin{algorithm}[!htb]
   \caption{带预热的模板逆向攻击模型训练}
   \label{alg:edm_tia_train}
   \begin{algorithmic}[1]
     \REQUIRE 训练样本集 $\mathcal{D} = \{(x_i, y_i)\}_{i=1}^N$，扩散生成模型 $f_\theta$，特征提取网络 $F$，学习率 $\eta$，批大小 $B$，预热步数 $t_{\text{warmup}}$
     \ENSURE 训练后的生成模型参数 $\theta$ 和任务不确定性参数 $\sigma_p, \sigma_f$
-    \STATE 初始化模型参数 $\theta$，初始化 $\log\sigma_p \leftarrow 0, \log\sigma_f \leftarrow 0$
+    \STATE 初始化 $\theta, \log\sigma_p \leftarrow 0, \log\sigma_f \leftarrow 0$
     \FOR{训练步数 $t = 1$ 到 $T_{\text{max}}$}
-    \STATE 从 $\mathcal{D}$ 中随机采样批数据 $\{(x_0^{(j)}, y^{(j)})\}_{j=1}^B$
-    \FOR{批内样本 $j = 1$ 到 $B$}
-    \STATE 采样噪声水平 $\sigma^{(j)} \sim p_{\sigma}$，采样标准噪声 $\epsilon^{(j)} \sim \mathcal{N}(0, I)$
-    \STATE 构造带噪输入 $x_t^{(j)} = x_0^{(j)} + \sigma^{(j)} \epsilon^{(j)}$
-    \STATE 通过去噪网络预测清晰图像 $\hat{x}_0^{(j)} = f_\theta(x_t^{(j)}, y^{(j)}, \sigma^{(j)})$
-    \STATE 计算像素损失 $\ell_{\text{pixel}}^{(j)} = w(\sigma^{(j)}) \| \hat{x}_0^{(j)} - x_0^{(j)} \|^2$
-    \ENDFOR
-    \STATE 计算批平均像素损失 $\bar{\ell}_{\text{pixel}} = \frac{1}{B} \sum_{j=1}^B \ell_{\text{pixel}}^{(j)}$
+    \STATE 采样批数据 $\{(x_0^{(j)}, y^{(j)})\}_{j=1}^B$，噪声水平 $\{\sigma^{(j)} \sim p_{\sigma}\}$，标准噪声 $\{\epsilon^{(j)} \sim \mathcal{N}(0, I)\}$
+    \STATE 构造带噪输入 $x_t^{(j)} = x_0^{(j)} + \sigma^{(j)} \epsilon^{(j)}$，预测 $\hat{x}_0^{(j)} = f_\theta(x_t^{(j)}, y^{(j)}, \sigma^{(j)})$
+    \STATE 计算像素损失 $\bar{\ell}_{\text{pixel}} = \frac{1}{B} \sum_{j=1}^B w(\sigma^{(j)}) \| \hat{x}_0^{(j)} - x_0^{(j)} \|^2$
     \IF{$t < t_{\text{warmup}}$}
-    \STATE 设置损失 $\mathcal{L} = \bar{\ell}_{\text{pixel}}$
-    \STATE 更新模型参数 $\theta \leftarrow \theta - \eta \nabla_\theta \mathcal{L}$
+    \STATE 更新 $\theta \leftarrow \theta - \eta \nabla_\theta \bar{\ell}_{\text{pixel}}$
     \ELSE
-    \FOR{批内样本 $j = 1$ 到 $B$}
-    \STATE 计算特征损失 $\ell_{\text{feat}}^{(j)} = \max(0, m + \cos(F(\hat{x}_0^{(j)}), f_{\text{neg}}) - \cos(F(\hat{x}_0^{(j)}), F(x_0^{(j)})))$
-    \ENDFOR
-    \STATE 计算批平均特征损失 $\bar{\ell}_{\text{feat}} = \frac{1}{B} \sum_{j=1}^B \ell_{\text{feat}}^{(j)}$
-    \STATE 计算多样性损失 $\ell_{\text{div}} = \frac{1}{2B^2} \sum_{i \neq j} (1 - \cos(F(\hat{x}_i), F(\hat{x}_j)))$
-    \STATE 计算完整损失 $\mathcal{L} = \frac{1}{2\sigma_p^2}\bar{\ell}_{\text{pixel}} + \frac{1}{2}\log\sigma_p^2 + \frac{1}{2\sigma_f^2}\bar{\ell}_{\text{feat}} + \frac{1}{2}\log\sigma_f^2 - \beta \ell_{\text{div}}$
-    \STATE 同时更新 $\theta, \sigma_p, \sigma_f \leftarrow \text{Optimizer}(\nabla_{\theta,\sigma_p,\sigma_f} \mathcal{L})$
+    \STATE 计算特征损失 $\bar{\ell}_{\text{feat}} = \frac{1}{B} \sum_j \max(0, m + \cos(F(\hat{x}_0^{(j)}), f_{\text{neg}}) - \cos(F(\hat{x}_0^{(j)}), F(x_0^{(j)})))$
+    \STATE 计算多样性损失 $\ell_{\text{div}} = -\frac{1}{2B^2} \sum_{i \neq j} \cos(F(\hat{x}_i), F(\hat{x}_j))$
+    \STATE 完整损失 $\mathcal{L} = \frac{1}{2\sigma_p^2}\bar{\ell}_{\text{pixel}} + \frac{1}{2\sigma_f^2}\bar{\ell}_{\text{feat}} + \frac{1}{2}(\log\sigma_p^2 + \log\sigma_f^2) + \beta \ell_{\text{div}}$
+    \STATE 更新 $\theta, \sigma_p, \sigma_f \leftarrow \text{Optimizer}(\nabla_{\theta,\sigma_p,\sigma_f} \mathcal{L})$
     \ENDIF
     \ENDFOR
     \RETURN $\theta, \sigma_p, \sigma_f$
@@ -160,7 +149,7 @@ EDM采用确定性的ODE求解器进行采样，其离散化形式为：
 
 完整的模板条件推理流程如算法\ref{alg:edm_tia_infer}所示。
 
-\begin{algorithm}[htbp]
+\begin{algorithm}[!htb]
   \caption{基于目标模板的推理重建}
   \label{alg:edm_tia_infer}
   \begin{algorithmic}[1]
@@ -181,19 +170,22 @@ EDM采用确定性的ODE求解器进行采样，其离散化形式为：
   \end{algorithmic}
 \end{algorithm}
 
+完整的模板条件推理流程如图~\ref{fig:edm_tia_infer}所示。在推理阶段，模型从随机噪声$x_N$开始，逐步通过去噪网络$f_\theta$预测清晰图像$\hat{x}_0$，并计算特征相似度$s = \mathrm{sim}(F(x_i), t)$以及引导梯度$g = \nabla_{x_i} s$，最终在指定目标模板$t$的引导下生成与该模板匹配的人脸图像。
+
 \begin{figure}[!htbp]
   \centering
   \includegraphics[width=0.8\textwidth]{images/infer.drawio.pdf}
-  \caption{模板逆向攻击模型推理流程。从噪声$x_N$出发，通过$N$步迭代去噪，每步结合去噪网络预测与特征引导梯度$\nabla_{x_i}\text{sim}(F(x_i),t)$，逐步生成与目标模板匹配的人脸图像。}
+  \caption{模板逆向攻击模型推理流程}
   \label{fig:edm_tia_infer}
 \end{figure}
 
 \section{本章小结}[Summary]
+\label{sec:tia_summary}
 
 本章针对人脸识别系统中基于模板匹配的验证机制，系统研究了面向人脸特征提取模型的逆向重建方法。通过对模板信息逆向重建为可感知图像的技术路径进行深入探讨，本章为后续章节的实验验证奠定了理论与方法论基础。
 
 首先，本章对攻击任务与假设进行了形式化表述，明确定义了原始图像空间、识别器映射以及目标模板的数学形式，并给出了基于余弦相似度的验证机制。在此基础上，将攻击者的目标形式化为一个优化问题，即最大化重构图像与目标模板在特征空间中的相似度，为攻击成功判据提供了清晰的数学刻画。这一形式化框架不仅有助于理解模板逆向重建的本质，也为后续方法的设计与评估提供了统一的理论基础。
 
-其次，本章提出了一种基于明晰扩散模型的模板逆向重建方法。该方法的核心创新在于将扩散生成模型的去噪过程与人脸识别的特征匹配目标相结合，通过设计包含像素空间重建损失与特征空间感知损失的混合目标函数，实现了视觉质量与识别一致性的双重优化。为平衡这两项损失的作用，本章采用了动态调整策略，在训练过程中逐步增强特征空间约束的权重，使模型在学习基础图像结构的同时，能够有效捕获目标模板的特征信息。此外，本章还详细阐述了训练与推理的完整流程，并通过算法伪码与流程图对关键步骤进行了可视化说明，为方法的实现与复现提供了清晰的指导。
+其次，本章提出了一种基于扩散模型的模板逆向重建方法。该方法的核心创新在于将扩散生成模型的去噪过程与人脸识别的特征匹配目标相结合，通过设计包含像素空间重建损失与特征空间感知损失的混合目标函数，实现了视觉质量与识别一致性的双重优化。为平衡这两项损失的作用，本章采用了动态调整策略，在训练过程中逐步增强特征空间约束的权重，使模型在学习基础图像结构的同时，能够有效捕获目标模板的特征信息。此外，本章还详细阐述了训练与推理的完整流程，并通过算法伪码与流程图对关键步骤进行了可视化说明，为方法的实现与复现提供了清晰的指导。
 
 综上所述，本章通过形式化的问题建模与基于扩散模型的方法设计，为面向人脸特征提取模型的逆向重建提供了系统的解决方案。该方法不仅在理论层面揭示了模板信息与图像空间之间的映射关系，也在工程层面展示了如何利用现代生成模型技术实现高质量的模板逆向重建。本章所提出的方法框架与评估标准，将为第五章的实验研究与性能分析提供重要的理论支撑与方法指导。
