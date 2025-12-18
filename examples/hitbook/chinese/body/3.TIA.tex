@@ -10,9 +10,9 @@
 
 根据第\ref{chap:theory}章建立的人脸识别系统框架,简要回顾TIA的形式化定义。令人脸识别器为 $F:\mathcal{X}\to\mathbb{R}^d$,该函数将输入图像 $x\in\mathcal{X}\subseteq\mathbb{R}^{H\times W\times C}$ 映射为 $d$ 维特征向量(即特征模板)。这里 $F$ 表示预训练的固定人脸识别模型(如ArcFace、CosFace等),在整个攻击过程中保持参数不变,仅用于提取特征和计算相似度。给定目标模板 $t\in\mathbb{R}^d$,攻击者的目标是重构图像 $\hat{x}$ 使得:
 \begin{equation}\label{eq:tia_goal}
-  \mathrm{sim}(F(\hat{x}), t) \geq \tau \quad \text{且} \quad \hat{x} \in \mathcal{M}_{\text{natural}},
+  \mathrm{sim}(F(\hat{x}), t) \geq \tau \quad \text{且} \quad \hat{x} \in \mathcal{M}_{\text{natural}}
 \end{equation}
-其中 $\mathrm{sim}(\cdot,\cdot)$ 为余弦相似度，$\tau$ 为系统的验证阈值，$\mathcal{M}_{\text{natural}}$ 表示自然人脸图像分布。攻击成功判据包括：（1）强成功：满足式\eqref{eq:tia_goal}，图像能直接通过身份验证；（2）弱成功：虽未达到 $\tau$ 但显著高于随机基线，泄露部分生物特征信息；（3）视觉质量：重构图像具有合理人脸特征与自然外观。详见第\ref{sec:thesis_structure}节的完整讨论。
+，其中 $\mathrm{sim}(\cdot,\cdot)$ 为余弦相似度，$\tau$ 为系统的验证阈值，$\mathcal{M}_{\text{natural}}$ 表示自然人脸图像分布。攻击成功判据包括：（1）强成功：满足式\eqref{eq:tia_goal}，图像能直接通过身份验证；（2）弱成功：虽未达到 $\tau$ 但显著高于随机基线，泄露部分生物特征信息；（3）视觉质量：重构图像具有合理人脸特征与自然外观。详见第\ref{sec:thesis_structure}节的完整讨论。
 
 \section{基于扩散模型的重建架构与角度约束损失设计}[Diffusion-based Reconstruction Architecture and Angular Constraint Loss Design]
 \label{sec:tia_architecture}
@@ -34,23 +34,23 @@
 
 本文采用的混合损失函数由三个核心组件构成:像素空间重建损失、特征空间感知损失与多样性正则化损失。通过任务不确定性加权框架实现各损失项的自动平衡:
 \begin{equation}\label{eq:tia_total_loss}
-    \mathcal{L}(\theta) = \frac{1}{2\sigma_p^2} \mathcal{L}_{\text{pixel}}(\theta) + \frac{1}{2}\log\sigma_p^2 + \frac{1}{2\sigma_f^2} \mathcal{L}_{\text{feat}}(\theta) + \frac{1}{2}\log\sigma_f^2 - \beta \cdot \mathcal{L}_{\text{div}}(\theta),
+    \mathcal{L}(\theta) = \frac{1}{2\sigma_p^2} \mathcal{L}_{\text{pixel}}(\theta) + \frac{1}{2}\log\sigma_p^2 + \frac{1}{2\sigma_f^2} \mathcal{L}_{\text{feat}}(\theta) + \frac{1}{2}\log\sigma_f^2 - \beta \cdot \mathcal{L}_{\text{div}}(\theta)
 \end{equation}
-其中 $\sigma_p$ 和 $\sigma_f$ 为可学习的任务不确定性参数,$\beta$ 为多样性约束权重。 该设计允许模型在训练过程中动态调整各损失项的相对重要性，避免了手动调参的繁琐过程，同时提升了训练稳定性与最终性能。
+，其中 $\sigma_p$ 和 $\sigma_f$ 为可学习的任务不确定性参数,$\beta$ 为多样性约束权重。 该设计允许模型在训练过程中动态调整各损失项的相对重要性，避免了手动调参的繁琐过程，同时提升了训练稳定性与最终性能。
 
 \subsubsection{像素空间重建损失}
 
 像素空间的重建损失采用EDM的标准去噪目标,确保生成图像的基础视觉质量:
 \begin{equation}\label{eq:tia_pixel_loss}
-  \mathcal{L}_{\text{pixel}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ w(\sigma) \left\| f_\theta(x_0 + \sigma \epsilon, y, \sigma) - x_0 \right\|^2 \right],
+  \mathcal{L}_{\text{pixel}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ w(\sigma) \left\| f_\theta(x_0 + \sigma \epsilon, y, \sigma) - x_0 \right\|^2 \right]
 \end{equation}
-其中 $f_\theta$ 表示去噪网络,输入为带噪图像 $x_0 + \sigma \epsilon$、身份标签 $y$ 和噪声水平 $\sigma$,输出为预测的清晰图像。权重函数 $w(\sigma) = \frac{1}{\sigma^2 + \sigma_{\text{data}}^2}$ 使得模型在不同噪声水平下都能得到均衡训练。该损失保证了生成图像在像素层面与真实图像的接近程度,为后续的特征匹配提供了良好的基础。
+，其中 $f_\theta$ 表示去噪网络,输入为带噪图像 $x_0 + \sigma \epsilon$、身份标签 $y$ 和噪声水平 $\sigma$,输出为预测的清晰图像。权重函数 $w(\sigma) = \frac{1}{\sigma^2 + \sigma_{\text{data}}^2}$ 使得模型在不同噪声水平下都能得到均衡训练。该损失保证了生成图像在像素层面与真实图像的接近程度,为后续的特征匹配提供了良好的基础。
 
 \subsubsection{角度约束的特征空间损失}
 
 为充分利用人脸识别系统的单位超球面几何特性,本文采用基于角度空间的对比约束替代传统的欧氏距离损失。该设计通过显式拉开生成特征与负样本的角度距离,增强特征匹配的判别性:
 \begin{equation}\label{eq:tia_feat_loss}
-    \mathcal{L}_{\text{feat}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ \max\left(0, m + \frac{\langle F(\hat{x}_0), F(x_{\text{neg}}) \rangle}{\|F(\hat{x}_0)\|_2 \|F(x_{\text{neg}})\|_2} - \frac{\langle F(\hat{x}_0), F(x_0) \rangle}{\|F(\hat{x}_0)\|_2 \|F(x_0)\|_2}\right) \right],
+    \mathcal{L}_{\text{feat}}(\theta) = \mathbb{E}_{x_0, \sigma, \epsilon} \left[ \max\left(0, m + \frac{\langle F(\hat{x}_0), F(x_{\text{neg}}) \rangle}{\|F(\hat{x}_0)\|_2 \|F(x_{\text{neg}})\|_2} - \frac{\langle F(\hat{x}_0), F(x_0) \rangle}{\|F(\hat{x}_0)\|_2 \|F(x_0)\|_2}\right) \right]
 \end{equation}
 其中 $\hat{x}_0 = f_\theta(x_0 + \sigma \epsilon, y, \sigma)$ 为去噪网络生成的清晰图像,$F(\hat{x}_0)$ 和 $F(x_0)$ 分别为识别器 $F$ 提取的生成图像和真实图像的特征向量,$m \in [0.3, 0.5]$ 为角度裕度,$x_{\text{neg}}$ 为从训练集随机采样的负样本图像,$F(x_{\text{neg}})$ 为其对应的特征向量。该损失函数具有以下优势:
 
@@ -60,9 +60,9 @@
 
 为防止模型在特征空间发生模式崩溃，即所有同类样本生成相同的人脸,本文引入类内多样性约束。该约束通过最大化批内样本特征的角度距离,鼓励模型生成具有合理变化的多样化人脸:
 \begin{equation}\label{eq:tia_diversity_loss}
-    \mathcal{L}_{\text{div}}(\theta) = \frac{1}{2B^2} \sum_{i \neq j} \left( 1 - \frac{\langle F(\hat{x}_i), F(\hat{x}_j) \rangle}{\|F(\hat{x}_i)\|_2 \|F(\hat{x}_j)\|_2} \right),
+    \mathcal{L}_{\text{div}}(\theta) = \frac{1}{2B^2} \sum_{i \neq j} \left( 1 - \frac{\langle F(\hat{x}_i), F(\hat{x}_j) \rangle}{\|F(\hat{x}_i)\|_2 \|F(\hat{x}_j)\|_2} \right)
 \end{equation}
-其中 $B$ 为批大小,$\hat{x}_i, \hat{x}_j$ 为同一批次中生成的不同样本。该损失项确保生成的人脸在保持目标身份特征的同时,仍具有姿态、表情、光照等属性的合理变化,提升了攻击的隐蔽性与实用性。
+，其中 $B$ 为批大小,$\hat{x}_i, \hat{x}_j$ 为同一批次中生成的不同样本。该损失项确保生成的人脸在保持目标身份特征的同时,仍具有姿态、表情、光照等属性的合理变化,提升了攻击的隐蔽性与实用性。
 
 \section{分阶段训练策略与模板引导推理}[Multi-stage Training Strategy and Template-guided Inference]
 \label{sec:tia_training_inference}
@@ -91,7 +91,7 @@
 
 \begin{figure}[!htbp]
   \centering
-  \includegraphics[width=0.8\textwidth]{images/train.drawio.pdf}
+  \includegraphics[width=\textwidth]{images/train-1.pdf}
   \caption{模板逆向攻击模型训练流程}
   \label{fig:edm_tia_train}
 \end{figure}
@@ -127,21 +127,21 @@
 \subsubsection{基础采样过程}
 
 EDM采用确定性的ODE求解器进行采样，其离散化形式为：
-\[
-  x_{i-1} = x_i + (\sigma_{i-1} - \sigma_i) \cdot \frac{f_\theta(x_i, y, \sigma_i) - x_i}{\sigma_i},
-\]
+\begin{equation}\label{eq:tia_sampling_update}
+  x_{i-1} = x_i + (\sigma_{i-1} - \sigma_i) \cdot \frac{f_\theta(x_i, y, \sigma_i) - x_i}{\sigma_i}
+\end{equation}
 其中 $\{\sigma_N > \sigma_{N-1} > \cdots > \sigma_0\}$ 为预设的噪声调度序列，$N$ 为采样步数。初始状态 $x_N$ 从标准正态分布采样，即 $x_N \sim \mathcal{N}(0, \sigma_N^2 I)$。条件信息 $y$ 可以是身份标签或目标特征模板。
 
 \subsubsection{模板条件引导}
 
 为增强生成图像与目标模板的匹配度，在采样过程中引入梯度引导机制。具体而言，在每个去噪步骤中，除了沿着学习到的分数函数方向更新外，还额外施加一个朝向目标模板的梯度项：
-\[
-  x_{i-1} = x_i + (\sigma_{i-1} - \sigma_i) \cdot \left[ \frac{f_\theta(x_i, y, \sigma_i) - x_i}{\sigma_i} + \alpha \cdot \nabla_{x_i} \mathrm{sim}(F(x_i), t) \right],
-\]
+\begin{equation}\label{eq:tia_guided_update}
+  x_{i-1} = x_i + (\sigma_{i-1} - \sigma_i) \cdot \left[ \frac{f_\theta(x_i, y, \sigma_i) - x_i}{\sigma_i} + \alpha \cdot \nabla_{x_i} \mathrm{sim}(F(x_i), t) \right]
+\end{equation}
 其中 $t \in \mathbb{R}^d$ 为目标特征模板，$\alpha$ 为引导强度超参数，$\mathrm{sim}(\cdot, \cdot)$ 为相似度函数（如余弦相似度）。引导梯度通过反向传播计算：
-\[
-  \nabla_{x_i} \mathrm{sim}(F(x_i), t) = \nabla_{x_i} \left[ \frac{F(x_i) \cdot t}{\|F(x_i)\|_2 \|t\|_2} \right].
-\]
+\begin{equation}\label{eq:tia_guided_grad}
+  \nabla_{x_i} \mathrm{sim}(F(x_i), t) = \nabla_{x_i} \left[ \frac{F(x_i) \cdot t}{\|F(x_i)\|_2 \|t\|_2} \right]
+\end{equation}
 
 引导强度 $\alpha$ 的选择需要权衡生成质量与模板匹配度。较大的 $\alpha$ 能够提升特征相似度，但可能导致图像失真；较小的 $\alpha$ 则保持较好的视觉质量，但匹配度可能不足。
 
@@ -174,7 +174,7 @@ EDM采用确定性的ODE求解器进行采样，其离散化形式为：
 
 \begin{figure}[!htbp]
   \centering
-  \includegraphics[width=0.8\textwidth]{images/infer.drawio.pdf}
+  \includegraphics[width=\textwidth]{images/infer.pdf}
   \caption{模板逆向攻击模型推理流程}
   \label{fig:edm_tia_infer}
 \end{figure}

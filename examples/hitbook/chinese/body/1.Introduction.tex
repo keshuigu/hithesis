@@ -30,7 +30,7 @@
 
 针对人脸识别系统，Mai等人\cite{5995616}证明了通过反向优化可以从局部二值模式、方向梯度直方图等传统图像特征中恢复原始人脸图像。进入深度学习时代后，针对深度特征嵌入的逆向重建成为研究重点。这类方法通常将重建问题建模为如下优化问题：
 \begin{equation}
-\hat{x} = \arg\min_{x} \, \|F(x) - t\|^2 + \lambda_{\text{TV}} \mathcal{R}_{\text{TV}}(x) + \lambda_{\text{norm}} \|x\|^2,
+\hat{x} = \arg\min_{x} \, \|F(x) - t\|^2 + \lambda_{\text{TV}} \mathcal{R}_{\text{TV}}(x) + \lambda_{\text{norm}} \|x\|^2
 \end{equation}
 其中 $F(\cdot)$ 为特征提取器，$t$ 为目标模板，$\mathcal{R}_{\text{TV}}(\cdot)$ 为全变分正则化项用于平滑图像，$\lambda_{\text{TV}}$ 和 $\lambda_{\text{norm}}$ 为权衡系数。Fredrikson等人\cite{fredrikson2015model}将类似思想应用于模型反演攻击，证明当分类模型返回完整的类别置信度分布时，攻击者可通过迭代优化重建出与训练样本高度相似的图像。
 
@@ -81,20 +81,20 @@ Shahreza等人\cite{shahreza2023template}提出的GaFaR（GANs for Face Reconstr
 
 为方便后文形式化与讨论，本节对本文研究的两类主要逆向重建攻击任务给出明确定义与形式化描述：
 
-模板逆向重建攻击针对基于特征提取器的检索型人脸识别系统。设特征提取器为 $f: \mathbb{R}^{H \times W \times C} \to \mathbb{R}^d$，将输入图像 $x$ 映射为 $d$ 维特征嵌入 $e = f(x)$。攻击者通过数据库泄露等途径获得目标身份的特征模板 $t = f(x_0) \in \mathbb{R}^d$，其目标是构造逆映射函数 $g: \mathbb{R}^d \to \mathbb{R}^{H \times W \times C}$，生成图像 $\hat{x} = g(t)$，使得其满足两个特性：（1）身份一致性：$f(\hat{x}) \approx t$，即生成图像的特征嵌入与目标模板在度量空间中接近，满足 $\text{sim}(f(\hat{x}), t) > \tau$，其中 $\text{sim}(\cdot, \cdot)$ 为相似度度量函数（常采用余弦相似度），$\tau$ 为识别系统的验证阈值；（2）视觉真实性：$\hat{x}$ 具有自然的人脸特征和纹理细节，在感知质量上与真实人脸图像无明显差异。
+模板逆向重建攻击针对基于特征提取器的检索型人脸识别系统。设特征提取器为 $F: \mathbb{R}^{H \times W \times C} \to \mathbb{R}^d$，将输入图像 $x$ 映射为 $d$ 维特征嵌入 $e = F(x)$。攻击者通过数据库泄露等途径获得目标身份的特征模板 $t = F(x_0) \in \mathbb{R}^d$，其目标是构造逆映射函数 $g: \mathbb{R}^d \to \mathbb{R}^{H \times W \times C}$，生成图像 $\hat{x} = g(t)$，使得其满足两个特性：（1）身份一致性：$F(\hat{x}) \approx t$，即生成图像的特征嵌入与目标模板在度量空间中接近，满足 $\text{sim}(F(\hat{x}), t) > \tau$，其中 $\text{sim}(\cdot, \cdot)$ 为相似度度量函数（常采用余弦相似度），$\tau$ 为识别系统的验证阈值；（2）视觉真实性：$\hat{x}$ 具有自然的人脸特征和纹理细节，在感知质量上与真实人脸图像无明显差异。
 
 形式化地，模板逆向重建攻击问题可建模为如下优化问题：
 \begin{equation}
-\hat{x} = \arg\min_x \; \mathcal{L}_{embed}(f(x),t) + \lambda_{perc}\mathcal{L}_{perc}(x) + \lambda_{reg}R(x),
+\hat{x} = \arg\min_x \; \mathcal{L}_{embed}(F(x),t) + \lambda_{perc}\mathcal{L}_{perc}(x) + \lambda_{reg}R(x)
 \end{equation}
-其中 $\mathcal{L}_{embed}$ 为嵌入空间距离损失，可采用余弦距离 $1-\cos(f(x),t)$ 或欧氏距离 $\|f(x)-t\|_2^2$；$\mathcal{L}_{perc}$ 为感知质量损失；$R(\cdot)$ 为正则化项或先验约束；$\lambda_{perc}$ 和 $\lambda_{reg}$ 为权衡系数。
+其中 $\mathcal{L}_{embed}$ 为嵌入空间距离损失，可采用余弦距离 $1-\cos(F(x),t)$ 或欧氏距离 $\|F(x)-t\|_2^2$；$\mathcal{L}_{perc}$ 为感知质量损失；$R(\cdot)$ 为正则化项或先验约束；$\lambda_{perc}$ 和 $\lambda_{reg}$ 为权衡系数。
 
-模型反演攻击针对基于分类的端到端人脸识别系统。设分类模型为 $F_\theta: \mathcal{X} \to \mathbb{R}^C$，将输入图像 $x \in \mathcal{X}$ 映射为 $C$ 个类别的置信度向量。攻击者针对目标类别 $y^* \in \{1, 2, \ldots, C\}$，通过访问模型输出与梯度信息，生成图像集合 $\{\hat{x}_1, \hat{x}_2, \ldots, \hat{x}_K\}$，使其同时满足以下条件：（1）分类器认同度：生成图像 $\hat{x}_k$ 被目标分类器以高置信度识别为目标类别，即 $F_\theta(\hat{x}_k)_{y^*} \geq \tau$；（2）感知真实性：生成图像在视觉上与真实人脸无明显差异，感知距离 $d_{\text{perc}}(\hat{x}_k, \mathcal{X}_{\text{real}}) \leq \delta$；（3）身份相关性：生成图像包含目标类别对应身份的特征信息，与训练样本相似度 $\text{sim}(\hat{x}_k, \mathcal{X}_{y^*}) \geq \gamma$；（4）多样性：生成的多个样本覆盖不同姿态、表情、光照等变化，避免模式崩溃。综合上述目标，MIA可建模为约束优化问题：
+模型反演攻击针对基于分类的端到端人脸识别系统。设分类模型为 $F_\theta: \mathcal{X} \to \mathbb{R}^C$，将输入图像 $x \in \mathcal{X}$ 映射为 $C$ 个类别的置信度向量。攻击者针对目标类别 $y_{\text{target}} \in \{1, 2, \ldots, C\}$，通过访问模型输出与梯度信息，生成图像集合 $\{\hat{x}_1, \hat{x}_2, \ldots, \hat{x}_K\}$，使其同时满足以下条件：（1）分类器认同度：生成图像 $\hat{x}_k$ 被目标分类器以高置信度识别为目标类别，即 $F_\theta(\hat{x}_k)_{y_{\text{target}}} \geq \tau$；（2）感知真实性：生成图像在视觉上与真实人脸无明显差异，感知距离 $d_{\text{perc}}(\hat{x}_k, \mathcal{X}_{\text{real}}) \leq \delta$；（3）身份相关性：生成图像包含目标类别对应身份的特征信息，与训练样本相似度 $\text{sim}(\hat{x}_k, \mathcal{X}_{y_{\text{target}}}) \geq \gamma$；（4）多样性：生成的多个样本覆盖不同姿态、表情、光照等变化，避免模式崩溃。综合上述目标，MIA可建模为约束优化问题：
 \begin{equation}
 \begin{aligned}
-    \max_{\{\hat{x}_k\}_{k=1}^K} \quad & \sum_{k=1}^K F_\theta(\hat{x}_k)_{y^*} \\\
+    \max_{\{\hat{x}_k\}_{k=1}^K} \quad & \sum_{k=1}^K F_\theta(\hat{x}_k)_{y_{\text{target}}} \\\
     \text{s.t.} \quad & d_{\text{perc}}(\hat{x}_k, \mathcal{X}_{\text{real}}) \leq \delta, \quad \forall k, \\\
-    & \text{sim}(\hat{x}_k, \mathcal{X}_{y^*}) \geq \gamma, \quad \forall k, \\\
+    & \text{sim}(\hat{x}_k, \mathcal{X}_{y_{\text{target}}}) \geq \gamma, \quad \forall k, \\\
     & \text{Var}(\{\hat{x}_k\}_{k=1}^K) \geq \rho.
 \end{aligned}
 \end{equation}

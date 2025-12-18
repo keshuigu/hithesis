@@ -38,9 +38,9 @@
 
 （2）Fréchet Inception Distance（FID）。衡量生成图像分布与真实图像分布的距离,FID值越低表示分布越接近:
 \begin{equation}
-\text{FID} = \|\mu_r - \mu_g\|_2^2 + \text{Tr}(\Sigma_r + \Sigma_g - 2(\Sigma_r\Sigma_g)^{1/2}),
+\text{FID} = \|\mu_r - \mu_g\|_2^2 + \text{Tr}(\Sigma_r + \Sigma_g - 2(\Sigma_r\Sigma_g)^{1/2})
 \end{equation}
-其中$\mu_r, \Sigma_r$和$\mu_g, \Sigma_g$分别为真实图像和生成图像在Inception-v3特征空间的均值与协方差。
+，其中$\mu_r, \Sigma_r$和$\mu_g, \Sigma_g$分别为真实图像和生成图像在Inception-v3特征空间的均值与协方差。
 
 （3）身份保持度（ID Preservation, ID-Pres）。使用预训练ArcFace模型计算生成图像与目标身份真实图像之间的特征相似度,衡量身份信息的保留程度。计算方式为余弦相似度$\text{CosSim}(F(\hat{x}), F(x_{\text{target}}))$,值越高表示身份保持越好。
 
@@ -56,9 +56,9 @@
 
 （4）峰值信噪比（Peak Signal-to-Noise Ratio, PSNR）。衡量生成图像与参考图像之间的像素级相似度,值越高表示重建质量越好。计算公式为:
 \begin{equation}
-\text{PSNR} = 10\log_{10}\frac{\text{MAX}^2}{\text{MSE}},
+\text{PSNR} = 10\log_{10}\frac{\text{MAX}^2}{\text{MSE}}
 \end{equation}
-其中MAX为像素最大值,MSE为均方误差。
+，其中MAX为像素最大值,MSE为均方误差。
 
 （5）结构相似性指数（Structural Similarity Index, SSIM）。综合考虑亮度、对比度和结构信息,衡量图像的结构相似性。SSIM值范围为[0,1],越接近1表示结构越相似。
 

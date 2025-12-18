@@ -14,11 +14,11 @@
 
 特征提取网络。该模块是识别系统的核心，通常采用深度卷积神经网络或 Transformer 架构作为骨干网络。给定预处理后的输入图像 $x\in\mathcal{X}$，特征提取网络 $F(\cdot;\theta)$ 输出一个固定维度的实值嵌入向量：
 \begin{equation}\label{eq:embedding}
-      f = F(x;\theta)\in\mathbb{R}^d,
+      f = F(x;\theta)\in\mathbb{R}^d
 \end{equation}
 其中 $\theta$ 表示网络的可学习参数，$d$ 为嵌入维度，实际应用中常取128、256或512等值。该嵌入向量旨在编码输入图像的身份相关信息，同时需要抑制诸如光照、表情、姿态等与身份无关的变化因素。为提高匹配的稳定性与可比性，实践中通常对嵌入向量进行 $L_2$ 归一化：
 \begin{equation}\label{eq:norm_embedding}
-      \tilde{f} = \frac{f}{\|f\|_2},
+      \tilde{f} = \frac{f}{\|f\|_2}
 \end{equation}
 使得所有嵌入向量位于单位超球面上。此时，余弦相似度与欧氏距离存在简单的等价关系，便于后续的相似度计算与阈值决策。
 
@@ -33,19 +33,19 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 
 （1）对比损失\cite{hadsell2006dimensionality}。对比损失通过构造正样本对与负样本对，直接优化样本对之间的距离：
 \begin{equation}\label{eq:contrastive_loss}
-      L_{\text{con}} = y \cdot d^2 + (1-y) \cdot \max(0, m - d)^2,
+      L_{\text{con}} = y \cdot d^2 + (1-y) \cdot \max(0, m - d)^2
 \end{equation}
 其中 $d=\|f_1-f_2\|_2$ 为嵌入距离，$y\in\{0,1\}$ 为标签，1表示同一身份，0表示不同身份，$m$ 为边界超参数。该损失鼓励正样本对距离小于边界，负样本对距离大于边界。
 
 （2）三元组损失（Triplet Loss）\cite{schroff2015facenet}。三元组损失通过构造锚点、正样本与负样本的三元组，优化相对距离：
 \begin{equation}\label{eq:triplet_loss}
-      L_{\text{tri}} = \max\left(0, \|f_a - f_p\|_2 - \|f_a - f_n\|_2 + \alpha\right),
+      L_{\text{tri}} = \max\left(0, \|f_a - f_p\|_2 - \|f_a - f_n\|_2 + \alpha\right)
 \end{equation}
 其中 $f_a, f_p, f_n$ 分别为锚点、正样本与负样本的嵌入，$\alpha$ 为边界参数。该损失要求正样本对距离比负样本对距离至少小 $\alpha$。三元组损失的有效性依赖于困难样本挖掘策略。
 
 （3）基于角度边距的分类损失。近年来，如 ArcFace\cite{deng2019arcface}、CosFace\cite{wang2018cosface}、SphereFace\cite{liu2017sphereface}等基于角度边距的损失函数成为主流方法。这类方法将人脸识别视为分类问题，在 softmax 分类器中引入角度或余弦边距，使得类内嵌入更加紧致、类间分离更加明显。以 ArcFace 为例，其损失函数定义为：
 \begin{equation}\label{eq:arcface_loss}
-      L_{\text{arc}} = -\frac{1}{N}\sum_{i=1}^N \log \frac{e^{s\cos(\theta_{y_i}+m)}}{e^{s\cos(\theta_{y_i}+m)} + \sum_{j\neq y_i} e^{s\cos\theta_j}},
+      L_{\text{arc}} = -\frac{1}{N}\sum_{i=1}^N \log \frac{e^{s\cos(\theta_{y_i}+m)}}{e^{s\cos(\theta_{y_i}+m)} + \sum_{j\neq y_i} e^{s\cos\theta_j}}
 \end{equation}
 其中 $\theta_j$ 为嵌入向量与第 $j$ 类权重向量之间的夹角，$y_i$ 为真实类别标签，$s$ 为尺度因子，$m$ 为角度边距。通过在目标类的角度上增加 $m$，ArcFace 显式地增大了决策边界，从而提升了模型的判别能力与泛化性能。实践中，角度边距损失通常与归一化权重向量与嵌入向量结合使用，使得特征学习在超球面上进行，具有更强的几何可解释性。
 
@@ -79,21 +79,21 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 
 前向扩散过程将原始数据 $x_0$ 通过逐步添加高斯噪声的方式，在 $T$ 个时间步内转化为近似标准高斯分布的随机噪声 $x_T$（如图~\ref{fig:forward_diffusion}所示）。具体地，前向过程定义为一个马尔可夫链：
 \begin{equation}\label{eq:forward_diffusion}
-      q(x_t|x_{t-1}) = \mathcal{N}(x_t; \sqrt{1-\beta_t}\,x_{t-1}, \beta_t I),
+      q(x_t|x_{t-1}) = \mathcal{N}(x_t; \sqrt{1-\beta_t}\,x_{t-1}, \beta_t I)
 \end{equation}
 其中 $x_t$ 表示扩散过程在时刻 $t$ 的噪声化状态,$\{\beta_t\}_{t=1}^T$ 为噪声调度参数序列。整个前向过程可表示为联合分布：
 \begin{equation}\label{eq:forward_joint}
-      q(x_{1:T}|x_0) = \prod_{t=1}^T q(x_t|x_{t-1}).
+      q(x_{1:T}|x_0) = \prod_{t=1}^T q(x_t|x_{t-1})
 \end{equation}
 
 前向扩散过程可以通过重参数化技巧直接从 $x_0$ 采样任意时刻 $t$ 的噪声状态 $x_t$，而无需逐步迭代。定义 $\alpha_t=1-\beta_t$ 和 $\overline{\alpha}_t=\prod_{i=1}^t\alpha_i$ ，通过递归展开式~\eqref{eq:forward_diffusion} 并利用高斯分布的卷积性质，可得：
 \begin{equation}\label{eq:forward_closed_form}
-      q(x_t|x_0) = \mathcal{N}(x_t; \sqrt{\overline{\alpha}_t}\,x_0, (1-\overline{\alpha}_t)I).
+      q(x_t|x_0) = \mathcal{N}(x_t; \sqrt{\overline{\alpha}_t}\,x_0, (1-\overline{\alpha}_t)I)
 \end{equation}
 
 等价地，采用重参数化表示：
 \begin{equation}\label{eq:reparameterization}
-      x_t = \sqrt{\overline{\alpha}_t}\,x_0 + \sqrt{1-\overline{\alpha}_t}\,\epsilon, \quad \epsilon\sim\mathcal{N}(0,I).
+      x_t = \sqrt{\overline{\alpha}_t}\,x_0 + \sqrt{1-\overline{\alpha}_t}\,\epsilon, \quad \epsilon\sim\mathcal{N}(0,I)
 \end{equation}
 其中 $\epsilon$ 为服从标准高斯分布的随机噪声。
 
@@ -112,13 +112,13 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 
 扩散模型的核心思想是用参数化的神经网络 $p_\theta$ 来近似反向过程，将其建模为一个参数化的马尔可夫链：
 \begin{equation}\label{eq:reverse_process}
-      p_\theta(x_{t-1}|x_t) = \mathcal{N}(x_{t-1}; \mu_\theta(x_t,t), \Sigma_\theta(x_t,t)),
+      p_\theta(x_{t-1}|x_t) = \mathcal{N}(x_{t-1}; \mu_\theta(x_t,t), \Sigma_\theta(x_t,t))
 \end{equation}
 其中 $\mu_\theta$ 和 $\Sigma_\theta$ 为待学习的均值和协方差函数。实践中，通常将协方差固定为 $\Sigma_\theta(x_t,t)=\sigma_t^2 I$，仅学习均值函数。
 
 完整的生成过程定义为：
 \begin{equation}\label{eq:reverse_joint}
-      p_\theta(x_{0:T}) = p(x_T)\prod_{t=1}^T p_\theta(x_{t-1}|x_t), \quad p(x_T)=\mathcal{N}(0,I).
+      p_\theta(x_{0:T}) = p(x_T)\prod_{t=1}^T p_\theta(x_{t-1}|x_t), \quad p(x_T)=\mathcal{N}(0,I)
 \end{equation}
 
 \begin{figure}[!htbp]
@@ -134,7 +134,7 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 
 扩散模型的训练基于变分推断中的证据下界。将扩散模型视为一个包含 $T$ 个隐变量的层次化隐变量模型，类似于层次化VAE，可以推导出对数似然的变分下界：
 \begin{equation}\label{eq:elbo}
-      \log p_\theta(x_0) \geq \mathbb{E}_{q(x_{1:T}|x_0)}\left[\log\frac{p_\theta(x_{0:T})}{q(x_{1:T}|x_0)}\right] = -L_{\text{VLB}},
+      \log p_\theta(x_0) \geq \mathbb{E}_{q(x_{1:T}|x_0)}\left[\log\frac{p_\theta(x_{0:T})}{q(x_{1:T}|x_0)}\right] = -L_{\text{VLB}}
 \end{equation}
 
 其中训练目标为最小化负的变分下界 $L_{\text{VLB}}$。通过展开并利用马尔可夫性质,可将 $L_{\text{VLB}}$ 分解为三项：
@@ -149,7 +149,7 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 
 关键的观察是，条件后验分布 $q(x_{t-1}|x_t,x_0)$ 在给定 $x_0$ 的情况下是可处理的高斯分布。利用贝叶斯规则并结合前向扩散过程的马尔可夫性质：
 \begin{equation}\label{eq:posterior}
-      q(x_{t-1}|x_t,x_0) = \frac{q(x_t|x_{t-1},x_0)q(x_{t-1}|x_0)}{q(x_t|x_0)} \propto \mathcal{N}(x_{t-1}; \tilde{\mu}_t(x_t,x_0), \tilde{\beta}_t I),
+      q(x_{t-1}|x_t,x_0) = \frac{q(x_t|x_{t-1},x_0)q(x_{t-1}|x_0)}{q(x_t|x_0)} \propto \mathcal{N}(x_{t-1}; \tilde{\mu}_t(x_t,x_0), \tilde{\beta}_t I)
 \end{equation}
 由于前向过程每一步均为高斯分布，根据高斯分布的性质，上述后验分布也服从高斯分布。具体地，将式~\eqref{eq:forward_diffusion} 和式~\eqref{eq:forward_closed_form} 代入贝叶斯公式并利用高斯分布的指数形式展开，可以得到后验均值与方差的表达：
 \begin{align}
@@ -163,15 +163,15 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 
 将式~\eqref{eq:reparameterization} 改写为：
 \begin{equation}\label{eq:x0_from_xt}
-      x_0 = \frac{x_t - \sqrt{1-\overline{\alpha}_t}\,\epsilon}{\sqrt{\overline{\alpha}_t}}.
+      x_0 = \frac{x_t - \sqrt{1-\overline{\alpha}_t}\,\epsilon}{\sqrt{\overline{\alpha}_t}}
 \end{equation}
 代入式~\eqref{eq:posterior_mean}，可以得到后验均值关于噪声 $\epsilon$ 的表达式。实践中发现，直接让网络预测噪声 $\epsilon$ 而非均值 $\mu_\theta$ 或原始数据 $x_0$，能够获得更稳定的训练与更好的生成质量。具体地，定义噪声预测网络 $\epsilon_\theta(x_t,t)$，训练目标简化为：
 \begin{equation}\label{eq:noise_loss}
-      L_{\text{simple}} = \mathbb{E}_{t,x_0,\epsilon}\left[\|\epsilon - \epsilon_\theta(x_t,t)\|^2\right],
+      L_{\text{simple}} = \mathbb{E}_{t,x_0,\epsilon}\left[\|\epsilon - \epsilon_\theta(x_t,t)\|^2\right]
 \end{equation}
 其中 $t$ 从 $\{1,\ldots,T\}$ 中均匀采样,$x_0$ 从数据分布采样,$\epsilon\sim\mathcal{N}(0,I)$,$x_t$ 由式~\eqref{eq:reparameterization} 生成。从得分匹配的视角看,该噪声预测目标等价于学习数据分布的得分函数 $\nabla_{x_t}\log p(x_t)$,两者关系为：
 \begin{equation}\label{eq:score_noise_relation}
-      \nabla_{x_t}\log p(x_t) = -\frac{1}{\sqrt{1-\overline{\alpha}_t}}\epsilon_\theta(x_t,t).
+      \nabla_{x_t}\log p(x_t) = -\frac{1}{\sqrt{1-\overline{\alpha}_t}}\epsilon_\theta(x_t,t)
 \end{equation}
 
 \subsection{采样策略}
@@ -180,7 +180,7 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 
 训练完成后，生成新样本的过程从 $x_T\sim\mathcal{N}(0,I)$ 开始，逐步迭代反向过程直至 $x_0$。标准的DDPM采样公式为：
 \begin{equation}\label{eq:ddpm_sampling}
-      x_{t-1} = \frac{1}{\sqrt{\alpha_t}}\left(x_t - \frac{\beta_t}{\sqrt{1-\overline{\alpha}_t}}\epsilon_\theta(x_t,t)\right) + \sigma_t z,
+      x_{t-1} = \frac{1}{\sqrt{\alpha_t}}\left(x_t - \frac{\beta_t}{\sqrt{1-\overline{\alpha}_t}}\epsilon_\theta(x_t,t)\right) + \sigma_t z
 \end{equation}
 其中 $z\sim\mathcal{N}(0,I)$ 为标准高斯噪声，$\sigma_t$ 通常取 $\sqrt{\beta_t}$ 或 $\sqrt{\tilde{\beta}_t}$。
 
@@ -188,7 +188,7 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 
 为提高采样效率,去噪扩散隐式模型（Denoising Diffusion Implicit Models，DDIM）通过设置$\sigma_t=0$构造确定性采样轨迹：
 \begin{equation}\label{eq:ddim_sampling}
-      x_{t-1} = \sqrt{\overline{\alpha}_{t-1}}\left(\frac{x_t - \sqrt{1-\overline{\alpha}_t}\epsilon_\theta(x_t,t)}{\sqrt{\overline{\alpha}_t}}\right) + \sqrt{1-\overline{\alpha}_{t-1}}\epsilon_\theta(x_t,t).
+      x_{t-1} = \sqrt{\overline{\alpha}_{t-1}}\left(\frac{x_t - \sqrt{1-\overline{\alpha}_t}\epsilon_\theta(x_t,t)}{\sqrt{\overline{\alpha}_t}}\right) + \sqrt{1-\overline{\alpha}_{t-1}}\epsilon_\theta(x_t,t)
 \end{equation}
 DDIM允许使用任意子序列时间步采样,可将步数从1000步降低至50步甚至10步而无需重新训练。EDM\cite{karrasEluvidatingDiffusionModels2022}进一步通过统一噪声调度与网络预处理设计,提升了训练稳定性与采样效率。
 
@@ -202,18 +202,18 @@ DDIM允许使用任意子序列时间步采样,可将步数从1000步降低至50
 
 若已有一个参数为$\phi$的分类器$p_\phi(y|x_t)$在噪声数据上训练完成，则根据贝叶斯规则：
 \begin{equation}\label{eq:classifier_guidance}
-      \nabla_x\log p(x_t|y) = \nabla_x\log p(x_t) + \nabla_x\log p_\phi(y|x_t).
+      \nabla_x\log p(x_t|y) = \nabla_x\log p(x_t) + \nabla_x\log p_\phi(y|x_t)
 \end{equation}
 在采样时，将无条件得分与分类器梯度相加，并通过引导强度 $\omega$ 调节条件信息的权重：
 \begin{equation}\label{eq:guided_score}
-      \tilde{\nabla}_x\log p(x_t|y) = \nabla_x\log p(x_t) + \omega\nabla_x\log p_\phi(y|x_t).
+      \tilde{\nabla}_x\log p(x_t|y) = \nabla_x\log p(x_t) + \omega\nabla_x\log p_\phi(y|x_t)
 \end{equation}
 
 \subsubsection{无分类器引导}
 
 为避免训练额外的分类器，无分类器引导在训练时采用随机屏蔽条件信息的策略，即以一定概率将条件 $y$ 替换为空标记 $\emptyset$，使模型同时学习条件分布 $p(x|y)$ 和无条件分布 $p(x)$。在采样时，通过线性外推组合两者的得分：
 \begin{equation}\label{eq:cfg}
-      \tilde{\epsilon}_\theta(x_t,y,t) = \epsilon_\theta(x_t,\emptyset,t) + \omega\left[\epsilon_\theta(x_t,y,t) - \epsilon_\theta(x_t,\emptyset,t)\right],
+      \tilde{\epsilon}_\theta(x_t,y,t) = \epsilon_\theta(x_t,\emptyset,t) + \omega\left[\epsilon_\theta(x_t,y,t) - \epsilon_\theta(x_t,\emptyset,t)\right]
 \end{equation}
 其中 $\omega>1$ 时可以增强条件的影响，但过大的 $\omega$ 可能导致生成样本偏离真实分布或产生伪影。
 
@@ -221,11 +221,11 @@ DDIM允许使用任意子序列时间步采样,可将步数从1000步降低至50
 
 对于本研究中的模板逆向重建任务，条件信息为目标人脸嵌入 $f_{\text{target}}$。可以将嵌入相似度定义为能量函数：
 \begin{equation}\label{eq:energy_guidance}
-      E(x;f_{\text{target}}) = -\lambda\cdot\text{sim}(F(x), f_{\text{target}}),
+      E(x;f_{\text{target}}) = -\lambda\cdot\text{sim}(F(x), f_{\text{target}})
 \end{equation}
 其中 $F(\cdot)$ 为预训练的人脸识别网络，$\text{sim}(\cdot,\cdot)$ 为余弦相似度，$\lambda$ 为引导强度。在采样过程中，通过反向传播计算 $\nabla_x E(x;f_{\text{target}})$，并将其叠加到无条件得分上：
 \begin{equation}\label{eq:energy_score}
-      \tilde{\nabla}_x\log p(x_t|f_{\text{target}}) = \nabla_x\log p(x_t) - \nabla_x E(x_t;f_{\text{target}}).
+      \tilde{\nabla}_x\log p(x_t|f_{\text{target}}) = \nabla_x\log p(x_t) - \nabla_x E(x_t;f_{\text{target}})
 \end{equation}
 
 这种基于能量的引导方式允许在不重新训练生成模型的情况下，灵活地引入多种约束条件，包括身份一致性、感知质量、属性控制等不同方面的需求，为第3章中提出的嵌入一致性约束与模板逆向重建方法提供了直接的技术路径。
@@ -244,7 +244,7 @@ DDIM允许使用任意子序列时间步采样,可将步数从1000步降低至50
 
 给定参数为$\theta_0\in\mathbb{R}^d$的预训练模型$\mathcal{M}_{\theta_0}$与下游任务数据集$\mathcal{D}=\{(x_i,y_i)\}_{i=1}^N$，传统的全参数微调通过最小化任务损失来更新所有模型参数：
 \begin{equation}\label{eq:full_finetune}
-      \theta^* = \arg\min_{\theta} \sum_{(x,y)\in\mathcal{D}} L(\mathcal{M}_{\theta}(x), y).
+      \theta^* = \arg\min_{\theta} \sum_{(x,y)\in\mathcal{D}} L(\mathcal{M}_{\theta}(x), y)
 \end{equation}
 
 这种方法存在以下问题：首先是计算与显存开销问题，对于参数量达数十亿甚至千亿级的大型模型如GPT系列、Stable Diffusion等，全参数微调需要维护完整的梯度、优化器状态与激活值，显存需求往往超出单卡或常规集群的承载能力；其次是过拟合风险，当下游任务数据量有限时，更新全部参数容易导致模型过度拟合训练数据，泛化能力下降；再次是存储与部署成本，当需要针对多个下游任务或多个目标如不同身份、不同领域进行微调时，需为每个任务保存完整的模型副本，导致存储与部署成本线性增长；最后是灾难性遗忘，全参数更新可能破坏预训练模型在通用任务上的能力，导致在新任务上性能提升的同时，在原任务上性能大幅下降。
@@ -264,16 +264,16 @@ LoRA的核心思想是在不改变预训练权重的前提下，通过低秩矩�
 \end{equation}
 其中$W$为微调后的权重矩阵，$W_0$为原始预训练权重矩阵并保持冻结，$\Delta W$为可训练的权重增量，$B\in\mathbb{R}^{d_{\text{out}}\times r}$与$A\in\mathbb{R}^{r\times d_{\text{in}}}$为低秩分解矩阵，$d_{\text{out}}$与$d_{\text{in}}$分别为输出与输入维度，$r$为低秩适配的秩参数且满足$r\ll\min(d_{\text{out}}, d_{\text{in}})$。在前向传播时，对于输入向量$x\in\mathbb{R}^{d_{\text{in}}}$，输出$h\in\mathbb{R}^{d_{\text{out}}}$的计算公式为：
 \begin{equation}\label{eq:lora_forward}
-      h = Wx = W_0 x + B(Ax).
+      h = Wx = W_0 x + B(Ax)
 \end{equation}
 为保证不同秩设置下学习率敏感性的稳定性，实践中引入缩放超参数$\alpha$对低秩增量进行归一化，使得最终权重更新表达式为：
 \begin{equation}\label{eq:lora_scaling}
-      W = W_0 + \frac{\alpha}{r} BA.
+      W = W_0 + \frac{\alpha}{r} BA
 \end{equation}
 
 LoRA的参数效率体现在可训练参数量的大幅减少。对于原始权重矩阵 $W_0\in\mathbb{R}^{d_{\text{out}}\times d_{\text{in}}}$，全参数微调需要存储 $d_{\text{out}}\times d_{\text{in}}$ 个参数；而LoRA仅需 $r(d_{\text{in}}+d_{\text{out}})$ 个参数。参数压缩比为：
 \begin{equation}\label{eq:lora_compression_ratio}
-      \text{Ratio} = \frac{d_{\text{out}}\times d_{\text{in}}}{r(d_{\text{in}}+d_{\text{out}})} \approx \frac{\min(d_{\text{out}}, d_{\text{in}})}{r},
+      \text{Ratio} = \frac{d_{\text{out}}\times d_{\text{in}}}{r(d_{\text{in}}+d_{\text{out}})} \approx \frac{\min(d_{\text{out}}, d_{\text{in}})}{r}
 \end{equation}
 当 $r\in\{8,16,32\}$ 等较小值时，压缩比可达数十倍至上百倍。在计算复杂度方面，前向传播的额外计算量为 $O(r(d_{\text{in}}+d_{\text{out}}))$，相比原始 $O(d_{\text{out}}\times d_{\text{in}})$ 在 $r\ll\min(d_{\text{out}}, d_{\text{in}})$ 时可忽略不计。
 
@@ -305,7 +305,7 @@ LoRA的参数效率体现在可训练参数量的大幅减少。对于原始权�
 
 训练完成后，为实现最高推理效率，可将LoRA的低秩增量 $\Delta W = \frac{\alpha}{r}BA$ 与原始权重 $W_0$ 合并为单一权重矩阵：
 \begin{equation}\label{eq:lora_merge}
-      W_{\text{merged}} = W_0 + \frac{\alpha}{r}BA.
+      W_{\text{merged}} = W_0 + \frac{\alpha}{r}BA
 \end{equation}
 
 合并后的模型在推理时与标准模型无异，无需额外的矩阵乘法操作，从而避免了运行时开销。合并过程在CPU或GPU上均可快速完成，且无精度损失。

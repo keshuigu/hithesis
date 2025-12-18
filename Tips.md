@@ -26,3 +26,8 @@ cd /home/yl/workspace/hithesis/examples/hitbook/chinese/ && make thesis
 
 结论 摘要
 
+
+
+\[
+  \nabla_{x_i} \mathrm{sim}(t'_i, t) = \nabla_{x_i} \left[ \frac{t'_i \cdot t}{\|t'_i\|_2 \|t\|_2} \right]
+\]
