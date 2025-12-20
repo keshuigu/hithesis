@@ -19,49 +19,49 @@ def generate_placeholder_face(seed=None):
     """生成占位人脸图像"""
     if seed is not None:
         np.random.seed(seed)
-    
+
     # 创建112x112的图像
     img = np.random.rand(112, 112, 3) * 0.3 + 0.4
-    
+
     # 添加椭圆形人脸轮廓
     y, x = np.ogrid[:112, :112]
     mask = ((x - 56)**2 / 30**2 + (y - 56)**2 / 40**2) <= 1
     img[mask] = img[mask] * 0.7 + 0.2
-    
+
     # 添加眼睛区域（暗色）
     for eye_x in [40, 72]:
         eye_mask = ((x - eye_x)**2 + (y - 40)**2) <= 36
         img[eye_mask] = img[eye_mask] * 0.4
-    
+
     # 添加鼻子区域
     nose_mask = ((x - 56)**2 / 8**2 + (y - 56)**2 / 15**2) <= 1
     img[nose_mask] = img[nose_mask] * 0.8 + 0.1
-    
+
     # 添加嘴巴区域
     mouth_mask = ((x - 56)**2 / 15**2 + (y - 75)**2 / 5**2) <= 1
     img[mouth_mask] = img[mouth_mask] * 0.5
-    
+
     return np.clip(img, 0, 1)
 
 def generate_heatmap(seed=None):
     """生成Grad-CAM热力图"""
     if seed is not None:
         np.random.seed(seed)
-    
+
     # 创建热力图
     y, x = np.ogrid[:112, :112]
-    
+
     # 中心点（面部关键区域）
     centers = [(56, 40), (40, 40), (72, 40), (56, 75)]
     heatmap = np.zeros((112, 112))
-    
+
     for cx, cy in centers:
         dist = np.sqrt((x - cx)**2 + (y - cy)**2)
         heatmap += np.exp(-dist**2 / 200)
-    
+
     # 归一化
     heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min())
-    
+
     return heatmap
 
 # ==================== 创建图像 ====================
@@ -83,9 +83,9 @@ for i in range(num_examples):
     ax1.axis('off')
     if i == 0:
         ax1.set_title('Real Image', fontsize=10, fontweight='bold')
-    ax1.text(0.5, -0.1, f'ID-{i+1:02d}', transform=ax1.transAxes, 
+    ax1.text(0.5, -0.1, f'ID-{i+1:02d}', transform=ax1.transAxes,
              ha='center', va='top', fontsize=8)
-    
+
     # 重建图像（模拟）
     ax2 = plt.subplot(3, num_cols, i + 1 + num_cols)
     recon_img = generate_placeholder_face(seed=i*3+1)
@@ -96,7 +96,7 @@ for i in range(num_examples):
     ax2.axis('off')
     if i == 0:
         ax2.set_title('Reconstructed', fontsize=10, fontweight='bold')
-    
+
     # 添加指标文本
     id_pres = 92 + np.random.rand() * 6
     fid = 15 + np.random.rand() * 5
@@ -104,7 +104,7 @@ for i in range(num_examples):
              ha='center', va='top', fontsize=7)
     ax2.text(0.5, -0.18, f'FID: {fid:.1f}', transform=ax2.transAxes,
              ha='center', va='top', fontsize=7)
-    
+
     # Grad-CAM热力图
     ax3 = plt.subplot(3, num_cols, i + 1 + 2*num_cols)
     heatmap = generate_heatmap(seed=i*3+2)
@@ -120,7 +120,7 @@ fig.text(0.02, 0.50, 'Reconstruction', rotation=90, va='center', fontsize=11, fo
 fig.text(0.02, 0.25, 'Attention Map', rotation=90, va='center', fontsize=11, fontweight='bold')
 
 # 添加说明文本
-fig.text(0.5, 0.02, 'Note: Placeholder images for demonstration. Replace with actual experimental results.', 
+fig.text(0.5, 0.02, 'Note: Placeholder images for demonstration. Replace with actual experimental results.',
          ha='center', fontsize=8, style='italic', color='gray')
 
 plt.subplots_adjust(left=0.05, right=0.98, top=0.95, bottom=0.05, hspace=0.3, wspace=0.15)

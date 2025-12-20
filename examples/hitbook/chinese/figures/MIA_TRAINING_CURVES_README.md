@@ -3,7 +3,7 @@
 ## 文件信息
 
 - **生成脚本**: `generate_mia_training_curves.py`
-- **输出文件**: 
+- **输出文件**:
   - `mia_training_curves.pdf` (56KB) - 用于论文插图
   - `mia_training_curves.eps` (170KB) - LaTeX兼容格式
 
@@ -67,7 +67,7 @@
 
 ## 关键观察
 
-1. **损失演化**: 
+1. **损失演化**:
    - Prior损失快速下降后稳定
    - 分类损失在阶段2开始激活,阶段3快速优化
    - 身份损失随模态迁移逐步优化

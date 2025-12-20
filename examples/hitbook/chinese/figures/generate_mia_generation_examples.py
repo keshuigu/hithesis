@@ -18,10 +18,10 @@ def generate_synthetic_face(seed=None, style='varied'):
     """生成合成人脸图像占位符"""
     if seed is not None:
         np.random.seed(seed)
-    
+
     # 创建224x224的图像（模型反演通常生成高分辨率）
     img = np.random.rand(224, 224, 3)
-    
+
     if style == 'varied':
         # 多样化的颜色风格
         base_color = np.random.rand(3)
@@ -29,14 +29,14 @@ def generate_synthetic_face(seed=None, style='varied'):
     else:
         # 肤色基调
         img = img * 0.25 + np.array([0.8, 0.6, 0.5])
-    
+
     # 添加人脸轮廓
     y, x = np.ogrid[:224, :224]
-    
+
     # 脸部椭圆
     face_mask = ((x - 112)**2 / 55**2 + (y - 112)**2 / 75**2) <= 1
     img[face_mask] = img[face_mask] * 0.7 + 0.2
-    
+
     # 眼睛
     for eye_x in [80, 144]:
         eye_mask = ((x - eye_x)**2 + (y - 80)**2) <= 64
@@ -44,19 +44,19 @@ def generate_synthetic_face(seed=None, style='varied'):
         # 眼珠
         pupil_mask = ((x - eye_x)**2 + (y - 80)**2) <= 16
         img[pupil_mask] = 0.1
-    
+
     # 鼻子
     nose_mask = ((x - 112)**2 / 12**2 + (y - 112)**2 / 25**2) <= 1
     img[nose_mask] = img[nose_mask] * 0.85
-    
+
     # 嘴巴
     mouth_mask = ((x - 112)**2 / 25**2 + (y - 150)**2 / 8**2) <= 1
     img[mouth_mask] = img[mouth_mask] * 0.5
-    
+
     # 头发区域
     hair_mask = (y < 40) & face_mask
     img[hair_mask] = img[hair_mask] * 0.3
-    
+
     return np.clip(img, 0, 1)
 
 # ==================== 创建图像 ====================
@@ -64,7 +64,7 @@ def generate_synthetic_face(seed=None, style='varied'):
 fig = plt.figure(figsize=(18, 10))
 
 # 设置标题
-fig.suptitle('MIA Model Inversion Attack - Generated Face Examples', 
+fig.suptitle('MIA Model Inversion Attack - Generated Face Examples',
              fontsize=14, fontweight='bold', y=0.98)
 
 # 创建5行8列的网格 (展示40个生成示例)
@@ -73,22 +73,22 @@ num_cols = 8
 
 for i in range(num_rows * num_cols):
     ax = plt.subplot(num_rows, num_cols, i + 1)
-    
+
     # 生成占位图像
     generated_img = generate_synthetic_face(seed=i*7, style='varied')
     ax.imshow(generated_img)
     ax.axis('off')
-    
+
     # 添加类别标签和置信度
     class_id = (i % 40) + 1
     confidence = 92 + np.random.rand() * 7
-    
+
     # 在图像下方添加文本
     ax.text(0.5, -0.05, f'Class {class_id:03d}', transform=ax.transAxes,
             ha='center', va='top', fontsize=8, fontweight='bold')
     ax.text(0.5, -0.12, f'Conf: {confidence:.1f}%', transform=ax.transAxes,
             ha='center', va='top', fontsize=7, color='darkgreen')
-    
+
     # 每列第一个添加列标题
     if i < num_cols:
         quality_metrics = [
@@ -114,11 +114,11 @@ group_labels = [
 ]
 
 for x, y, label in group_labels:
-    fig.text(x, y, label, rotation=90, va='center', fontsize=10, 
+    fig.text(x, y, label, rotation=90, va='center', fontsize=10,
              fontweight='bold', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
 
 # 添加说明
-fig.text(0.5, 0.015, 
+fig.text(0.5, 0.015,
          'Note: Synthetic placeholder images. Each image shows a face generated from a class label.\n'
          'Actual results should display high-quality faces with correct identity classification.',
          ha='center', fontsize=8, style='italic', color='gray')

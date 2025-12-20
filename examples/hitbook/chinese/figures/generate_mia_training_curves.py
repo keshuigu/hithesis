@@ -32,54 +32,54 @@ def simulate_stage0_losses(epochs):
     """阶段0: 图像条件预热 - 仅优化prior和perc损失"""
     # 扩散先验损失: 快速下降后趋于稳定
     prior_loss = 0.8 * np.exp(-epochs/8) + 0.15 + 0.02 * np.random.randn(len(epochs))
-    
+
     # 感知质量损失: 类似下降趋势
     perc_loss = 0.6 * np.exp(-epochs/10) + 0.12 + 0.015 * np.random.randn(len(epochs))
-    
+
     # 其他损失在阶段0不参与优化,设为None
     cls_loss = np.full(len(epochs), np.nan)
     id_loss = np.full(len(epochs), np.nan)
     preg_loss = np.full(len(epochs), np.nan)
-    
+
     return prior_loss, perc_loss, cls_loss, id_loss, preg_loss
 
 def simulate_stage1_losses(epochs, stage0_final_prior, stage0_final_perc):
     """阶段1: 混合条件过渡 - 通过余弦退火逐步引入攻击损失"""
     n = len(epochs)
-    
+
     # 余弦退火系数: lambda(t) = 0.5 * (1 - cos(pi * t / T_anneal))
     t_normalized = np.linspace(0, 1, n)
     lambda_t = 0.5 * (1 - np.cos(np.pi * t_normalized))
-    
+
     # Prior损失: 轻微上升后稳定(因为开始适配标签嵌入)
     prior_loss = stage0_final_prior + 0.05 * lambda_t + 0.02 * np.random.randn(n)
-    
+
     # 感知质量损失: 继续小幅优化
     perc_loss = stage0_final_perc * np.exp(-epochs/30) + 0.02 * np.random.randn(n)
-    
+
     # 分类引导损失: 从高值逐步下降(初期模型不会分类)
     cls_loss = 2.5 * (1 - lambda_t) + 0.3 + 0.1 * np.random.randn(n)
-    
+
     # 身份一致性损失: 从高值下降(初期标签嵌入与生成图像不匹配)
     id_loss = 1.8 * (1 - lambda_t) + 0.25 + 0.08 * np.random.randn(n)
-    
+
     # P-reg损失: 逐步下降
     preg_loss = 0.5 + 0.4 * (1 - lambda_t) + 0.05 * np.random.randn(n)
-    
+
     return prior_loss, perc_loss, cls_loss, id_loss, preg_loss, lambda_t
 
 def simulate_stage2_losses(epochs, stage1_final_losses):
     """阶段2: 纯标签条件适配 - 完整损失优化"""
     n = len(epochs)
     prior_s1, perc_s1, cls_s1, id_s1, preg_s1 = stage1_final_losses
-    
+
     # 各损失继续优化,逐步收敛
     prior_loss = prior_s1 * np.exp(-epochs/25) + 0.18 + 0.015 * np.random.randn(n)
     perc_loss = perc_s1 * np.exp(-epochs/20) + 0.10 + 0.01 * np.random.randn(n)
     cls_loss = cls_s1 * np.exp(-epochs/15) + 0.25 + 0.05 * np.random.randn(n)
     id_loss = id_s1 * np.exp(-epochs/18) + 0.20 + 0.04 * np.random.randn(n)
     preg_loss = preg_s1 * np.exp(-epochs/20) + 0.15 + 0.03 * np.random.randn(n)
-    
+
     return prior_loss, perc_loss, cls_loss, id_loss, preg_loss
 
 # ==================== 生成完整训练曲线 ====================
@@ -303,7 +303,7 @@ ax6.grid(True, alpha=0.3)
 ax6.set_ylim([-0.05, 1.1])
 
 # Add stage annotations
-ax6.text(stage0_epochs/2, 0.95, 'Stage 1\n(Image-cond)', ha='center', va='top', fontsize=9, 
+ax6.text(stage0_epochs/2, 0.95, 'Stage 1\n(Image-cond)', ha='center', va='top', fontsize=9,
          bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 ax6.text(stage0_epochs + stage1_epochs/2, 0.95, 'Stage 2\n(Mixed-cond)', ha='center', va='top', fontsize=9,
          bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
