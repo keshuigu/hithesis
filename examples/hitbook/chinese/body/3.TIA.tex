@@ -1,5 +1,5 @@
 % !Mode:: "TeX:UTF-8"
-\chapter[基于角度约束对比学习的模板逆向重建方法]{面向人脸特征提取模型的逆向重建方法}[Reconstruction Method for Face Feature Extraction Models]\label{chap:TIA}
+\chapter{基于角度约束对比学习的模板逆向重建方法}[Template Inversion Attack Based on Angular Constraint Contrastive Learning]\label{chap:TIA}
 \section{引言}[Introduction]
 
 本章针对基于模板匹配的人脸识别系统，研究将已泄露的特征模板逆向重建为可感知人脸图像的技术方法。现有方法主要面临两方面挑战：一是传统基于优化的方法容易陷入局部最优且生成质量有限，引入生成式先验虽可改善视觉效果，但在特征空间的优化缺乏针对性设计，难以充分利用人脸识别系统的几何结构特性；二是多目标优化中像素与特征损失的权重平衡缺乏系统解决方案。
@@ -67,7 +67,7 @@
 
 \subsection{训练流程与分阶段策略}
 
-基于前述混合损失函数，本节详细阐述模板逆向攻击模型的训练流程。为确保训练稳定性并充分发挥任务不确定性参数的自适应能力，本文采用两阶段训练策略:先通过预热阶段建立基础生成能力，再通过主训练阶段引入复杂的特征匹配约束，避免训练初期的优化冲突。
+基于前述混合损失函数，本节详细阐述模板逆向重建模型的训练流程。为确保训练稳定性并充分发挥任务不确定性参数的自适应能力，本文采用两阶段训练策略:先通过预热阶段建立基础生成能力，再通过主训练阶段引入复杂的特征匹配约束，避免训练初期的优化冲突。
 
 \subsubsection{预热阶段}
 
@@ -90,12 +90,12 @@
 \begin{figure}[!htbp]
   \centering
   \includegraphics[width=\textwidth]{images/train-1.pdf}
-  \caption{模板逆向攻击模型训练流程}
+  \caption{模板逆向重建模型训练流程}
   \label{fig:edm_tia_train}
 \end{figure}
 
 \begin{algorithm}[!htb]
-  \caption{带预热的模板逆向攻击模型训练}
+  \caption{带预热的模板逆向重建模型训练}
   \label{alg:edm_tia_train}
   \begin{algorithmic}[1]
     \REQUIRE 训练样本集 $\mathcal{D} = \{(x_i, y_i)\}_{i=1}^N$，扩散生成模型 $f_\theta$，特征提取网络 $F$，学习率 $\eta$，批大小 $B$，预热步数 $t_{\text{warmup}}$
@@ -109,8 +109,8 @@
     \STATE 更新 $\theta \leftarrow \theta - \eta \nabla_\theta \bar{\ell}_{\text{pixel}}$
     \ELSE
     \STATE 计算特征损失 $\bar{\ell}_{\text{feat}} = \frac{1}{B} \sum_j \max(0, m + \cos(F(\hat{x}_0^{(j)}), f_{\text{neg}}) - \cos(F(\hat{x}_0^{(j)}), F(x_0^{(j)})))$
-    \STATE 计算多样性损失 $\ell_{\text{div}} = -\frac{1}{2B^2} \sum_{i \neq j} \cos(F(\hat{x}_i), F(\hat{x}_j))$
-    \STATE 完整损失 $\mathcal{L} = \frac{1}{2\sigma_p^2}\bar{\ell}_{\text{pixel}} + \frac{1}{2\sigma_f^2}\bar{\ell}_{\text{feat}} + \frac{1}{2}(\log\sigma_p^2 + \log\sigma_f^2) + \beta \ell_{\text{div}}$
+    \STATE 计算多样性损失 $\ell_{\text{div}} = \frac{1}{2B^2} \sum_{i \neq j} (1 - \cos(F(\hat{x}_i), F(\hat{x}_j)))$
+    \STATE 完整损失 $\mathcal{L} = \frac{1}{2\sigma_p^2}\bar{\ell}_{\text{pixel}} + \frac{1}{2\sigma_f^2}\bar{\ell}_{\text{feat}} + \frac{1}{2}(\log\sigma_p^2 + \log\sigma_f^2) - \beta \ell_{\text{div}}$
     \STATE 更新 $\theta, \sigma_p, \sigma_f \leftarrow \text{Optimizer}(\nabla_{\theta,\sigma_p,\sigma_f} \mathcal{L})$
     \ENDIF
     \ENDFOR
@@ -173,7 +173,7 @@ EDM采用确定性的ODE求解器进行采样，其离散化形式为：
 \begin{figure}[!htbp]
   \centering
   \includegraphics[width=\textwidth]{images/infer.pdf}
-  \caption{模板逆向攻击模型推理流程}
+  \caption{模板逆向重建模型推理流程}
   \label{fig:edm_tia_infer}
 \end{figure}
 
