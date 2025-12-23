@@ -38,17 +38,50 @@ div_loss = np.clip(div_loss, -0.18, -0.02)
 
 # ==================== 生成不确定性权重 ====================
 
-# 任务不确定性权重演化 - 仅两个权重：像素损失和特征损失
-# 根据论文，log(sigma_i)初始化为0，因此sigma_i=1，权重1/sigma_i^2=1
-# 像素损失权重(对应去噪损失) - 从1.0开始，随训练逐步降低后趋于稳定
-uncertainty_pixel = 1.0 - 0.25 * (1 - np.exp(-epochs/45)) + 0.03 * np.random.randn(total_epochs)
-uncertainty_pixel = savgol_filter(uncertainty_pixel, window_length=25, polyorder=2, mode='nearest')
-uncertainty_pixel = np.clip(uncertainty_pixel, 0.6, 1.1)
+# ==================== 任务不确定性参数(可学习) ====================
+# 基于论文 "Multi-Task Learning Using Uncertainty to Weigh Losses"
+# - log(σ²) 作为可学习参数，初始化为0，即 σ=1
+# - 训练过程中通过梯度下降自动调整
+# - 权重关系：weight = 1/(2σ²)
+# - σ越小→不确定性越低→权重越高→该任务越重要
 
-# 特征损失权重(对应特征匹配损失) - 从1.0开始，随训练逐步提升后趋于稳定
-uncertainty_feat = 1.0 + 0.4 * (1 - np.exp(-epochs/55)) + 0.03 * np.random.randn(total_epochs)
-uncertainty_feat = savgol_filter(uncertainty_feat, window_length=25, polyorder=2, mode='nearest')
-uncertainty_feat = np.clip(uncertainty_feat, 0.9, 1.5)
+# σ_pixel (像素重建任务的不确定性参数):
+# - 从 σ=1.0 开始(符合初始化)
+# - 前50 epochs: σ逐渐减小到0.7 (权重增加，重点学习重建)
+# - 50-100 epochs: σ逐渐增大到0.90 (权重适度降低，峰值削弱)
+# - 100 epochs后: σ平缓收敛到0.89 (训练后期稳定，权重适中保持像素质量)
+transition_epoch = 50
+stabilize_epoch = 100
+# 前50 epochs下降
+decrease_phase = 1.0 - 0.3 * np.minimum(epochs / transition_epoch, 1.0)
+# 50-100 epochs上升（峰值削弱到0.90）
+increase_phase = 0.7 + 0.20 * (1 - np.exp(-(np.maximum(epochs - transition_epoch, 0)) / 35))
+# 100 epochs后平缓收敛到0.89
+stable_phase = 0.90 - 0.01 * (1 - np.exp(-(np.maximum(epochs - stabilize_epoch, 0)) / 30))
+uncertainty_pixel = np.where(epochs <= transition_epoch, decrease_phase,
+                             np.where(epochs <= stabilize_epoch, increase_phase, stable_phase))
+uncertainty_pixel = uncertainty_pixel + 0.008 * np.random.randn(total_epochs)
+uncertainty_pixel = savgol_filter(uncertainty_pixel, window_length=41, polyorder=2, mode='nearest')
+uncertainty_pixel = np.clip(uncertainty_pixel, 0.68, 1.05)
+
+# σ_feat (特征匹配任务的不确定性参数):
+# - 从 σ=1.0 开始(符合初始化)
+# - 前80 epochs: σ逐渐增大到1.20 (权重减小，初期不重要，峰值削弱)
+# - 80-105 epochs: σ逐渐减小到0.92 (权重增加,强化特征一致性)
+# - 105 epochs后: σ快速收敛到0.82 (训练后期稳定，权重最高以强化攻击能力)
+transition_epoch_feat = 80
+stabilize_epoch_feat = 105
+# 前80 epochs上升（峰值削弱到1.20）
+increase_phase_feat = 1.0 + 0.20 * (1 - np.exp(-epochs / 40))
+# 80-105 epochs下降
+decrease_phase_feat = 1.20 - 0.28 * (1 - np.exp(-(np.maximum(epochs - transition_epoch_feat, 0)) / 30))
+# 105 epochs后快速收敛到0.82
+stable_phase_feat = 0.92 - 0.10 * (1 - np.exp(-(np.maximum(epochs - stabilize_epoch_feat, 0)) / 25))
+uncertainty_feat = np.where(epochs <= transition_epoch_feat, increase_phase_feat,
+                           np.where(epochs <= stabilize_epoch_feat, decrease_phase_feat, stable_phase_feat))
+uncertainty_feat = uncertainty_feat + 0.008 * np.random.randn(total_epochs)
+uncertainty_feat = savgol_filter(uncertainty_feat, window_length=41, polyorder=2, mode='nearest')
+uncertainty_feat = np.clip(uncertainty_feat, 0.73, 1.35)
 
 # ==================== 计算总损失 ====================
 
@@ -61,30 +94,33 @@ sigma_f = uncertainty_feat   # σ_f
 # 计算加权损失项
 weighted_pixel = (1 / (2 * sigma_p**2)) * pixel_loss + 0.5 * np.log(sigma_p**2)
 weighted_feat = (1 / (2 * sigma_f**2)) * feat_loss + 0.5 * np.log(sigma_f**2)
-weighted_div = -beta * div_loss  # 注意div_loss本身已经是负值
+# 注意：div_loss本身已经是负值，表示鼓励多样性
+# 公式 -β·L_div 中，如果L_div是正值（表示损失），则减去它鼓励多样性
+# 但这里div_loss已经是负值，所以直接用 beta*div_loss（保持负值）来减小总损失
+weighted_div = beta * div_loss  # div_loss是负值，所以这项会减小总损失
 
 # 总损失
 total_loss = weighted_pixel + weighted_feat + weighted_div
 
 # ==================== 生成评估指标 ====================
 
-# ID Preservation Score (越高越好, 0-100%)
-id_pres = 100 * (1 - np.exp(-epochs/25)) + 1.5 * np.random.randn(total_epochs)
-id_pres = np.clip(id_pres, 0, 100)
+# ID Preservation Score (越高越好, 0-1范围, 最大值0.947)
+id_pres = 0.947 * (1 - np.exp(-epochs/25)) + 0.015 * np.random.randn(total_epochs)
+id_pres = np.clip(id_pres, 0, 1)
 id_pres = savgol_filter(id_pres, window_length=15, polyorder=2, mode='nearest')
-id_pres = np.clip(id_pres, 0, 100)
+id_pres = np.clip(id_pres, 0, 0.95)
 
-# FID (越低越好)
-fid = 60 * np.exp(-epochs/35) + 15 + 1.2 * np.random.randn(total_epochs)
-fid = np.clip(fid, 12, 70)
+# FID (越低越好, 最低值23.82)
+fid = 36.18 * np.exp(-epochs/35) + 23.82 + 1.0 * np.random.randn(total_epochs)
+fid = np.clip(fid, 22, 65)
 fid = savgol_filter(fid, window_length=15, polyorder=2, mode='nearest')
-fid = np.clip(fid, 12, 70)
+fid = np.clip(fid, 23.5, 65)
 
-# Attack Success Rate (SAR) - 攻击成功率
-sar = 98 * (1 - np.exp(-epochs/30)) + 1.0 * np.random.randn(total_epochs)
+# Attack Success Rate (SAR) - 攻击成功率, 最高值94.23%
+sar = 94.23 * (1 - np.exp(-epochs/30)) + 0.8 * np.random.randn(total_epochs)
 sar = np.clip(sar, 0, 100)
 sar = savgol_filter(sar, window_length=15, polyorder=2, mode='nearest')
-sar = np.clip(sar, 0, 100)
+sar = np.clip(sar, 0, 94.5)
 
 # ==================== 绘制图像 ====================
 
@@ -130,12 +166,13 @@ ax4.plot(epochs, fid, 'b-', linewidth=2, label='FID', marker='d', markersize=2, 
 ax4_twin.plot(epochs, id_pres, 'r-', linewidth=2, label='ID Preservation', marker='^', markersize=2, markevery=20)
 ax4.set_xlabel('Epoch')
 ax4.set_ylabel('FID', color='b')
-ax4_twin.set_ylabel('ID Preservation (%)', color='r')
+ax4_twin.set_ylabel('ID Preservation Score', color='r')
 ax4.tick_params(axis='y', labelcolor='b')
 ax4_twin.tick_params(axis='y', labelcolor='r')
 ax4.set_title('(d) Generation Quality Metrics')
 ax4.legend(loc='upper left', fontsize=10)
 ax4_twin.legend(loc='upper right', fontsize=10)
+ax4_twin.set_ylim([0, 1.0])
 ax4.grid(True, alpha=0.3)
 
 # 子图(e): 任务不确定性参数 σ 和权重 1/(2σ²)
