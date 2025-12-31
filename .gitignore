@@ -67,3 +67,4 @@ hithesis.bst
 !gbt7714-numerical-quanjiao.bst
 .history
 !examples/hitbook/chinese/images/*.pdf
+!examples/hitbook/chinese/figures/*
