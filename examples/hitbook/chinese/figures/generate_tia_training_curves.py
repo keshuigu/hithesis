@@ -8,9 +8,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
 
-# 使用默认字体配置
-plt.rcParams['font.size'] = 10
+# 优先使用系统中已安装的中文字体（若不可用将回退）
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.sans-serif'] = [
+    'Noto Sans CJK SC',
+    'Noto Sans CJK',
+    'Noto Serif CJK SC',
+    'AR PL UMing CN',
+    'Droid Sans Fallback',
+    'DejaVu Sans'
+]
 plt.rcParams['axes.unicode_minus'] = False
+plt.rcParams['font.size'] = 10
+# 确保 PDF/EPS 使用 Type42，减少位图化与缺字问题
+plt.rcParams['pdf.fonttype'] = 42
+plt.rcParams['ps.fonttype'] = 42
 
 # 设置随机种子保证可重复性
 # np.random.seed(20251222)
@@ -128,33 +140,33 @@ fig = plt.figure(figsize=(16, 10))
 
 # 子图(a): 总损失和加权分项损失
 ax1 = plt.subplot(2, 3, 1)
-ax1.plot(epochs, total_loss, 'k-', linewidth=2.5, label='Total Loss')
-ax1.plot(epochs, weighted_pixel, 'b--', linewidth=1.5, label='Weighted Pixel', alpha=0.7)
-ax1.plot(epochs, weighted_feat, 'r--', linewidth=1.5, label='Weighted Feature', alpha=0.7)
-ax1.plot(epochs, weighted_div, 'g--', linewidth=1.5, label='Weighted Diversity', alpha=0.7)
+ax1.plot(epochs, total_loss, 'k-', linewidth=2.5, label='总损失')
+ax1.plot(epochs, weighted_pixel, 'b--', linewidth=1.5, label='加权像素', alpha=0.7)
+ax1.plot(epochs, weighted_feat, 'r--', linewidth=1.5, label='加权特征', alpha=0.7)
+ax1.plot(epochs, weighted_div, 'g--', linewidth=1.5, label='加权多样性', alpha=0.7)
 ax1.set_xlabel('Epoch')
 ax1.set_ylabel('Loss Value')
-ax1.set_title(r'(a) Total Loss: $\frac{1}{2\sigma_p^2}\mathcal{L}_{pixel} + \frac{1}{2}\log\sigma_p^2 + \frac{1}{2\sigma_f^2}\mathcal{L}_{feat} + \frac{1}{2}\log\sigma_f^2 - \beta\mathcal{L}_{div}$', fontsize=9)
+ax1.set_title(r'(a) 总损失：$\frac{1}{2\sigma_p^2}\mathcal{L}_{pixel} + \frac{1}{2}\log\sigma_p^2 + \frac{1}{2\sigma_f^2}\mathcal{L}_{feat} + \frac{1}{2}\log\sigma_f^2 - \beta\mathcal{L}_{div}$', fontsize=9)
 ax1.legend(loc='upper right', fontsize=9)
 ax1.grid(True, alpha=0.3)
 
 # 子图(b): 原始损失(未加权)
 ax2 = plt.subplot(2, 3, 2)
-ax2.plot(epochs, pixel_loss, label=r'$\mathcal{L}_{pixel}$ (raw)', linewidth=1.5, color='blue')
-ax2.plot(epochs, feat_loss, label=r'$\mathcal{L}_{feat}$ (raw)', linewidth=1.5, color='red')
-ax2.plot(epochs, div_loss, label=r'$\mathcal{L}_{div}$ (raw, negative)', linewidth=1.5, color='green')
+ax2.plot(epochs, pixel_loss, label=r'$\mathcal{L}_{pixel}$（像素 原始）', linewidth=1.5, color='blue')
+ax2.plot(epochs, feat_loss, label=r'$\mathcal{L}_{feat}$（特征 原始）', linewidth=1.5, color='red')
+ax2.plot(epochs, div_loss, label=r'$\mathcal{L}_{div}$（多样性，负）', linewidth=1.5, color='green')
 ax2.set_xlabel('Epoch')
 ax2.set_ylabel('Loss Value')
-ax2.set_title('(b) Raw Component Losses (Before Weighting)')
+ax2.set_title('(b) 原始分项损失（未加权）')
 ax2.legend(loc='upper right', fontsize=9)
 ax2.grid(True, alpha=0.3)
 
 # 子图(c): 攻击成功率
 ax3 = plt.subplot(2, 3, 3)
-ax3.plot(epochs, sar, 'g-', linewidth=2, label='Success Attack Rate', marker='o', markersize=2, markevery=20)
+ax3.plot(epochs, sar, 'g-', linewidth=2, label='攻击成功率', marker='o', markersize=2, markevery=20)
 ax3.set_xlabel('Epoch')
 ax3.set_ylabel('Success Rate (%)')
-ax3.set_title('(c) Attack Success Rate')
+ax3.set_title('(c) 攻击成功率')
 ax3.legend(loc='lower right', fontsize=10)
 ax3.grid(True, alpha=0.3)
 ax3.set_ylim([0, 105])
@@ -163,13 +175,13 @@ ax3.set_ylim([0, 105])
 ax4 = plt.subplot(2, 3, 4)
 ax4_twin = ax4.twinx()
 ax4.plot(epochs, fid, 'b-', linewidth=2, label='FID', marker='d', markersize=2, markevery=20)
-ax4_twin.plot(epochs, id_pres, 'r-', linewidth=2, label='ID Preservation', marker='^', markersize=2, markevery=20)
+ax4_twin.plot(epochs, id_pres, 'r-', linewidth=2, label='身份保持分数', marker='^', markersize=2, markevery=20)
 ax4.set_xlabel('Epoch')
 ax4.set_ylabel('FID', color='b')
-ax4_twin.set_ylabel('ID Preservation Score', color='r')
+ax4_twin.set_ylabel('身份保持分数', color='r')
 ax4.tick_params(axis='y', labelcolor='b')
 ax4_twin.tick_params(axis='y', labelcolor='r')
-ax4.set_title('(d) Generation Quality Metrics')
+ax4.set_title('(d) 生成质量指标')
 ax4.legend(loc='upper left', fontsize=10)
 ax4_twin.legend(loc='upper right', fontsize=10)
 ax4_twin.set_ylim([0, 1.0])
@@ -180,15 +192,15 @@ ax5 = plt.subplot(2, 3, 5)
 # 计算实际权重 1/(2*sigma^2)
 weight_pixel = 1 / (2 * uncertainty_pixel**2)
 weight_feat = 1 / (2 * uncertainty_feat**2)
-ax5.plot(epochs, uncertainty_pixel, label=r'$\sigma_p$ (pixel)', linewidth=2, color='blue', linestyle='-')
-ax5.plot(epochs, uncertainty_feat, label=r'$\sigma_f$ (feature)', linewidth=2, color='red', linestyle='-')
+ax5.plot(epochs, uncertainty_pixel, label=r'像素 $\sigma_p$', linewidth=2, color='blue', linestyle='-')
+ax5.plot(epochs, uncertainty_feat, label=r'特征 $\sigma_f$', linewidth=2, color='red', linestyle='-')
 ax5_twin = ax5.twinx()
-ax5_twin.plot(epochs, weight_pixel, label=r'$1/(2\sigma_p^2)$ weight', linewidth=1.5, color='blue', linestyle='--', alpha=0.6)
-ax5_twin.plot(epochs, weight_feat, label=r'$1/(2\sigma_f^2)$ weight', linewidth=1.5, color='red', linestyle='--', alpha=0.6)
+ax5_twin.plot(epochs, weight_pixel, label=r'$1/(2\sigma_p^2)$ 权重', linewidth=1.5, color='blue', linestyle='--', alpha=0.6)
+ax5_twin.plot(epochs, weight_feat, label=r'$1/(2\sigma_f^2)$ 权重', linewidth=1.5, color='red', linestyle='--', alpha=0.6)
 ax5.set_xlabel('Epoch')
-ax5.set_ylabel(r'Uncertainty $\sigma$', color='black')
-ax5_twin.set_ylabel(r'Weight $1/(2\sigma^2)$', color='gray')
-ax5.set_title(r'(e) Uncertainty Parameters $\sigma$ and Weights $1/(2\sigma^2)$')
+ax5.set_ylabel(r'不确定度 $\sigma$', color='black')
+ax5_twin.set_ylabel(r'权重 $1/(2\sigma^2)$', color='gray')
+ax5.set_title(r'(e) 任务不确定性参数 $\sigma$ 与权重 $1/(2\sigma^2)$')
 ax5.legend(loc='upper left', fontsize=8)
 ax5_twin.legend(loc='upper right', fontsize=8)
 ax5.grid(True, alpha=0.3)
@@ -200,19 +212,19 @@ warmup_epochs = 10
 lr = np.zeros(total_epochs)
 lr[:warmup_epochs] = np.linspace(0, 1, warmup_epochs)
 lr[warmup_epochs:] = 0.5 * (1 + np.cos(np.pi * np.arange(total_epochs - warmup_epochs) / (total_epochs - warmup_epochs)))
-ax6.plot(epochs, lr, 'purple', linewidth=2.5, label='Learning Rate')
+ax6.plot(epochs, lr, 'purple', linewidth=2.5, label='学习率')
 ax6.fill_between(epochs, 0, lr, alpha=0.3, color='purple')
 ax6.set_xlabel('Epoch')
 ax6.set_ylabel('Learning Rate (normalized)')
-ax6.set_title('(f) Learning Rate Schedule')
+ax6.set_title('(f) 学习率调度')
 ax6.legend(loc='upper right', fontsize=10)
 ax6.grid(True, alpha=0.3)
 ax6.set_ylim([0, 1.1])
 
 # 添加说明文本
-ax6.text(warmup_epochs, 0.95, 'Warmup', ha='center', va='top', fontsize=9,
+ax6.text(warmup_epochs, 0.95, '预热', ha='center', va='top', fontsize=9,
          bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-ax6.text(total_epochs/2 + warmup_epochs/2, 0.5, 'Cosine Annealing', ha='center', va='center', fontsize=9,
+ax6.text(total_epochs/2 + warmup_epochs/2, 0.5, '余弦退火', ha='center', va='center', fontsize=9,
          bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
 
 plt.tight_layout()

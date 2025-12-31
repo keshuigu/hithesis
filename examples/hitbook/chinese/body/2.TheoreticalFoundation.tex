@@ -1,5 +1,5 @@
 % !Mode:: "TeX:UTF-8"
-\chapter{理论基础}[Theoretical Foundation]\label{chap:theory}
+\chapter{相关理论及技术基础}[Theoretical Foundation]\label{chap:theory}
 \section{引言}\label{sec:theory_intro}
 
 生物特征识别系统已广泛应用于身份验证、访问控制、金融支付等关键领域，通常将用户的生物特征转换为固定维度的嵌入向量形成模板，并通过相似度计算实现身份匹配。与传统认证机制相比，生物特征认证具有便捷性与难以伪造性等优势，但随着深度学习技术的深入应用，模板泄露导致的隐私风险显著增加：模板具有不可撤销性，且随着生成式模型技术的发展，从泄露模板逆向重建原始图像已成为现实威胁，攻击者可利用重建图像进行身份伪造或隐私侵犯。
@@ -16,10 +16,12 @@
 \begin{equation}\label{eq:embedding}
       f = F(x;\theta)\in\mathbb{R}^d
 \end{equation}
+
 其中 $\theta$ 表示网络的可学习参数，$d$ 为嵌入维度，实际应用中常取128、256或512等值。该嵌入向量旨在编码输入图像的身份相关信息，同时需要抑制诸如光照、表情、姿态等与身份无关的变化因素。为提高匹配的稳定性与可比性，实践中通常对嵌入向量进行 $L_2$ 归一化：
 \begin{equation}\label{eq:norm_embedding}
       \tilde{f} = \frac{f}{\|f\|_2}
 \end{equation}
+
 使得所有嵌入向量位于单位超球面上。此时，余弦相似度与欧氏距离存在简单的等价关系，便于后续的相似度计算与阈值决策。
 
 匹配与决策模块。在推理阶段，系统通过计算查询图像嵌入 $\tilde{f}_1$ 与参考模板嵌入 $\tilde{f}_2$ 之间的相似度来判断是否属于同一身份。常用的相似度度量为余弦相似度与欧式距离：
@@ -27,6 +29,7 @@
 \mathrm{sim}_{\text{cos}}(\tilde{f}_1,\tilde{f}_2) &= \tilde{f}_1 \cdot \tilde{f}_2 = \frac{f_1 \cdot f_2}{\|f_1\|_2\|f_2\|_2}, \label{eq:cosine_sim}\\
 d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \label{eq:euclidean_dist}
 \end{align}
+
 对于归一化嵌入，两者具有单调关系：$d_{\text{euc}}^2 = 2(1-\mathrm{sim}_{\text{cos}})$。在验证任务中，通过设定阈值 $\tau$ 判定匹配结果；在识别任务中，则选择相似度最高或距离最小的样本作为识别结果。
 
 深度人脸识别模型的训练目标是学习一个嵌入空间，使得同一身份的样本在该空间中距离较近，不同身份的样本相互远离。这一目标通常通过度量学习实现\cite{siamese2015}，主流方法可归纳为以下几类：
@@ -35,18 +38,21 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 \begin{equation}\label{eq:contrastive_loss}
       L_{\text{con}} = y \cdot d^2 + (1-y) \cdot \max(0, m - d)^2
 \end{equation}
+
 其中 $d=\|f_1-f_2\|_2$ 为嵌入距离，$y\in\{0,1\}$ 为标签，1表示同一身份，0表示不同身份，$m$ 为边界超参数。该损失鼓励正样本对距离小于边界，负样本对距离大于边界。
 
 （2）三元组损失（Triplet Loss）\cite{schroff2015facenet}。三元组损失通过构造锚点、正样本与负样本的三元组，优化相对距离：
 \begin{equation}\label{eq:triplet_loss}
       L_{\text{tri}} = \max\left(0, \|f_a - f_p\|_2 - \|f_a - f_n\|_2 + \alpha\right)
 \end{equation}
+
 其中 $f_a, f_p, f_n$ 分别为锚点、正样本与负样本的嵌入，$\alpha$ 为边界参数。该损失要求正样本对距离比负样本对距离至少小 $\alpha$。三元组损失的有效性依赖于困难样本挖掘策略。
 
 （3）基于角度边距的分类损失。近年来，如 ArcFace\cite{deng2019arcface}、CosFace\cite{wang2018cosface}、SphereFace\cite{liu2017sphereface}等基于角度边距的损失函数成为主流方法。这类方法将人脸识别视为分类问题，在 softmax 分类器中引入角度或余弦边距，使得类内嵌入更加紧致、类间分离更加明显。以 ArcFace 为例，其损失函数定义为：
 \begin{equation}\label{eq:arcface_loss}
       L_{\text{arc}} = -\frac{1}{N}\sum_{i=1}^N \log \frac{e^{s\cos(\theta_{y_i}+m)}}{e^{s\cos(\theta_{y_i}+m)} + \sum_{j\neq y_i} e^{s\cos\theta_j}}
 \end{equation}
+
 其中 $\theta_j$ 为嵌入向量与第 $j$ 类权重向量之间的夹角，$y_i$ 为真实类别标签，$s$ 为尺度因子，$m$ 为角度边距。通过在目标类的角度上增加 $m$，ArcFace 显式地增大了决策边界，从而提升了模型的判别能力与泛化性能。实践中，角度边距损失通常与归一化权重向量与嵌入向量结合使用，使得特征学习在超球面上进行，具有更强的几何可解释性。
 
 除了损失函数的设计，人脸识别系统的性能很大程度上还取决于骨干网络的表达能力。常用的骨干架构包括以下几类：（1）残差网络\cite{he2016deep}：通过引入残差连接缓解了深度网络的梯度消失问题，是人脸识别中最广泛使用的骨干网络之一，其深层结构能够学习复杂的特征表示；（2）在移动端或资源受限场景下，常采用 MobileNet\cite{howard2017mobilenets}、EfficientNet\cite{tan2019efficientnet} 等轻量级架构，以在保持较高精度的同时降低计算与存储开销；（3）近年来，基于自注意力机制的 Vision Transformer\cite{dosovitskiy2020image}及其变体在人脸识别中也展现出了优异性能，例如 Swin Transformer 等改进模型在大规模数据集上的泛化能力更强。
@@ -77,6 +83,7 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 \begin{equation}\label{eq:forward_diffusion}
       q(x_t|x_{t-1}) = \mathcal{N}(x_t; \sqrt{1-\beta_t}\,x_{t-1}, \beta_t I)
 \end{equation}
+
 其中 $x_t$ 表示扩散过程在时刻 $t$ 的噪声化状态,$\{\beta_t\}_{t=1}^T$ 为噪声调度参数序列。整个前向过程可表示为联合分布：
 \begin{equation}\label{eq:forward_joint}
       q(x_{1:T}|x_0) = \prod_{t=1}^T q(x_t|x_{t-1})
@@ -98,6 +105,7 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 \begin{equation}\label{eq:reparameterization}
       x_t = \sqrt{\overline{\alpha}_t}\,x_0 + \sqrt{1-\overline{\alpha}_t}\,\epsilon, \quad \epsilon\sim\mathcal{N}(0,I)
 \end{equation}
+
 其中 $\epsilon$ 为服从标准高斯分布的随机噪声。
 
 当扩散步数 $T$ 足够大且噪声调度合理时，$\overline{\alpha}_T\approx 0$，此时 $x_T$ 近似服从标准高斯分布 $\mathcal{N}(0,I)$，从而实现了将任意数据分布映射到简单先验分布的目标。
@@ -110,6 +118,7 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 \begin{equation}\label{eq:reverse_process}
       p_\theta(x_{t-1}|x_t) = \mathcal{N}(x_{t-1}; \mu_\theta(x_t,t), \Sigma_\theta(x_t,t))
 \end{equation}
+
 其中 $\mu_\theta$ 和 $\Sigma_\theta$ 为待学习的均值和协方差函数。实践中，通常将协方差固定为 $\Sigma_\theta(x_t,t)=\sigma_t^2 I$，仅学习均值函数。
 
 完整的生成过程定义为：
@@ -139,6 +148,7 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
       &+ \sum_{t=2}^T \mathbb{E}_{q(x_t|x_0)}\left[D_{\text{KL}}(q(x_{t-1}|x_t,x_0)\|p_\theta(x_{t-1}|x_t))\right] \nonumber\\
       &- \mathbb{E}_{q(x_1|x_0)}[\log p_\theta(x_0|x_1)]
 \end{align}
+
 其中第一项为终止项可在训练中忽略,第二项为去噪项是训练的核心,第三项为重构项用于确保生成质量。
 
 \subsubsection{后验分布与重参数化}
@@ -147,6 +157,7 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 \begin{equation}\label{eq:posterior}
       q(x_{t-1}|x_t,x_0) = \frac{q(x_t|x_{t-1},x_0)q(x_{t-1}|x_0)}{q(x_t|x_0)} \propto \mathcal{N}(x_{t-1}; \tilde{\mu}_t(x_t,x_0), \tilde{\beta}_t I)
 \end{equation}
+
 由于前向过程每一步均为高斯分布，根据高斯分布的性质，上述后验分布也服从高斯分布。具体地，将式~\eqref{eq:forward_diffusion} 和式~\eqref{eq:forward_closed_form} 代入贝叶斯公式并利用高斯分布的指数形式展开，可以得到后验均值与方差的表达：
 \begin{align}
       \tilde{\mu}_t(x_t,x_0) &= \frac{\sqrt{\alpha_t}(1-\overline{\alpha}_{t-1})}{1-\overline{\alpha}_t}x_t + \frac{\sqrt{\overline{\alpha}_{t-1}}\beta_t}{1-\overline{\alpha}_t}x_0, \label{eq:posterior_mean}\\
@@ -161,10 +172,12 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 \begin{equation}\label{eq:x0_from_xt}
       x_0 = \frac{x_t - \sqrt{1-\overline{\alpha}_t}\,\epsilon}{\sqrt{\overline{\alpha}_t}}
 \end{equation}
+
 代入式~\eqref{eq:posterior_mean}，可以得到后验均值关于噪声 $\epsilon$ 的表达式。实践中发现，直接让网络预测噪声 $\epsilon$ 而非均值 $\mu_\theta$ 或原始数据 $x_0$，能够获得更稳定的训练与更好的生成质量。具体地，定义噪声预测网络 $\epsilon_\theta(x_t,t)$，训练目标简化为：
 \begin{equation}\label{eq:noise_loss}
       L_{\text{simple}} = \mathbb{E}_{t,x_0,\epsilon}\left[\|\epsilon - \epsilon_\theta(x_t,t)\|^2\right]
 \end{equation}
+
 其中 $t$ 从 $\{1,\ldots,T\}$ 中均匀采样,$x_0$ 从数据分布采样,$\epsilon\sim\mathcal{N}(0,I)$,$x_t$ 由式~\eqref{eq:reparameterization} 生成。从得分匹配的视角看,该噪声预测目标等价于学习数据分布的得分函数 $\nabla_{x_t}\log p(x_t)$,两者关系为：
 \begin{equation}\label{eq:score_noise_relation}
       \nabla_{x_t}\log p(x_t) = -\frac{1}{\sqrt{1-\overline{\alpha}_t}}\epsilon_\theta(x_t,t)
@@ -188,6 +201,7 @@ d_{\text{euc}}(\tilde{f}_1,\tilde{f}_2) &= \|\tilde{f}_1 - \tilde{f}_2\|_2. \lab
 \begin{equation}\label{eq:ddim_sampling}
       x_{t-1} = \sqrt{\overline{\alpha}_{t-1}}\left(\frac{x_t - \sqrt{1-\overline{\alpha}_t}\epsilon_\theta(x_t,t)}{\sqrt{\overline{\alpha}_t}}\right) + \sqrt{1-\overline{\alpha}_{t-1}}\epsilon_\theta(x_t,t)
 \end{equation}
+
 DDIM允许使用任意子序列时间步采样,可将步数从1000步降低至50步甚至10步而无需重新训练。EDM\cite{karrasEluvidatingDiffusionModels2022}进一步通过统一噪声调度与网络预处理设计,提升了训练稳定性与采样效率。
 
 值得注意的是，从连续时间视角看，前向扩散可建模为随机微分方程（Stochastic Differential Equation，SDE），对应的反向SDE通过学习得分函数$\nabla_x\log p_t(x)$来生成样本。这一视角与离散时间的DDPM框架在理论上等价，但提供了统一连续与离散采样的数学工具。
@@ -200,6 +214,7 @@ DDIM允许使用任意子序列时间步采样,可将步数从1000步降低至50
 \begin{equation}\label{eq:classifier_guidance}
       \nabla_x\log p(x_t|y) = \nabla_x\log p(x_t) + \nabla_x\log p_\phi(y|x_t)
 \end{equation}
+
 在采样时，将无条件得分与分类器梯度相加，并通过引导强度 $\omega$ 调节条件信息的权重：
 \begin{equation}\label{eq:guided_score}
       \tilde{\nabla}_x\log p(x_t|y) = \nabla_x\log p(x_t) + \omega\nabla_x\log p_\phi(y|x_t)
@@ -211,6 +226,7 @@ DDIM允许使用任意子序列时间步采样,可将步数从1000步降低至50
 \begin{equation}\label{eq:cfg}
       \tilde{\epsilon}_\theta(x_t,y,t) = \epsilon_\theta(x_t,\emptyset,t) + \omega\left[\epsilon_\theta(x_t,y,t) - \epsilon_\theta(x_t,\emptyset,t)\right]
 \end{equation}
+
 其中 $\omega>1$ 时可以增强条件的影响，但过大的 $\omega$ 可能导致生成样本偏离真实分布或产生伪影。
 
 \subsubsection{基于能量的引导}
@@ -219,6 +235,7 @@ DDIM允许使用任意子序列时间步采样,可将步数从1000步降低至50
 \begin{equation}\label{eq:energy_guidance}
       E(x;f_{\text{target}}) = -\lambda\cdot\text{sim}(F(x), f_{\text{target}})
 \end{equation}
+
 其中 $F(\cdot)$ 为预训练的人脸识别网络，$\text{sim}(\cdot,\cdot)$ 为余弦相似度，$\lambda$ 为引导强度。在采样过程中，通过反向传播计算能量函数的梯度 $\nabla_x E(x;f_{\text{target}})$，并将其叠加到无条件得分上：
 \begin{equation}\label{eq:energy_score}
       \tilde{\nabla}_x\log p(x_t|f_{\text{target}}) = \nabla_x\log p(x_t) - \nabla_x E(x_t;f_{\text{target}})
@@ -250,6 +267,7 @@ LoRA的核心思想是在不改变预训练权重的前提下，通过低秩矩�
       \Delta W &= BA,
 \end{aligned}
 \end{equation}
+
 其中$W$为微调后的权重矩阵，$W_0$为原始预训练权重矩阵并保持冻结，$\Delta W$为可训练的权重增量，$B\in\mathbb{R}^{d_{\text{out}}\times r}$与$A\in\mathbb{R}^{r\times d_{\text{in}}}$为低秩分解矩阵，$d_{\text{out}}$与$d_{\text{in}}$分别为输出与输入维度，$r$为低秩适配的秩参数且满足$r\ll\min(d_{\text{out}}, d_{\text{in}})$。在前向传播时，对于输入向量$x\in\mathbb{R}^{d_{\text{in}}}$，输出$h\in\mathbb{R}^{d_{\text{out}}}$的计算公式为：
 \begin{equation}\label{eq:lora_forward}
       h = Wx = W_0 x + B(Ax)
@@ -263,6 +281,7 @@ LoRA的参数效率体现在可训练参数量的大幅减少。对于原始权�
 \begin{equation}\label{eq:lora_compression_ratio}
       \text{Ratio} = \frac{d_{\text{out}}\times d_{\text{in}}}{r(d_{\text{in}}+d_{\text{out}})} \approx \frac{\min(d_{\text{out}}, d_{\text{in}})}{r}
 \end{equation}
+
 当 $r\in\{8,16,32\}$ 等较小值时，压缩比可达数十倍至上百倍。在计算复杂度方面，前向传播的额外计算量为 $O(r(d_{\text{in}}+d_{\text{out}}))$，相比原始 $O(d_{\text{out}}\times d_{\text{in}})$ 在 $r\ll\min(d_{\text{out}}, d_{\text{in}})$ 时可忽略不计。
 
 反向传播时，梯度计算遵循链式法则：
@@ -272,6 +291,7 @@ LoRA的参数效率体现在可训练参数量的大幅减少。对于原始权�
       \nabla_B \mathcal{L} &= \nabla_{W}\mathcal{L} \cdot A^{\top}
 \end{aligned}
 \end{equation}
+
 其中$\mathcal{L}$为任务损失函数，$\nabla_{W}\mathcal{L}$为损失对权重$W$的梯度，$\nabla_A \mathcal{L}$与$\nabla_B \mathcal{L}$分别为损失对低秩矩阵$A$和$B$的梯度，上标$\top$表示矩阵转置。由于仅需计算$A$与$B$的梯度而无需计算$W_0$的梯度，显存占用与计算开销显著降低。
 
 \subsection{应用场景与部署策略}
@@ -282,6 +302,7 @@ LoRA的参数效率体现在可训练参数量的大幅减少。对于原始权�
 \begin{equation}\label{eq:lora_merge}
       W_{\text{merged}} = W_0 + \frac{\alpha}{r}BA
 \end{equation}
+
 合并后的模型在推理时与标准模型无异，无需额外的矩阵乘法操作。LoRA的重要优势在于支持多任务模块化部署，例如在多目标模板重建场景中，可采用"一个基础模型+多组LoRA权重"的架构：（1）共享基础模型：所有任务或目标共享同一预训练的基础模型 $\mathcal{M}_{\theta_0}$，该模型保持冻结状态；（2）任务特定LoRA：为每个任务或目标训练一组独立的LoRA权重 $\{A_i, B_i\}$，存储开销仅为基础模型参数量的 $\frac{r(d_{\text{in}}+d_{\text{out}})}{d_{\text{out}}\times d_{\text{in}}}$ 倍；（3）动态加载：在推理时根据任务需求动态加载对应的LoRA权重，实现快速切换。该架构在存储成本、部署灵活性与推理效率上均具有显著优势，特别适用于需要支持大量个性化配置的实际应用场景。
 
 \section{本章小结}

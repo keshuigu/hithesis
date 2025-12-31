@@ -44,6 +44,7 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 \begin{equation}\label{eq:mia_mlp_emb}
     e_{\text{id}} = \text{MLP}_{\psi}(\text{OneHot}(y_{\text{target}})) \in \mathbb{R}^{d_e}
 \end{equation}
+
 其中MLP包含2-3个隐藏层，配备ReLU激活函数与LayerNorm。为确保与换脸模型的ID注入模块兼容，MLP输出维度$d_e$设置与ArcFace嵌入维度一致（通常$d_e=512$），并对嵌入向量进行$L_2$归一化使其位于单位超球面上：
 \begin{equation}\label{eq:mia_emb_norm}
     e_{\text{id}} \leftarrow \frac{e_{\text{id}}}{\|e_{\text{id}}\|_2}
@@ -62,6 +63,7 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
     W_V^{\ell\prime} = W_V^{\ell} + \frac{\alpha}{r} B_V^{\ell} A_V^{\ell}
 \end{aligned}
 \end{equation}
+
 其中$A_K^{\ell}, A_V^{\ell}\in\mathbb{R}^{r\times 512}$，$B_K^{\ell}, B_V^{\ell}\in\mathbb{R}^{d_h\times r}$,$d_h$为注意力头维度，$r$为LoRA秩，$\alpha$为缩放因子。这些矩阵直接控制身份嵌入编码，是身份信息注入的核心机制。
 
 （2）U-Net注意力层：对去噪U-Net的自注意力和交叉注意力的投影矩阵应用LoRA：
@@ -73,12 +75,14 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
     W_O' = W_O + \frac{\alpha}{r} B_O A_O
 \end{aligned}
 \end{equation}
+
 其中$W_Q, W_K, W_V, W_O$分别为Query、Key、Value与输出投影矩阵。注意力机制负责特征全局聚合，微调这些投影可优先生成分类器敏感的身份特征。
 
 （3）残差块卷积层：对U-Net残差块中的$1\times1$点卷积应用LoRA。$1\times1$卷积因其空间感受野为单位窗口，本质上执行通道间的线性变换，可等价为矩阵乘法操作。设原始卷积权重为$W\in\mathbb{R}^{C_{\text{out}}\times C_{\text{in}}\times 1\times 1}$，由于空间维度均为1，可将其视为二维权重矩阵$\tilde{W}\in\mathbb{R}^{C_{\text{out}}\times C_{\text{in}}}$进行低秩分解。微调后的权重表示为：
 \begin{equation}\label{eq:mia_lora_conv}
     W' = W + \frac{\alpha}{r} \text{reshape}(B A, [C_{\text{out}}, C_{\text{in}}, 1, 1])
 \end{equation}
+
 其中$A\in\mathbb{R}^{r\times C_{\text{in}}}$为下投影矩阵，$B\in\mathbb{R}^{C_{\text{out}}\times r}$为上投影矩阵，$\text{reshape}(\cdot)$为张量重塑操作，将矩阵乘积$BA\in\mathbb{R}^{C_{\text{out}}\times C_{\text{in}}}$转换为卷积核格式$\mathbb{R}^{C_{\text{out}}\times C_{\text{in}}\times 1\times 1}$以匹配原始权重$W$的形状，从而可进行张量加法。
 
 \subsection{多目标优化损失函数}
@@ -92,6 +96,7 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 \begin{equation}\label{eq:mia_total_loss}
     \mathcal{L}_{\text{total}} = \sum_{i \in \mathcal{I}} \left( \frac{1}{2\sigma_i^2} \mathcal{L}_i + \frac{1}{2}\log\sigma_i^2 \right)
 \end{equation}
+
 其中 $\sigma_i$ 为第 $i$ 个任务的可学习不确定性参数，与网络参数联合优化。该框架通过自适应调整各任务权重实现动态平衡：对于难以优化的任务，$\sigma_i$自动增大以降低其在总损失中的权重$\frac{1}{2\sigma_i^2}$，避免单一任务主导训练过程；对于易于优化的任务，$\sigma_i$保持较小以维持较高权重，确保充分收敛。训练时$\sigma_i$采用较小学习率以避免早期过度衰减。注意$\mathcal{L}_{\text{cls}}$与$\mathcal{L}_{\text{p-reg}}$作为独立损失项分别调权，两者协同驱动分类器攻击：前者通过top-k max-margin直接优化logits以远离决策边界，后者通过特征空间正则化稳定优化轨迹。
 
 \subsubsection{扩散先验损失}
@@ -100,6 +105,7 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 \begin{equation}\label{eq:mia_prior_loss}
     \mathcal{L}_{\text{prior}} = \mathbb{E}_{z_0, \epsilon\sim\mathcal{N}(0,I), t} \left[ w(t) \cdot \left(1 - \frac{\langle \epsilon, \epsilon_\theta(z_t, t, e_{\text{id}}) \rangle}{\|\epsilon\|_2 \|\epsilon_\theta(z_t, t, e_{\text{id}})\|_2} \right) \right],
 \end{equation}
+
 其中$z_t$为加噪潜在变量，$\epsilon_\theta$为去噪网络。引入时间步加权$w(t) = 1 + \beta \cdot (1 - t/T)$在低噪声阶段强化细节优化，确保生成图像保持高视觉真实度。
 
 \subsubsection{分类器引导损失}
@@ -110,12 +116,14 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 \begin{equation}\label{eq:mia_topk_loss}
     \mathcal{L}_{\text{cls}} = -\ell_y + \frac{1}{k} \sum_{j \in \text{top-}k(J \setminus \{y\})} \ell_j
 \end{equation}
+
 其中$J = \{1, \ldots, C\}$为所有类别集合，$\text{top-}k(J \setminus \{y\})$选取除目标类别外logit最高的$k$个类别，$k$根据数据集类别数设定。该损失同时最小化目标类别logit$\ell_y$的负值（即最大化$\ell_y$）和最大化混淆类别logit的平均值，从而在高维空间中推动生成图像远离决策边界。
 
 为进一步稳定优化过程，本文采用Nguyen等人\cite{nguyen2023rethinking}提出并由Li等人\cite{li2024diffmi}改进的p-reg损失，在特征空间对生成图像进行正则化约束。该损失通过最小化生成图像的特征表示与预计算的类别特征中心之间的距离，避免优化过程中的振荡。设$p_x = F_\theta^{\text{feat}}(\hat{x}) \in \mathbb{R}^{d_{\text{feat}}}$为分类器倒数第二层的特征表示，$c_y \in \mathbb{R}^{d_{\text{feat}}}$为目标类别$y$的特征中心。p-reg损失定义为：
 \begin{equation}\label{eq:mia_preg_loss}
     \mathcal{L}_{\text{p-reg}} = \left\|p_x - c_y\right\|_2^2.
 \end{equation}
+
 特征中心$c_y$通过在公共数据集上使用目标分类器预先计算获得：对每个类别$y$，将其在公共数据集中所有样本的特征表示平均化，得到该类别的原型中心。这种预计算方式提供了稳定的正则化目标，使生成图像在特征空间向真实数据分布靠拢。
 
 \subsubsection{身份一致性损失}
@@ -128,6 +136,7 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 \begin{equation}\label{eq:mia_identity_loss}
     \mathcal{L}_{\text{id}} = \mathbb{E}\left[\max\left(0, m + \frac{\langle E_{\text{id}}(\hat{x}), e_{\text{neg}} \rangle}{\|E_{\text{id}}(\hat{x})\|_2 \|e_{\text{neg}}\|_2} - \frac{\langle E_{\text{id}}(\hat{x}), e_{\text{id}} \rangle}{\|E_{\text{id}}(\hat{x})\|_2 \|e_{\text{id}}\|_2}\right)\right]
 \end{equation}
+
 其中$e_{\text{gen}} = E_{\text{id}}(\hat{x})$是预训练ArcFace编码器提取的生成图像的身份特征，$e_{\text{id}} = \mathcal{E}_\psi(y_{\text{target}})$是标签条件嵌入层生成的目标身份嵌入，$e_{\text{neg}} = \mathcal{E}_\psi(y_{\text{neg}})$是从内存库$\mathcal{M}$中采样的负样本类别嵌入（$y_{\text{neg}} \neq y_{\text{target}}$），$m$是角度裕度参数，控制正负样本间的最小角度间隔。
 
 内存库$\mathcal{M}=\{e_1, e_2, \ldots, e_C\}$存储所有$C$个类别的嵌入向量快照，即$e_i = \mathcal{E}_\psi(i), \forall i \in \{1,\ldots,C\}$。训练时，当前目标类别$y_{\text{target}}$的嵌入$e_{\text{id}} = \mathcal{E}_\psi(y_{\text{target}})$通过前向传播实时计算并参与梯度更新，而负样本$e_{\text{neg}}$则从内存库中采样其他$C-1$个类别的嵌入（$y_{\text{neg}} \neq y_{\text{target}}$）。为平衡计算效率与嵌入一致性，内存库每一定步后更新一次，将所有类别的嵌入重新生成并存储，形成周期性快照机制。初始内存库在训练开始时由随机初始化的嵌入层构建，随训练进行逐步演化为超球面上分离良好的类别表示。
@@ -148,6 +157,7 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 \begin{equation}\label{eq:mia_reg_loss}
     \mathcal{L}_{\text{reg}} = \mathcal{L}_{\text{emb-norm}} + \lambda_{\text{lora}} \mathcal{L}_{\text{lora}} = \sum_{y=1}^C (\|e_{\text{id}}^{(y)}\|_2 - 1)^2 + \lambda_{\text{lora}} \sum_{\ell} (\|A_{\ell}\|_F^2 + \|B_{\ell}\|_F^2)
 \end{equation}
+
 其中嵌入归一化约束强制所有类别的嵌入向量位于单位超球面上，LoRA正则化防止权重过大导致的过拟合。
 
 \section{渐进式三阶段训练与标签条件推理}
@@ -171,22 +181,26 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 \begin{equation}\label{eq:mia_stage0_loss}
     \mathcal{L}_{\text{stage0}} = \mathcal{L}_{\text{prior}} + \mathcal{L}_{\text{perc}}.
 \end{equation}
+
 该阶段聚焦于扩散先验保真度与感知质量，使LoRA适配层学习如何在保持生成质量的前提下利用外部身份嵌入进行换脸。训练持续至生成图像FID稳定在较低水平。
 
 第二阶段为混合条件过渡。该阶段通过插值混合真实图像嵌入与标签嵌入，实现从图像条件到标签条件的平滑迁移。采用时间依赖的线性插值策略
 \begin{equation}\label{eq:mia_hybrid_embedding}
     e_{\text{id}}(t) = (1-\lambda(t)) \cdot E_{\text{id}}(x_{\text{real}}) + \lambda(t) \cdot \mathcal{E}_\psi(y)
 \end{equation}
+
 其中$t$为当前训练步数，$\lambda(t)$为退火系数，控制标签嵌入的权重。采用余弦退火调度
 \begin{equation}\label{eq:mia_annealing_schedule}
     \lambda(t) = \frac{1}{2}\left(1 - \cos\left(\frac{\pi \cdot \min(t, T_{\text{anneal}})}{T_{\text{anneal}}}\right)\right)
 \end{equation}
+
 其中$T_{\text{anneal}}$为退火周期。相比线性退火$\lambda(t)=t/T_{\text{anneal}}$，余弦调度在初期缓慢增长，中期快速过渡，后期平滑收敛，提供更稳定的过渡曲线。
 
 该阶段解冻标签条件嵌入层$\mathcal{E}_\psi$，联合优化嵌入层与LoRA参数。为实现从图像条件到标签条件的平滑过渡，损失函数采用任务不确定性加权框架（式~\ref{eq:mia_total_loss}）统一管理所有损失项，同时通过退火系数$\lambda(t)$（式~\ref{eq:mia_annealing_schedule}）控制攻击相关损失的激活进度：
 \begin{equation}\label{eq:mia_stage1_loss}
     \mathcal{L}_{\text{stage1}} = \sum_{i \in \{\text{prior, perc}\}} \left( \frac{1}{2\sigma_i^2} \mathcal{L}_i + \frac{1}{2}\log\sigma_i^2 \right) + \lambda(t) \sum_{j \in \{\text{cls, p-reg, id, reg}\}} \left( \frac{1}{2\sigma_j^2} \mathcal{L}_j + \frac{1}{2}\log\sigma_j^2 \right)
 \end{equation}
+
 其中前项为基础生成质量约束（先验保真度与感知质量），后项为攻击优化相关损失（分类器引导、特征正则化、身份一致性与嵌入正则化）。所有损失项权重通过不确定性参数$\{\sigma_i\}$自动平衡，退火系数$\lambda(t)$仅控制攻击损失的引入速度，不干扰各损失间的相对权重调整。
 
 该设计遵循课程学习原理，通过退火系数实现训练目标的动态平衡：（1）初期$\lambda(t)\approx 0$时，攻击损失几乎不参与训练，不确定性框架专注于平衡$\mathcal{L}_{\text{prior}}$与$\mathcal{L}_{\text{perc}}$，模型利用真实图像嵌入学习高质量换脸生成；（2）中期$\lambda(t)\approx 0.5$时，攻击损失逐步激活，$\sigma_j$参数开始学习攻击损失与生成损失的相对权重，标签嵌入在分类器引导$\mathcal{L}_{\text{cls}}$、特征正则化$\mathcal{L}_{\text{p-reg}}$与身份一致性$\mathcal{L}_{\text{id}}$的共同作用下逐步接管身份控制；（3）后期$\lambda(t)\approx 1.0$时，攻击损失完全激活，不确定性框架在六个损失项间实现全局最优平衡，模型完全适配标签条件生成并优化分类器攻击效果。该策略确保生成质量约束始终存在，避免攻击优化破坏图像真实性，同时通过退火机制与不确定性加权的协同作用实现平滑的模态迁移与多目标优化的动态平衡。
@@ -197,6 +211,7 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 \begin{equation}\label{eq:mia_stage2_loss}
     \mathcal{L}_{\text{stage2}} = \mathcal{L}_{\text{total}} = \sum_{i \in \{\text{prior, cls, p-reg, id, perc, reg}\}} \left( \frac{1}{2\sigma_i^2} \mathcal{L}_i + \frac{1}{2}\log\sigma_i^2 \right)
 \end{equation}
+
 该阶段同时优化攻击有效性与生成质量，各损失权重通过任务不确定性框架自动学习。其中$\mathcal{L}_{\text{cls}}$（top-k max-margin）与$\mathcal{L}_{\text{p-reg}}$（特征中心正则化）协同驱动分类器攻击，前者最大化目标类别置信度并远离决策边界，后者稳定优化轨迹并约束特征表示向类别原型靠拢。LoRA参数采用较小学习率以避免遗忘已学习的生成能力。训练持续至攻击成功率与生成质量同时达到预期目标。
 
 算法~\ref{alg:mia_progressive}给出了上述渐进式三阶段训练的统一实现流程。该算法通过阶段标识$s\in\{0,1,2\}$区分不同训练阶段，各阶段在身份嵌入生成方式、损失函数组成及参数更新策略上存在差异。
@@ -239,18 +254,21 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 \begin{equation}\label{eq:mia_inference_embedding}
     e_{\text{id}} = \mathcal{E}_\psi(y_{\text{target}}) \in \mathbb{R}^{512}
 \end{equation}
+
 该嵌入向量经过三阶段渐进式训练后，已建立类别标签与身份特征空间的稳定映射。归一化后的嵌入$e_{\text{id}}/\|e_{\text{id}}\|_2$位于ArcFace编码器学习的单位超球面上，确保与换脸模型的身份控制接口兼容。
 
 其次，为生成具有多样性的攻击样本，需从公开人脸数据集中采样多个源图像作为属性提供者。对于每个源图像$x_{\text{src}}^{(j)}$，结合身份嵌入$e_{\text{id}}$通过微调后的换脸模型生成攻击样本：
 \begin{equation}\label{eq:mia_inference_generation}
     \hat{x}^{(j)} = G_{\phi+\Delta}(x_{\text{src}}^{(j)}, e_{\text{id}})
 \end{equation}
+
 其中$G_{\phi+\Delta}$表示融合LoRA增量$\Delta=\{A_\ell, B_\ell\}$后的换脸模型，$\phi$为冻结的预训练主干参数。生成过程遵循扩散模型的标准采样流程：VAE编码器将源图像编码为潜在表示$z_0 = \text{VAE}_{\text{enc}}(x_{\text{src}}^{(j)})$，随后通过DDIM多步去噪采样生成目标潜在表示$\hat{z}_0$，最后VAE解码器输出生成图像$\hat{x}^{(j)} = \text{VAE}_{\text{dec}}(\hat{z}_0)$。身份嵌入$e_{\text{id}}$通过参考注意力机制注入U-Net去噪网络的每个时间步，实现身份控制。
 
 为进一步提升攻击有效性，本方法在推理阶段引入分类器引导采样机制。训练阶段虽已通过分类器损失优化嵌入层与LoRA参数，但推理时的标准采样流程未显式利用分类器信息，导致生成样本可能偏离目标类别的高置信区域。借鉴扩散模型的分类器引导技术\cite{dhariwalDiffusionModelsBeat2021}，本方法在每个去噪时间步$t$引入分类器梯度修正采样轨迹，驱动生成过程持续逼近目标类别。具体而言，在DDIM采样的第$t$步，原始去噪网络预测噪声$\epsilon_\theta(z_t, t, e_{\text{id}})$，通过该预测可估计当前潜在表示对应的干净图像$z_{0|t} = (z_t - \sqrt{1-\bar{\alpha}_t}\epsilon_\theta) / \sqrt{\bar{\alpha}_t}$。将$z_{0|t}$解码为像素空间图像$x_{0|t} = \text{VAE}_{\text{dec}}(z_{0|t})$并输入目标分类器，计算其在目标类别$y_{\text{target}}$的对数概率$\log p_\theta(y_{\text{target}}|x_{0|t})$。对该对数概率关于潜在表示$z_t$求梯度，得到引导方向$\nabla_{z_t} \log p_\theta(y_{\text{target}}|x_{0|t})$，该梯度指示了使分类器置信度增大的潜在空间移动方向。引导后的噪声预测修正为：
 \begin{equation}\label{eq:mia_classifier_guidance}
     \tilde{\epsilon}_\theta(z_t, t, e_{\text{id}}) = \epsilon_\theta(z_t, t, e_{\text{id}}) - \gamma(t) \sqrt{1-\bar{\alpha}_t} \nabla_{z_t} \log p_\theta(y_{\text{target}}|x_{0|t})
 \end{equation}
+
 其中$\gamma(t)$为时间依赖的引导强度系数。该修正项在保持去噪方向基本不变的前提下，沿着分类器梯度方向微调潜在表示，确保生成轨迹向目标类别的高置信区域偏移。引导强度$\gamma(t)$采用指数增长调度$\gamma(t) = \gamma_{\text{base}} \exp(-5(1-t/T))$，其中$\gamma_{\text{base}}\in[1.0, 3.0]$为基础强度超参数。该调度策略在早期高噪声阶段（$t$接近$T$）使用较小引导强度，主要依赖换脸模型的生成先验；在后期低噪声阶段（$t$接近$0$）增大引导强度，利用分类器梯度精确调整细节特征以满足目标类别要求。考虑到频繁的VAE解码与分类器梯度计算带来的计算开销，本方法采用稀疏引导策略：仅在关键时间步（如$\{T, 3T/4, T/2, T/4, 1\}$）或每隔固定间隔$K$步应用引导，在保证攻击效果的前提下显著降低推理时间。梯度计算前对$\nabla_{z_t} \log p_\theta(y_{\text{target}}|x_{0|t})$进行$L_2$归一化并裁剪至$[-1, 1]$，防止梯度爆炸破坏生成质量。分类器引导与训练阶段的分类器损失形成互补：训练时优化模型参数使其倾向生成高置信样本，推理时通过稀疏的梯度修正进一步确保采样轨迹收敛至目标类别，从而在计算效率与攻击效果间取得良好平衡。
 
 源图像集合$\{x_{\text{src}}^{(j)}\}_{j=1}^{N_{\text{src}}}$的选择对攻击效果有重要影响。本方法采用多样性驱动的采样策略，从公开数据集中采样若干源图像，确保覆盖不同姿态、表情、年龄、光照等属性维度。可通过预训练的属性估计器评估候选集的属性方差，选择方差较大的子集以最大化生成样本的多样性。该策略继承换脸模型的核心优势，即身份与属性解耦，使生成图像在保持目标身份的同时，从源图像继承丰富的外观属性。
@@ -259,6 +277,7 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 \begin{equation}\label{eq:mia_inference_confidence}
     s^{(j)} = F_\theta(\hat{x}^{(j)})_{y_{\text{target}}} = \text{Softmax}(F_\theta(\hat{x}^{(j)}))_{y_{\text{target}}}
 \end{equation}
+
 选择置信度最高的若干样本作为最终输出。该筛选机制与分类器引导采样协同工作：引导采样确保生成过程持续向目标类别靠拢，提高单个样本的攻击成功率；后处理筛选从多样化候选集中精选高置信样本，进一步优化输出质量。两阶段机制共同确保输出样本同时满足高分类器认同度与多样性要求：引导与筛选的双重保障增强攻击有效性，而源图像的多样性采样保证样本在属性空间的广泛分布。
 
 算法~\ref{alg:mia_inference}给出了完整的推理流程。该算法集成身份嵌入生成、分类器引导的DDIM采样与质量筛选三个关键模块，实现从目标类别标签到高置信度攻击样本的端到端生成。
@@ -292,6 +311,7 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 \begin{equation}\label{eq:mia_inference_merge}
     W_{\text{merged}} = W_{\text{frozen}} + \frac{\alpha}{r} B A
 \end{equation}
+
 其中$W_{\text{frozen}}$为冻结的预训练权重，$A, B$为训练得到的LoRA矩阵，$\alpha$为缩放因子，$r$为LoRA秩。合并后模型结构与原始换脸模型完全一致，可作为独立的攻击工具部署，无需额外适配层或动态参数注入。
 
 \section{本章小结}
