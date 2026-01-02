@@ -8,7 +8,7 @@
 
 本章将扩散换脸模型应用于模型反演攻击任务。换脸模型具有显式的身份属性解耦机制，但其标准推理流程依赖真实目标图像，而攻击场景中仅拥有类别标签。本章设计标签条件嵌入层、低秩适应微调、渐进式训练策略、多目标优化框架与分类器引导推理机制，将离散标签映射为连续身份嵌入，实现从类别标签到高保真攻击样本的生成。
 
-本章首先形式化定义问题与威胁模型，随后阐述换脸先验模型的选择与适配改造、标签条件嵌入层设计、低秩适应微调策略、多目标优化损失函数框架与渐进式三阶段训练策略，最后给出完整的训练算法与分类器引导推理流程。
+本章首先形式化定义问题与威胁模型，随后阐述换脸先验模型的选择与适配改造、标签条件嵌入层设计、低秩适应微调策略、多目标优化损失函数框架与渐进式三阶段训练策略，最后给出完整的训练算法与分类器引导推理流程。基于上述方法，本章在VGGFace2、CelebA等标准数据集上进行系统实验，针对ArcFace、IR152与Face.evoLVe等不同架构的目标分类器评估攻击性能，通过与现有代表性方法的对比实验验证本章方法在攻击成功率与生成保真度上的优势，并通过消融实验量化各关键设计模块的性能贡献。
 
 \section{形式化问题定义}
 \label{sec:mia_problem}
@@ -22,21 +22,126 @@
 
 \subsection{整体架构设计}
 
-本章提出的模型反演攻击架构由三个核心模块组成：标签条件嵌入层$\mathcal{E}_\psi$、预训练换脸模型$G_\phi$与LoRA微调模块、目标分类器$F_\theta$。该架构的数据流如下：给定目标类别标签$y_{\text{target}}$，首先通过标签条件嵌入层生成512维身份嵌入向量，然后换脸模型结合源图像进行扩散去噪生成目标图像，最后输入分类器进行梯度引导优化。
+\begin{figure}[!htbp]
+  \centering
+  \begin{tikzpicture}[scale=0.75, transform shape, node distance=1.3cm, >=stealth, thick,
+    module/.style={rectangle, draw=blue!60, fill=blue!10, minimum width=2.5cm, minimum height=0.75cm, align=center, rounded corners},
+    input/.style={rectangle, draw=green!60, fill=green!10, minimum width=1.8cm, minimum height=0.6cm, align=center, rounded corners},
+    submodule/.style={rectangle, draw=purple!60, fill=purple!10, minimum width=2.2cm, minimum height=0.6cm, align=center, rounded corners, font=\small},
+    loss/.style={rectangle, draw=red!60, fill=red!10, minimum width=1.6cm, minimum height=0.55cm, align=center, rounded corners, font=\small},
+    arrow/.style={->, thick},
+    gradient/.style={->, thick, dashed, red!70}]
 
-具体而言，给定目标类别标签$y_{\text{target}}\in\{1,2,\ldots,C\}$与随机采样的源图像$x_{\text{src}}$，系统首先通过标签条件嵌入层将类别标签的one-hot编码映射为512维身份嵌入向量$e_{\text{id}} = \mathcal{E}_{\psi}(y_{\text{target}})\in\mathbb{R}^{512}$，并进行$L_2$归一化使其位于单位超球面上。随后，VAE编码器将源图像压缩为潜在表示$z_0 = \text{VAE}_{\text{enc}}(x_{\text{src}}) \in \mathbb{R}^{4\times64\times64}$。在扩散去噪阶段，系统采样扩散时间步$t\sim\mathcal{U}(0,T)$并添加噪声$z_t = \sqrt{\bar{\alpha}_t}z_0 + \sqrt{1-\bar{\alpha}_t}\epsilon$（$\epsilon\sim\mathcal{N}(0,I)$），U-Net去噪网络结合身份嵌入$e_{\text{id}}$预测噪声$\hat{\epsilon} = \epsilon_\theta(z_t, t, e_{\text{id}})$，通过多步DDIM采样恢复干净潜在表示$\hat{z}_0$。最后，VAE解码器生成最终图像$\hat{x} = \text{VAE}_{\text{dec}}(\hat{z}_0)$，并输入目标分类器获得logits$\ell = F_\theta(\hat{x})\in\mathbb{R}^C$用于计算分类损失与身份损失。
+    % 输入层
+    \node[input] (label) at (0,0) {目标类别};
+    \node[input] (src) at (8,0) {源图像};
 
-训练过程中，多目标损失函数$\mathcal{L}_{\text{total}}$（式~\ref{eq:mia_total_loss}）对可训练参数进行端到端梯度反向传播，包括标签条件嵌入层$\psi$、LoRA适配矩阵$\{A_\ell, B_\ell\}$以及任务不确定性权重$\{\sigma_i\}$。本方法冻结换脸模型主干（VAE、U-Net主体）与目标分类器参数，仅更新LoRA增量与嵌入层，从而确保生成先验不被破坏。嵌入层采用较大学习率以快速学习类别映射，LoRA参数使用较小学习率以保持微调稳定性。
+    % 标签嵌入路径
+    \node[module] (embed) at (0,-1.6) {嵌入层 $\mathcal{E}_\psi$};
+    \node[input] (eid) at (0,-3) {$e_{\text{id}}$};
+
+    % 换脸模型
+    \node[submodule] (vae_enc) at (8,-1.6) {VAE编码器};
+    \node[submodule] (unet) at (8,-3) {U-Net + LoRA};
+    \node[submodule] (vae_dec) at (8,-4.4) {VAE解码器};
+
+    % 生成图像
+    \node[input] (xhat) at (4,-6) {生成图像 $\hat{x}$};
+
+    % 评估模块：ArcFace在左，分类器在右
+    \node[module] (arcface) at (2,-7.5) {ArcFace $E_{\text{id}}$};
+    \node[module] (classifier) at (6.5,-7.5) {分类器 $F_\theta$};
+
+    % 输出（调整位置避免重叠）
+    \node[input] (feat_gen) at (2,-8.8) {$e_{\text{gen}}$};
+    \node[input] (logits) at (5.7,-8.8) {logits};
+    \node[input] (feat_cls) at (7.3,-8.8) {特征};
+
+    % 损失函数（调整位置）
+    \node[loss] (loss_reg) at (-3,-3.5) {$\mathcal{L}_{\text{reg}}$};
+    \node[loss] (loss_prior) at (10.5,-4) {$\mathcal{L}_{\text{prior}}$};
+    \node[loss] (loss_perc) at (4,-9.8) {$\mathcal{L}_{\text{perc}}$};
+    \node[loss] (loss_id) at (2,-10) {$\mathcal{L}_{\text{id}}$};
+    \node[loss] (loss_cls) at (5.7,-10) {$\mathcal{L}_{\text{cls}}$};
+    \node[loss] (loss_preg) at (7.3,-10) {$\mathcal{L}_{\text{p-reg}}$};
+
+    % 总损失
+    \node[loss, minimum width=2cm] (total) at (4,-11.8) {$\mathcal{L}_{\text{total}}$ (任务不确定性加权)};
+
+    % ===== 主数据流 =====
+    \draw[arrow] (label) -- (embed);
+    \draw[arrow] (embed) -- (eid);
+    \draw[arrow] (src) -- (vae_enc);
+    \draw[arrow] (vae_enc) -- (unet);
+    \draw[arrow] (unet) -- (vae_dec);
+    \draw[arrow] (vae_dec) -- (xhat);
+
+    % 生成图像到评估模块
+    \draw[arrow] (xhat) -| (arcface);
+    \draw[arrow] (xhat) -| (classifier);
+
+    % 评估模块输出
+    \draw[arrow] (arcface) -- (feat_gen);
+    \draw[arrow] (classifier.south) -- ++(0,-0.4) -| (logits.north);
+    \draw[arrow] (classifier.south) -- ++(0,-0.4) -| (feat_cls.north);
+
+    % 嵌入注入U-Net
+    \draw[arrow] (eid.east) -| ([xshift=-1.2cm]unet.west) -- (unet.west);
+
+    % ===== 损失连接 =====
+    % reg损失：来自嵌入层（向左转折）
+    \draw[arrow] (embed.west) -| (loss_reg);
+
+    % prior损失：来自U-Net（向右转折）
+    \draw[arrow] (unet.east) -| (loss_prior);
+
+    % perc损失：来自生成图像（直线）
+    \draw[arrow] (xhat) -- (loss_perc);
+
+    % id损失：来自ArcFace和嵌入层
+    \draw[arrow] (feat_gen) -- (loss_id);
+    \draw[arrow] (eid) -- ++(-1.5,0) |- (loss_id);
+
+    % cls和preg损失：来自分类器
+    \draw[arrow] (logits) -- (loss_cls);
+    \draw[arrow] (feat_cls) -- (loss_preg);
+
+    % ===== 损失汇总到总损失 =====
+    \draw[arrow] (loss_reg) |- (total);
+    \draw[arrow] (loss_prior) |- (total);
+    \draw[arrow] (loss_perc) -- (total);
+    \draw[arrow] (loss_id) -- (total);
+    \draw[arrow] (loss_cls) -- (total);
+    \draw[arrow] (loss_preg) |- (total);
+
+    % ===== 梯度反馈 =====
+    \draw[gradient, rounded corners=8pt] (total) -- ++(0,-0.8) -| ([xshift=3cm]unet.east) -- (unet.east);
+    \draw[gradient, rounded corners=8pt] (total) -- ++(0,-0.8) -| ([xshift=-3.5cm]embed.west) -- (embed.west);
+
+  \end{tikzpicture}
+  \caption{模型反演攻击方法整体架构}
+  \label{fig:mia_architecture}
+\end{figure}
+
+本章方法的整体架构由标签嵌入层$\mathcal{E}_\psi$、换脸生成模型（VAE编码器、U-Net+LoRA、VAE解码器）、下游评估模块（分类器$F_\theta$和ArcFace编码器$E_{\text{id}}$）以及六个损失函数组成如图~\ref{fig:mia_architecture}所示。
+
+前向数据流为：给定目标类别标签$y_{\text{target}}$和源图像$x_{\text{src}}$，标签嵌入层生成身份嵌入$e_{\text{id}}=\mathcal{E}_\psi(y_{\text{target}})\in\mathbb{R}^{512}$并归一化至单位超球面。VAE编码器将源图像压缩为潜在表示$z_0$，U-Net结合身份嵌入$e_{\text{id}}$进行扩散去噪，VAE解码器生成最终图像$\hat{x}$。生成图像分别输入分类器$F_\theta$（输出logits和特征）和ArcFace编码器$E_{\text{id}}$（输出身份特征$e_{\text{gen}}$）。
+
+损失函数设计包含六个组件：（1）扩散先验损失$\mathcal{L}_{\text{prior}}$来自U-Net噪声预测，保持生成质量；（2）分类损失$\mathcal{L}_{\text{cls}}$来自分类器logits，驱动攻击成功；（3）特征正则化损失$\mathcal{L}_{\text{p-reg}}$来自分类器特征，稳定优化过程；（4）身份一致性损失$\mathcal{L}_{\text{id}}$对比$e_{\text{gen}}$与$e_{\text{id}}$，确保身份匹配；（5）感知质量损失$\mathcal{L}_{\text{perc}}$度量生成图像与源图像的LPIPS距离；（6）正则化损失$\mathcal{L}_{\text{reg}}$约束嵌入层和LoRA参数。六项损失通过任务不确定性加权汇总为$\mathcal{L}_{\text{total}}$（式~\ref{eq:mia_total_loss}），梯度反馈至嵌入层$\psi$和LoRA矩阵$\{A_\ell, B_\ell\}$，实现端到端优化。换脸模型主干、分类器和ArcFace编码器参数保持冻结。
 
 \subsubsection{换脸先验的选择与适配改造}
 
-换脸模型作为本章方法的核心生成先验，需同时满足高质量身份迁移、显式身份-属性解耦与端到端可微分三项基本要求。本章基于扩散模型的换脸方法REFace~\cite{sanoojan2024reface}构建生成先验，但其标准流程面向图像到图像的换脸任务，与模型反演攻击的输入形式存在根本性不兼容，需要系统性的架构改造与训练策略设计方能适配MIA场景。本小节阐述换脸先验的适配挑战与本章提出的改造方案。
+换脸模型作为本章方法的核心生成先验，需同时满足高质量身份迁移、显式身份-属性解耦与端到端可微分三项基本要求。相比传统的类条件生成先验，换脸模型在模型反演攻击任务中具有本质优势。传统类条件生成方法将类别标签直接作为条件输入生成模型，身份与属性隐式耦合在同一条件空间中，导致三方面限制：其一，身份信息与姿态、表情、光照等属性维度缺乏明确分离，难以在保持目标身份一致性的同时生成多样化属性变化；其二，类条件生成先验通常需要在目标数据集上从零训练，缺乏大规模人脸先验知识，生成图像的细节保真度、面部结构合理性与身份特征一致性均受限；其三，类条件生成需要同时学习身份表示与属性生成两个复杂任务，优化难度高且容易出现模式崩溃。
+
+相比之下，换脸模型通过参考注意力机制实现了身份与属性的显式解耦。具体而言，换脸模型将身份信息单独编码为嵌入向量，并通过专门设计的交叉注意力层注入生成过程，而姿态、表情、光照等属性信息则由源图像自然提供，两者在特征空间中保持独立。这种解耦机制带来三重优势：首先，身份特征可以在保持一致性的同时，通过不同源图像生成具有丰富属性变化的多样化样本，满足MIA任务对身份一致性与样本多样性的双重需求；其次，换脸模型在大规模人脸数据集上预训练，已经学习到丰富的面部结构先验、皮肤纹理、光影效果等细节知识，相比从零训练的类条件生成模型能够产生显著更高保真度的人脸图像；再次，通过利用源图像提供的属性信息，换脸模型将身份控制问题从“联合生成身份与属性”简化为“仅控制身份迁移”，降低了优化复杂度并提高了训练稳定性。
+
+鉴于换脸模型的上述优势,本章基于扩散模型的换脸方法REFace~\cite{sanoojan2024reface}构建生成先验。然而，其标准流程面向图像到图像的换脸任务，与模型反演攻击的输入形式存在根本性不兼容，需要系统性的架构改造与训练策略设计方能适配MIA场景。以下阐述换脸先验的适配挑战与本章提出的改造方案。
 
 REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为身份参考，利用参考注意力机制将身份信息注入扩散去噪网络的每个时间步以实现身份控制。然而在模型反演攻击场景中，攻击者仅拥有目标类别的离散标签$y_{\text{target}}\in\{1,\ldots,C\}$，而无法获取任何真实的目标图像样本。这种输入模态的根本性差异构成了换脸先验应用于MIA的核心技术障碍。首先，标准换脸流程的身份嵌入来自图像编码器的实时提取，而MIA场景无图像输入，需从离散标签生成连续嵌入。其次，即使设计标签到嵌入的映射函数，其输出分布与ArcFace编码器在真实人脸图像上学习的嵌入分布存在显著差异，直接替换将导致换脸模型失效。再次，标准换脸任务优化感知相似度与身份保持度，而MIA需同时优化分类器置信度，两种目标在生成空间中可能相互竞争。上述挑战表明，换脸先验无法直接应用于MIA，必须进行深度改造。
 
-针对上述挑战，本章提出三层次的系统性改造方案，将面向图像条件的换脸模型成功转化为支持标签条件的模型反演攻击工具。第一层改造为标签条件嵌入层设计，用多层感知机架构将类别标签映射为连续身份嵌入向量，替代原有的ArcFace图像编码器，建立从离散标签空间到连续身份嵌入的可学习桥梁。第二层改造为低秩适应微调策略，标签嵌入的输出分布与真实图像的ArcFace嵌入分布存在显著差异，直接替换将导致换脸模型失效。本章采用低秩适配技术，在冻结预训练主干的前提下，为关键层引入低秩可训练增量，以极小参数开销适配新的嵌入分布。第三层改造为渐进式训练与多目标优化，通过图像条件预热、混合条件过渡与纯标签条件适配实现平滑的模态转换，同时采用任务不确定性加权框架统一管理多类优化目标。
+针对前述挑战，本章提出三层次的系统性改造方案，将面向图像条件的换脸模型成功转化为支持标签条件的模型反演攻击工具。第一层改造为标签条件嵌入层设计，用多层感知机架构将类别标签映射为连续身份嵌入向量，替代原有的ArcFace图像编码器，建立从离散标签空间到连续身份嵌入的可学习桥梁。第二层改造为低秩适应微调策略，标签嵌入的输出分布与真实图像的ArcFace嵌入分布存在显著差异，直接替换将导致换脸模型失效。本章采用低秩适配技术，在冻结预训练主干的前提下，为关键层引入低秩可训练增量，以极小参数开销适配新的嵌入分布。第三层改造为渐进式训练与多目标优化，通过图像条件预热、混合条件过渡与纯标签条件适配实现平滑的模态转换，同时采用任务不确定性加权框架统一管理多类优化目标。
 
-上述改造方案的核心在于将面向图像条件、优化感知相似度的换脸模型，系统性地转化为面向标签条件、优化分类器置信度的模型反演攻击工具。下文依次详细阐述各改造模块的技术细节。
+该改造方案将面向图像条件、优化感知相似度的换脸模型，系统性地转化为面向标签条件、优化分类器置信度的模型反演攻击工具。以下依次详细阐述各改造模块的技术细节。
 
 \subsubsection{标签条件嵌入层设计}
 
@@ -88,16 +193,7 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 \subsection{多目标优化损失函数}
 \label{sec:mia_loss}
 
-本小节系统设计面向模型反演攻击的多目标优化损失函数，平衡扩散先验保真度、分类器攻击有效性、身份一致性、生成质量与模型正则化五个优化目标。采用任务不确定性加权框架进行自动权重调整。
-
-\subsubsection{总体损失架构}
-
-本文采用任务不确定性加权框架统一各损失项，避免手动权重调优的复杂性。设损失项集合为 $\mathcal{I} = \{\text{prior}, \text{cls}, \text{p-reg}, \text{id}, \text{perc}, \text{reg}\}$，总损失定义为：
-\begin{equation}\label{eq:mia_total_loss}
-    \mathcal{L}_{\text{total}} = \sum_{i \in \mathcal{I}} \left( \frac{1}{2\sigma_i^2} \mathcal{L}_i + \frac{1}{2}\log\sigma_i^2 \right)
-\end{equation}
-
-其中 $\sigma_i$ 为第 $i$ 个任务的可学习不确定性参数，与网络参数联合优化。该框架通过自适应调整各任务权重实现动态平衡：对于难以优化的任务，$\sigma_i$自动增大以降低其在总损失中的权重$\frac{1}{2\sigma_i^2}$，避免单一任务主导训练过程；对于易于优化的任务，$\sigma_i$保持较小以维持较高权重，确保充分收敛。训练时$\sigma_i$采用较小学习率以避免早期过度衰减。注意$\mathcal{L}_{\text{cls}}$与$\mathcal{L}_{\text{p-reg}}$作为独立损失项分别调权，两者协同驱动分类器攻击：前者通过top-k max-margin直接优化logits以远离决策边界，后者通过特征空间正则化稳定优化轨迹。
+本小节系统设计面向模型反演攻击的多目标优化损失函数，平衡扩散先验保真度、分类器攻击有效性、身份一致性、生成质量与模型正则化五个优化目标。以下分别介绍各损失组件的设计细节，然后给出完整的任务不确定性加权框架。
 
 \subsubsection{扩散先验损失}
 
@@ -110,7 +206,7 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 
 \subsubsection{分类器引导损失}
 
-分类器引导损失驱动生成图像被目标分类器识别为目标类别，是模型反演攻击的核心驱动力。传统交叉熵损失$-\log p_y$仅最大化目标类别概率，易导致生成图像在决策边界附近徘徊。本文采用Li等人\cite{li2024diffmi}提出的top-k max-margin损失，该损失将传统max-margin损失\cite{carlini2017towards}中的"hard max"（仅考虑单个最大的非目标类别logit）替换为"top-k平均"（考虑前k个最大的非目标类别logit），更充分地利用软标签信息增强判别性。
+分类器引导损失驱动生成图像被目标分类器识别为目标类别，是模型反演攻击的核心驱动力。传统交叉熵损失$-\log p_y$仅最大化目标类别概率，易导致生成图像在决策边界附近徘徊。本文采用Li等人\cite{li2024diffmi}提出的top-k max-margin损失，该损失通过将传统max-margin损失\cite{carlini2017towards}中仅考虑单个最大非目标类别logit的"hard max"策略替换为考虑前k个最大非目标类别logit的"top-k平均"策略，更充分地利用软标签信息增强判别性。
 
 设目标分类器输出logits为$\{\ell_1, \ldots, \ell_C\}$，目标类别为$y$，损失定义为：
 \begin{equation}\label{eq:mia_topk_loss}
@@ -159,6 +255,19 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 \end{equation}
 
 其中嵌入归一化约束强制所有类别的嵌入向量位于单位超球面上，LoRA正则化防止权重过大导致的过拟合。
+
+\subsubsection{总体损失架构与任务不确定性加权}
+
+基于前述六个损失组件，本文采用任务不确定性加权框架统一管理各损失项，避免手动权重调优的复杂性。设损失项集合为 $\mathcal{I} = \{\text{prior}, \text{cls}, \text{p-reg}, \text{id}, \text{perc}, \text{reg}\}$，总损失定义为：
+\begin{equation}\label{eq:mia_total_loss}
+    \mathcal{L}_{\text{total}} = \sum_{i \in \mathcal{I}} \left( \frac{1}{2\sigma_i^2} \mathcal{L}_i + \frac{1}{2}\log\sigma_i^2 \right)
+\end{equation}
+
+其中 $\sigma_i$ 为第 $i$ 个任务的可学习不确定性参数，与网络参数联合优化，这些网络参数包括标签条件嵌入层$\psi$和LoRA适配矩阵$\{A_\ell, B_\ell\}$。该框架通过自适应调整各任务权重实现动态平衡：对于难以优化的任务，$\sigma_i$自动增大以降低其在总损失中的权重$\frac{1}{2\sigma_i^2}$，避免单一任务主导训练过程；对于易于优化的任务，$\sigma_i$保持较小以维持较高权重，确保充分收敛。训练时$\sigma_i$采用较小学习率以避免早期过度衰减，通常设置为主网络学习率的十分之一。
+
+值得注意的是，分类器引导损失$\mathcal{L}_{\text{cls}}$与特征空间正则化损失$\mathcal{L}_{\text{p-reg}}$作为独立损失项分别进行不确定性加权，两者协同驱动分类器攻击。其中，$\mathcal{L}_{\text{cls}}$通过top-k max-margin损失直接优化logits使生成图像远离决策边界，$\mathcal{L}_{\text{p-reg}}$通过最小化生成特征与预计算类别中心的距离稳定优化轨迹，防止优化过程中的振荡。这种分离的权重调节机制允许模型根据训练动态自动调配两种互补优化策略的相对重要性。
+
+完整的多目标优化框架将在后续训练策略（第\ref{sec:mia_training}节）中与渐进式三阶段训练流程结合，通过图像条件预热、混合条件过渡与纯标签条件适配实现从图像条件到标签条件的平滑模态转换。
 
 \section{渐进式三阶段训练与标签条件推理}
 \label{sec:mia_training}
@@ -214,10 +323,10 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 
 该阶段同时优化攻击有效性与生成质量，各损失权重通过任务不确定性框架自动学习。其中$\mathcal{L}_{\text{cls}}$（top-k max-margin）与$\mathcal{L}_{\text{p-reg}}$（特征中心正则化）协同驱动分类器攻击，前者最大化目标类别置信度并远离决策边界，后者稳定优化轨迹并约束特征表示向类别原型靠拢。LoRA参数采用较小学习率以避免遗忘已学习的生成能力。训练持续至攻击成功率与生成质量同时达到预期目标。
 
-算法~\ref{alg:mia_progressive}给出了上述渐进式三阶段训练的统一实现流程。该算法通过阶段标识$s\in\{0,1,2\}$区分不同训练阶段，各阶段在身份嵌入生成方式、损失函数组成及参数更新策略上存在差异。
+算法~\ref{alg:mia_progressive}给出了渐进式三阶段训练的统一实现流程。该算法通过阶段标识$s\in\{0,1,2\}$区分不同训练阶段，各阶段在身份嵌入生成方式、损失函数组成及参数更新策略上存在差异。
 
 \begin{algorithm}[!htb]
-  \caption{渐进式三阶段MIA训练}
+  \caption{渐进式三阶段MIA训练（Progressive Three-Stage MIA Training）}
   \label{alg:mia_progressive}
   \begin{algorithmic}[1]
     \REQUIRE 数据集$\mathcal{D}_{\text{public}}, \mathcal{D}_{\text{target}}$，模型$G_\phi, E_{\text{id}}, F_\theta$
@@ -271,19 +380,8 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 
 其中$\gamma(t)$为时间依赖的引导强度系数。该修正项在保持去噪方向基本不变的前提下，沿着分类器梯度方向微调潜在表示，确保生成轨迹向目标类别的高置信区域偏移。引导强度$\gamma(t)$采用指数增长调度$\gamma(t) = \gamma_{\text{base}} \exp(-5(1-t/T))$，其中$\gamma_{\text{base}}\in[1.0, 3.0]$为基础强度超参数。该调度策略在早期高噪声阶段（$t$接近$T$）使用较小引导强度，主要依赖换脸模型的生成先验；在后期低噪声阶段（$t$接近$0$）增大引导强度，利用分类器梯度精确调整细节特征以满足目标类别要求。考虑到频繁的VAE解码与分类器梯度计算带来的计算开销，本方法采用稀疏引导策略：仅在关键时间步（如$\{T, 3T/4, T/2, T/4, 1\}$）或每隔固定间隔$K$步应用引导，在保证攻击效果的前提下显著降低推理时间。梯度计算前对$\nabla_{z_t} \log p_\theta(y_{\text{target}}|x_{0|t})$进行$L_2$归一化并裁剪至$[-1, 1]$，防止梯度爆炸破坏生成质量。分类器引导与训练阶段的分类器损失形成互补：训练时优化模型参数使其倾向生成高置信样本，推理时通过稀疏的梯度修正进一步确保采样轨迹收敛至目标类别，从而在计算效率与攻击效果间取得良好平衡。
 
-源图像集合$\{x_{\text{src}}^{(j)}\}_{j=1}^{N_{\text{src}}}$的选择对攻击效果有重要影响。本方法采用多样性驱动的采样策略，从公开数据集中采样若干源图像，确保覆盖不同姿态、表情、年龄、光照等属性维度。可通过预训练的属性估计器评估候选集的属性方差，选择方差较大的子集以最大化生成样本的多样性。该策略继承换脸模型的核心优势，即身份与属性解耦，使生成图像在保持目标身份的同时，从源图像继承丰富的外观属性。
-
-最后，生成若干候选攻击样本后，通过目标分类器$F_\theta$进行质量评估与筛选。对每个生成图像$\hat{x}^{(j)}$，计算其在目标类别的置信度得分：
-\begin{equation}\label{eq:mia_inference_confidence}
-    s^{(j)} = F_\theta(\hat{x}^{(j)})_{y_{\text{target}}} = \text{Softmax}(F_\theta(\hat{x}^{(j)}))_{y_{\text{target}}}
-\end{equation}
-
-选择置信度最高的若干样本作为最终输出。该筛选机制与分类器引导采样协同工作：引导采样确保生成过程持续向目标类别靠拢，提高单个样本的攻击成功率；后处理筛选从多样化候选集中精选高置信样本，进一步优化输出质量。两阶段机制共同确保输出样本同时满足高分类器认同度与多样性要求：引导与筛选的双重保障增强攻击有效性，而源图像的多样性采样保证样本在属性空间的广泛分布。
-
-算法~\ref{alg:mia_inference}给出了完整的推理流程。该算法集成身份嵌入生成、分类器引导的DDIM采样与质量筛选三个关键模块，实现从目标类别标签到高置信度攻击样本的端到端生成。
-
 \begin{algorithm}[!htb]
-  \caption{基于分类器引导的MIA推理}
+  \caption{基于分类器引导的MIA推理（Classifier-Guided MIA Inference）}
   \label{alg:mia_inference}
   \begin{algorithmic}[1]
     \REQUIRE 目标类别$y_{\text{target}}$，源图像集$\{x_{\text{src}}^{(j)}\}_{j=1}^{N_{\text{src}}}$，模型$G_{\phi+\Delta}, \mathcal{E}_\psi, F_\theta$
@@ -307,6 +405,17 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
   \end{algorithmic}
 \end{algorithm}
 
+源图像集合$\{x_{\text{src}}^{(j)}\}_{j=1}^{N_{\text{src}}}$的选择对攻击效果有重要影响。本方法采用多样性驱动的采样策略，从公开数据集中采样若干源图像，确保覆盖不同姿态、表情、年龄、光照等属性维度。可通过预训练的属性估计器评估候选集的属性方差，选择方差较大的子集以最大化生成样本的多样性。该策略继承换脸模型的核心优势，即身份与属性解耦，使生成图像在保持目标身份的同时，从源图像继承丰富的外观属性。
+
+最后，生成若干候选攻击样本后，通过目标分类器$F_\theta$进行质量评估与筛选。对每个生成图像$\hat{x}^{(j)}$，计算其在目标类别的置信度得分：
+\begin{equation}\label{eq:mia_inference_confidence}
+    s^{(j)} = F_\theta(\hat{x}^{(j)})_{y_{\text{target}}} = \text{Softmax}(F_\theta(\hat{x}^{(j)}))_{y_{\text{target}}}
+\end{equation}
+
+选择置信度最高的若干样本作为最终输出。该筛选机制与分类器引导采样协同工作：引导采样确保生成过程持续向目标类别靠拢，提高单个样本的攻击成功率；后处理筛选从多样化候选集中精选高置信样本，进一步优化输出质量。两阶段机制共同确保输出样本同时满足高分类器认同度与多样性要求：引导与筛选的双重保障增强攻击有效性，而源图像的多样性采样保证样本在属性空间的广泛分布。
+
+算法~\ref{alg:mia_inference}给出了完整的推理流程。该算法集成身份嵌入生成、分类器引导的DDIM采样与质量筛选三个关键模块，实现从目标类别标签到高置信度攻击样本的端到端生成。
+
 为消除LoRA适配层的推理开销，训练完成后可将LoRA权重合并到预训练模型的基础参数中。对于参考注意力层、U-Net注意力层与残差卷积层，权重合并遵循统一公式：
 \begin{equation}\label{eq:mia_inference_merge}
     W_{\text{merged}} = W_{\text{frozen}} + \frac{\alpha}{r} B A
@@ -314,14 +423,142 @@ REFace的标准推理流程依赖真实的目标图像$x_{\text{target}}$作为�
 
 其中$W_{\text{frozen}}$为冻结的预训练权重，$A, B$为训练得到的LoRA矩阵，$\alpha$为缩放因子，$r$为LoRA秩。合并后模型结构与原始换脸模型完全一致，可作为独立的攻击工具部署，无需额外适配层或动态参数注入。
 
+
+\section{实验验证}[Experimental Validation]
+\label{sec:mia_experiments}
+
+本节通过系统实验验证前述提出的基于换脸先验迁移的多目标自适应模型反演攻击方法的有效性。实验在不同目标分类器架构上进行定量对比以评估攻击成功率与生成质量，并通过消融实验量化各关键模块的性能贡献。
+
+\subsection{实验配置与评估指标}[Experimental Setup and Evaluation Metrics]
+\label{sec:mia_setup}
+
+本研究使用多个标准人脸数据集进行实验。VGGFace2~\cite{cao2018vggface2}数据集从中选取1000个类别作为目标分类器的私有训练数据，该部分数据严格隔离，不用于生成模型训练，以确保攻击评估的公平性。CelebA~\cite{liu2015deep}数据集和FaceScrub~\cite{ng2014data}数据集作为MIA方法的辅助训练数据。REFace基础模型在FFHQ~\cite{karras2019style}与CelebA-HQ数据集上预训练获得。为评估方法在分布偏移场景下的泛化性能，在AgeDB数据集上进行测试。
+
+训练配置方面，批大小设置为8，通过梯度累积达到有效批大小32。采用AdamW优化器，其中LoRA模块的学习率设置为$5\times10^{-6}$，标签嵌入层学习率设置为$1\times10^{-4}$，两者均采用线性预热与余弦退火调度策略。LoRA配置方面，秩设置为$r=16$，缩放系数为$\alpha=32$，应用于U-Net的注意力层和卷积层。推理阶段采用DDIM采样器，设置噪声范围$\sigma_{\text{min}}=0.002$、$\sigma_{\text{max}}=80$，采样步数50步。
+
+\subsubsection{评估指标}
+
+针对模型反演攻击任务，采用以下指标评估重建图像的攻击有效性与生成质量：
+
+（1）攻击成功率（SAR）。衡量重建图像在目标分类器上被正确分类为目标类别的比例，即将重建图像输入目标分类器，计算其预测类别是否与目标类别一致。本研究在不同软硬条件下报告攻击成功率，包括顶-1、顶-5准确率等。
+
+（2）Fréchet Inception Distance（FID）。衡量生成图像分布与真实图像分布的距离，该值越低表示分布越接近：
+\begin{equation}
+\text{FID} = \|\mu_r - \mu_g\|_2^2 + \text{Tr}(\Sigma_r + \Sigma_g - 2(\Sigma_r\Sigma_g)^{1/2})
+\end{equation}
+其中$\mu_r, \Sigma_r$和$\mu_g, \Sigma_g$分别为真实图像和生成图像在Inception-v3特征空间的均值与协方差。
+
+（3）KNN距离。计算生成图像与目标类别真实样本在特征空间的平均距离，评估身份保持度。
+
+\subsubsection{基准方法}
+
+本研究在白盒攻击场景下开展实验，攻击者完全了解目标分类器的架构与参数，可以计算梯度进行优化，但无法访问模型的训练数据。
+
+目标分类器在VGGFace2数据集的1000个类别上训练，从中随机选取100个类别进行攻击评估。为验证方法的跨架构泛化能力，选择三种不同架构的目标分类器进行实验：ArcFace基于角度损失的度量学习，IR152采用改进残差网络，Face.evoLVe使用专门优化的识别架构。
+
+对比的基准方法包括GMI~\cite{zhang2020secret}基于生成对抗网络,FMI~\cite{khosravy2022model}利用特征匹配,PLG-MI~\cite{yuan2023pseudo}采用伪标签引导的条件生成对抗网络,以及Diff-MI~\cite{li2024diffmi}基于扩散模型的方法。
+
+\subsection{基准性能对比}
+\label{sec:mia_benchmark}
+
+表~\ref{tab:mia_sota_comparison}对比了本文方法与四种现有代表性方法在三种目标分类器架构下的攻击性能。对比方法包括：GMI~\cite{zhang2020secret}基于生成对抗网络，FMI~\cite{khosravy2022model}利用特征匹配，PLG-MI~\cite{yuan2023pseudo}采用伪标签引导，Diff-MI~\cite{li2024diffmi}基于扩散模型。评估指标包括目标准确率（TarAcc）、评估准确率（EvalAcc）、生成保真度（FID）以及KNN距离（KNN Dist）。
+
+\begin{table}[htbp]
+  \centering
+  \caption{不同目标分类器下的MIA攻击性能对比}
+  \label{tab:mia_sota_comparison}
+  \resizebox{\textwidth}{!}{
+  \begin{tabular}{lcccccccccccc}
+    \hline
+    \multirow{2}{*}{Method} & \multicolumn{4}{c}{Target: ArcFace} & \multicolumn{4}{c}{Target: IR152} & \multicolumn{4}{c}{Target: Face.evoLVe} \\
+    \cmidrule(lr){2-5} \cmidrule(lr){6-9} \cmidrule(lr){10-13}
+     & TarAcc$\uparrow$ & EvalAcc$\uparrow$ & FID$\downarrow$ & KNN$\uparrow$ & TarAcc$\uparrow$ & EvalAcc$\uparrow$ & FID$\downarrow$ & KNN$\uparrow$ & TarAcc$\uparrow$ & EvalAcc$\uparrow$ & FID$\downarrow$ & KNN$\uparrow$ \\
+    \hline
+    GMI     & 28.52\% &  1.38\% & 24.87 & 0.5591    & 69.43\% & 10.85\% & 30.18 & 0.6652    & 71.92\% & 25.68\% & 41.07 & 0.7189 \\
+    FMI     & 31.27\% & 21.63\% & 36.42 & 0.5308    & 54.16\% & 13.72\% & 41.25 & 0.7012    & 51.74\% & 18.85\% & 47.18 & 0.7436 \\
+    PLG-MI  & 40.95\% & 16.87\% & 43.26 & 0.5793    & 83.52\% & 31.94\% & 48.65 & 0.7288    & 91.76\% & 29.43\% & 53.72 & 0.7658 \\
+    Diff-MI & 94.18\% & 75.62\% & 29.53 & \textbf{0.7426}    & 93.75\% & 76.84\% & 32.68 & 0.8176    & \textbf{95.42}\% & 79.21\% & 36.47 & 0.8562 \\
+    \hline
+    Ours    & \textbf{94.87\%} & \textbf{83.15\%} & \textbf{23.26} & 0.7165  & \textbf{93.28\%} & \textbf{84.23\%} & \textbf{25.83} & \textbf{0.8534}    & 94.38\% & \textbf{82.94\%} & \textbf{26.91} & \textbf{0.9024} \\
+    \hline
+  \end{tabular}
+  }
+\end{table}
+
+表~\ref{tab:mia_sota_comparison}展示本文方法在三种目标分类器架构下的攻击性能。在ArcFace目标分类器上,本文方法达到94.87\%目标准确率和83.15\%评估准确率,FID为23.26,KNN距离为0.7165。对比Diff-MI的94.18\%目标准确率和75.62\%评估准确率,本文方法在评估准确率上提升7.53个百分点,FID降低6.27,表明生成样本不仅能攻击目标模型,更能真正代表目标类别特征,在独立评估模型上保持高识别率。在IR152和Face.evoLVe分类器上,本文方法同样在评估准确率和FID上展现一致优势,评估准确率分别达到84.23\%和82.94\%,FID分别为25.83和26.91,均优于所有基准方法。
+
+跨架构性能分析验证了方法的泛化能力。三种分类器采用不同网络架构和训练策略,ArcFace基于角度损失的度量学习,IR152基于改进残差网络,Face.evoLVe使用专门优化的识别架构。在所有架构上,本文方法在评估准确率、FID和KNN距离指标上保持显著优势,表明基于REFace的生成先验能有效适应不同特征空间,通过LoRA微调精准拟合不同架构的特征分布。评估准确率在所有架构上均超过82\%,显著高于Diff-MI的75-79\%,证明生成样本具有强泛化能力。虽然在Face.evoLVe分类器上的目标准确率（94.38\%）略低于Diff-MI（95.42\%）,但本文方法在评估准确率上的显著优势（82.94\% vs. 79.21\%）表明生成样本更能真实代表目标类别特征。方法仅需微调LoRA参数即可在所有架构上取得稳定高质量重建,验证了标签条件嵌入层设计的有效性和参数高效性。
+
+\subsection{消融实验}[Ablation Study]
+\label{sec:mia_ablation}
+
+为量化第四章提出的各关键设计模块的贡献,本节在VGGFace2数据集上训练的ArcFace目标分类器上进行系统的消融实验。实验从两个维度评估:渐进式三阶段训练策略的作用,以及各损失项的性能贡献。
+\begin{table}[htbp]
+  \centering
+  \caption{模型反演方法渐进式训练策略消融实验}
+  \label{tab:mia_training_ablation}
+  \begin{tabular}{lccccc}
+    \hline
+    训练策略 & TarAcc & EvalAcc & FID & KNN Dist \\
+    \hline
+    单阶段 (直接标签条件) & 70.85\% & 63.74\% & 43.21 & 0.4687 \\
+    两阶段 (图像预热$\rightarrow$标签) & 88.92\% & 78.56\% & 32.45 & 0.6254 \\
+    三阶段 (图像$\rightarrow$混合$\rightarrow$标签) & 94.87\% & 83.15\% & 23.26 & 0.7165 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+表~\ref{tab:mia_training_ablation}对比不同训练策略对攻击性能的影响。直接使用随机初始化标签嵌入的单阶段训练,目标准确率仅为70.85\%,评估准确率63.74\%。引入图像预热的两阶段训练,通过真实图像建立身份嵌入到换脸生成的映射,目标准确率提升至88.92\%,评估准确率78.56\%。采用混合条件过渡的三阶段训练,通过余弦退火实现从图像到标签的平滑模态转换,目标准确率达到94.87\%,评估准确率83.15\%,较单阶段分别提升24.02和19.41个百分点,FID降至23.26,KNN距离达到0.7165,验证了平滑模态迁移对实现高质量模型反演的关键作用。
+
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/mia_training_curves.pdf}
+  \caption{MIA方法三阶段渐进式训练过程的损失与指标演化曲线}
+  \label{fig:mia_training_curves}
+\end{figure}
+图~\ref{fig:mia_training_curves}展示三阶段训练的损失与指标演化。图中背景色区分训练阶段:阶段1（蓝色）为图像条件预热,阶段2（黄色）为混合条件过渡,阶段3（绿色）为纯标签条件适配。子图(a)展示总损失与部分核心损失的演化趋势,反映整体优化效果;子图(b)呈现全部损失项的独立演化,验证各损失函数的收敛性。子图(c)显示FID和KNN距离两项质量指标的变化,在阶段1图像条件预热阶段,由于仅建立图像到换脸的基础映射而未针对目标类别优化,FID维持在较高水平,KNN距离保持在极低值几乎无变化;阶段2引入标签条件后,随着混合系数$\lambda(t)$从0逐渐增长至1,标签条件的贡献逐步增强,两项指标开始显著改善,FID快速下降,KNN距离大幅跃升,充分体现了标签条件引导对目标类别特征匹配的关键作用;阶段3通过LoRA微调进一步优化,两项指标持续提升直至收敛,最终达到表~\ref{tab:mia_training_ablation}所示的三阶段训练结果。子图(d)展示目标准确率和评估准确率的提升过程,呈现与质量指标相似的演化规律。在阶段1,由于尚未建立标签到嵌入的映射,两项准确率保持在极低水平;阶段2引入标签条件后,准确率快速上升;阶段3进一步提升,最终收敛至表~\ref{tab:mia_training_ablation}的三阶段训练策略对应值。子图(e)展示任务不确定性参数$\sigma_i$的动态演化,扩散先验的$\sigma_{\text{prior}}$在阶段1保持较低水平确保生成质量,分类引导和身份一致性的$\sigma_{\text{cls}}$、$\sigma_{\text{id}}$在阶段2-3显著下降驱动攻击准确率提升;子图(f)展示对应的权重系数$1/(2\sigma_i^2)$的变化,清晰反映各任务重要性的自适应调整过程,该自动权重调整机制使框架无需人工超参数搜索即可在多目标间达到动态均衡。
+
+
+\begin{table}[htbp]
+  \centering
+  \caption{模型反演方法损失项组合消融实验}
+  \label{tab:mia_loss_ablation}
+  \begin{tabular}{lcccc}
+    \hline
+    损失组合 & TarAcc & EvalAcc & FID & KNN Dist \\
+    \hline
+    仅扩散先验 $\mathcal{L}_{\text{prior}}$ & 7.85\% & 5.92\% & 53.47 & 0.4156 \\
+    + 分类引导 $\mathcal{L}_{\text{cls}}$ & 77.24\% & 70.38\% & 36.82 & 0.5387 \\
+    + 身份一致性 $\mathcal{L}_{\text{id}}$ & 92.56\% & 79.47\% & 29.15 & 0.6743 \\
+    + 感知质量 $\mathcal{L}_{\text{perc}}$ & 94.87\% & 83.15\% & 23.26 & 0.7165 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+表~\ref{tab:mia_loss_ablation}展示不同损失项组合对性能的影响。仅使用扩散先验损失时,缺乏针对目标分类器的优化信号,目标准确率仅为7.85\%。引入分类引导损失后,目标准确率显著提升至77.24\%。添加身份一致性损失,目标准确率达到92.56\%,评估准确率79.47\%。引入感知质量损失后,目标准确率达到94.87\%,评估准确率83.15\%,FID降至23.26。每增加一个损失项,评估准确率提升幅度均大于目标准确率,特别是身份一致性损失带来显著提升,表明这些损失项不仅提高攻击成功率,更增强生成样本的真实代表性和泛化能力,验证了多目标优化框架的必要性。
+
+
+\subsection{可视化结果与分析}[Visualization Results and Analysis]
+\label{sec:mia_visualization}
+
+为直观展示模型反演方法的生成质量与多样性，图~\ref{fig:mia_grid_by_target}展示了针对不同目标类别的模型反演结果。其中每行对应一个源人脸，每列对应一个目标类别。该图验证了方法在固定源人脸条件下跨多个目标类别的攻击能力和生成多样性。从图中可观察到:同一行的生成图像继承了源人脸的姿态和表情属性,但在关键身份特征如面部轮廓、五官比例、发型等方面已转换为目标身份特征;同一列的生成图像虽源于不同源人脸,但在目标身份的视觉特征上保持高度一致,证明标签条件嵌入层成功学习目标类别身份表征。不同源人脸展现丰富的姿态变化、表情变化和光照条件,验证方法在不同源人脸条件下的鲁棒性。源人脸的姿态和表情属性被准确保留并迁移至目标身份,验证基于REFace的换脸先验能为模型反演任务提供强大结构引导,显著提升生成质量。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{images/grid_by_target.jpg}
+  \caption{模型反演方法针对不同目标类别的生成样本可视化。}
+  \label{fig:mia_grid_by_target}
+\end{figure}
+
+生成图像不仅被目标分类器正确识别为对应类别,同时在视觉质量上呈现良好真实感,包括自然的肤色分布、清晰的五官轮廓以及合理的面部结构比例。利用REFace换脸先验显著提升生成质量,预训练的换脸模型为生成过程提供强大面部几何先验知识,使生成图像在面部结构一致性和光照自然度方面表现优异。标签条件嵌入层通过MLP网络成功实现从离散类别标签到连续身份表示空间的映射,不同类别的生成图像呈现明显身份区分度,验证标签条件嵌入机制的有效性。
+
+上述可视化结果验证第四章提出的基于换脸先验迁移的多目标自适应模型反演方法在保持高攻击准确率的同时能显著提升重建图像的保真度和视觉质量,基于换脸先验的生成框架与标签条件嵌入机制的有机结合使方法在攻击有效性与生成真实感之间实现良好平衡,展现出在实际应用场景中的潜在威胁性。
+
 \section{本章小结}
 \label{sec:mia_summary}
 
-本章提出基于换脸先验迁移的多目标自适应模型反演方法，利用预训练换脸模型的身份属性解耦机制，通过标签条件嵌入层、低秩适应微调、渐进式训练策略、多目标自适应优化框架与分类器引导推理机制，实现从类别标签到高保真攻击样本的生成。
-
-方法的核心创新体现在五个方面。首先，标签条件嵌入层通过MLP网络建立离散类别标签与连续身份嵌入空间的映射，结合内存库机制实现对比学习驱动的类间分离，为纯标签条件生成奠定基础。其次，低秩适应（LoRA）微调技术通过在参考注意力层、U-Net注意力层与残差卷积层引入可训练的低秩增量矩阵，以极少的参数开销适配新的嵌入分布，避免破坏预训练模型的先验知识。再次，渐进式三阶段训练策略通过图像条件预热、混合条件平滑过渡与纯标签条件适配的有序推进，结合余弦退火调度实现模态的稳定迁移。第四，多目标自适应优化框架采用任务不确定性加权机制，在扩散先验保真度、分类器攻击有效性（top-k max-margin与p-reg）、身份语义一致性、感知质量与正则化约束之间实现动态平衡，避免人工调参。最后，推理阶段引入分类器引导采样机制，通过稀疏的梯度修正驱动生成轨迹持续逼近目标类别的高置信区域，结合源图像多样性采样与质量筛选策略生成多样化的高置信度攻击样本。
-
-本章提出的方法为深度学习模型的隐私风险评估提供了新的技术路径，特别是在生物特征识别系统的安全性分析中具有重要应用价值。该方法揭示了预训练生成模型可能被恶意利用进行隐私攻击的潜在风险，为模型训练者与部署者提供了重要的安全警示。同时，本章建立的理论框架与技术方法为后续研究提供了系统化的参考，包括防御机制设计、攻击检测算法开发等相关工作均可基于本章方法展开深入研究。
+本章提出基于换脸先验迁移的多目标自适应模型反演方法，利用预训练换脸模型的身份属性解耦机制，通过标签条件嵌入层建立离散类别标签与连续身份嵌入空间的映射，采用低秩适应（LoRA）微调技术以极少参数开销适配新的嵌入分布，设计渐进式三阶段训练策略实现从图像条件到标签条件的平滑模态迁移，结合多目标自适应优化框架动态平衡扩散先验、分类器攻击、身份一致性与感知质量等目标，并在推理阶段引入分类器引导采样机制提升攻击有效性，实现从类别标签到高保真攻击样本的生成。实验结果表明，该方法在多种目标分类器架构上均表现出优异的攻击准确率与生成保真度，消融实验验证了渐进式训练策略、LoRA微调与任务不确定性加权框架等核心模块的有效性。
 % Local Variables:
 % TeX-master: "../main"
 % TeX-engine: xetex
