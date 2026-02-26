@@ -12,7 +12,7 @@
 - `gafar1.jpg`, `gafar2.jpg` - GMI-GaFaR方法结果
 - `nbnet1.jpg`, `nbnet2.jpg` - NBNet方法结果
 
-### MIA相关图片  
+### MIA相关图片
 - `ours_mia1.jpg`, `ours_mia2.jpg` - 本文MIA方法结果
 - `plgmi1.jpg`, `plgmi2.jpg` - PLG-MI方法结果
 - `kedmi1.jpg`, `kedmi2.jpg` - KED-MI方法结果
@@ -73,7 +73,7 @@
 ## 示例图片制作工具
 
 - **矢量图**: Inkscape, Adobe Illustrator
-- **位图处理**: GIMP, Adobe Photoshop  
+- **位图处理**: GIMP, Adobe Photoshop
 - **图表制作**: Python matplotlib, R ggplot2
 - **架构图**: Draw.io, Visio, Lucidchart
 - **学术图表**: MATLAB, Origin, TikZ/PGF

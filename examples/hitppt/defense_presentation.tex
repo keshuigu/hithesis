@@ -200,7 +200,7 @@
   \begin{equation*}
   \mathcal{L}_{angular} = -\log \frac{\exp(\cos\theta/\tau)}{\sum_{i} \exp(\cos\theta_i/\tau)}
   \end{equation*}
-  
+
   \begin{itemize}
     \item 适配超球面特征空间
     \item 避免模式崩塌
@@ -212,9 +212,9 @@
     \item 仅微调3.2\%参数
     \item 计算成本降低65\%
   \end{itemize}
-  
+
   总损失：$\mathcal{L} = \mathcal{L}_{denoise} + \lambda \mathcal{L}_{angular}$
-  
+
   \textbf{优势：}自动平衡多目标优化
 \end{columns}
 \end{frame}
@@ -229,7 +229,7 @@
 \item 学习自然人脸先验分布
 \end{itemize}
 
-\textbf{阶段2：}攻击特定微调  
+\textbf{阶段2：}攻击特定微调
 \begin{itemize}
 \item 引入角度约束对比损失
 \item 优化特征匹配精度
@@ -518,7 +518,7 @@ Diff-MI & 94.18\% & 75.62\% & 29.53 & 0.743 \\
   \bottomrule
   \end{tabular}
   \end{table}
-  
+
   \textbf{MIA损失组合消融}
   \begin{table}
   \centering

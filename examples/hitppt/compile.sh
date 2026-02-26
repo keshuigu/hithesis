@@ -27,33 +27,33 @@ print_message() {
 # 检查依赖
 check_dependencies() {
     print_message $BLUE "检查编译环境..."
-    
+
     if ! command -v $LATEX_CMD &> /dev/null; then
         print_message $RED "错误: 未找到 $LATEX_CMD 编译器"
         print_message $YELLOW "请安装 TeX Live 或 MiKTeX"
         exit 1
     fi
-    
+
     if [ ! -f "$TEX_FILE" ]; then
         print_message $RED "错误: 未找到源文件 $TEX_FILE"
         exit 1
     fi
-    
+
     print_message $GREEN "✓ 环境检查通过"
 }
 
 # 编译PPT
 compile_ppt() {
     print_message $BLUE "开始编译博士答辩PPT..."
-    
+
     # 第一次编译
     print_message $YELLOW "第一次编译..."
     $LATEX_CMD -interaction=nonstopmode -halt-on-error "$TEX_FILE"
-    
+
     # 第二次编译（处理引用和目录）
     print_message $YELLOW "第二次编译..."
     $LATEX_CMD -interaction=nonstopmode -halt-on-error "$TEX_FILE"
-    
+
     if [ $? -eq 0 ]; then
         print_message $GREEN "✓ 编译成功: $PDF_FILE"
     else
@@ -73,7 +73,7 @@ clean_files() {
 view_ppt() {
     if [ -f "$PDF_FILE" ]; then
         print_message $BLUE "打开PPT文件..."
-        
+
         if command -v evince &> /dev/null; then
             evince "$PDF_FILE" &
         elif command -v okular &> /dev/null; then
