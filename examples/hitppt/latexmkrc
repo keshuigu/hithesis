@@ -1,42 +1,46 @@
-# latexmk 配置文件
-# 用于自动化编译 Beamer 演示文稿
+# LaTeX编译配置文件
+# 用于博士答辩PPT的优化编译设置
 
-# 使用 XeLaTeX 编译
-$pdf_mode = 5;  # 5 = XeLaTeX
-$postscript_mode = 0;
-$dvi_mode = 0;
+# 使用XeLaTeX编译器
+$pdf_mode = 5;  # 使用XeLaTeX
+$postscript_mode = 0;  # 不生成PS文件
+$dvi_mode = 0;  # 不生成DVI文件
 
-# XeLaTeX 编译命令
-$xelatex = 'xelatex -shell-escape -interaction=nonstopmode -file-line-error -synctex=1 %O %S';
+# 编译器设置
+$xelatex = 'xelatex -interaction=nonstopmode -halt-on-error -file-line-error %O %S';
 
-# BibTeX 设置（如果需要参考文献）
-$bibtex_use = 2;
+# 预览设置
+$pdf_previewer = 'start evince %O %S';  # Linux
+# $pdf_previewer = 'start %O %S';  # Windows
+# $pdf_previewer = 'open %O %S';  # MacOS
 
-# 清理文件扩展名
-$clean_ext = 'aux bbl blg idx ind lof lot out toc acn acr alg glg glo gls ist fls log fdb_latexmk synctex.gz nav snm vrb run.xml';
+# 文件清理设置
+$clean_ext = "aux log nav out snm toc vrb fls fdb_latexmk synctex.gz";
 
-# 连续编译模式的预览设置
-$preview_mode = 1;
-$preview_continuous_mode = 1;
+# 输出目录（可选，取消注释以使用）
+# $out_dir = 'build';
 
-# PDF 查看器（根据操作系统自动选择）
-if ($^O eq 'darwin') {
-    # macOS
-    $pdf_previewer = 'open -a Preview %S';
-} elsif ($^O eq 'linux') {
-    # Linux
-    $pdf_previewer = 'xdg-open %S';
-} else {
-    # Windows
-    $pdf_previewer = 'start %S';
-}
+# 自动清理
+$cleanup_mode = 1;
 
-# 自动更新 PDF 查看器
-$pdf_update_method = 4;  # 4 = 自动更新
-$pdf_update_signal = 'SIGHUP';
+# 连续编译模式设置
+$sleep_time = 2;  # 文件监控间隔（秒）
 
-# 编译失败时继续
-$force_mode = 0;
+# 错误处理
+$failure_cmd = 'echo "编译失败，请检查错误信息"';
+
+# Biber/BibTeX设置（PPT通常不需要，但保留以备用）
+$biber = 'biber %O --bblencoding=utf8 -u -U --output_safechars %B';
+$bibtex_use = 1.5;  # 优先使用biber
 
 # 最大编译次数
-$max_repeat = 5;
+$max_repeat = 3;
+
+# 包含文件监控
+@default_files = ('defense_presentation.tex');
+
+# 强制重新编译的文件类型
+push @file_not_found, '^Package .* No file `([^\']*)\'';
+
+# 中文支持优化
+$ENV{'TEXMFCACHE'} = '/tmp/texmfcache';  # 字体缓存目录

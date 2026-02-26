@@ -1,82 +1,97 @@
-# Makefile for Beamer presentation compilation
+# LaTeX Beamer博士答辩PPT Makefile
 
-# 主文件名（不含扩展名）
-MAIN = presentation
+# 主目标文件
+TARGET = defense_presentation
+TEX_FILE = $(TARGET).tex
+PDF_FILE = $(TARGET).pdf
 
-# LaTeX 编译器
+# 编译器设置
 LATEX = xelatex
+LATEX_FLAGS = -interaction=nonstopmode -halt-on-error
 
-# BibTeX 编译器
-BIBTEX = bibtex
+# 默认目标
+.PHONY: all clean distclean help view
 
-# 编译选项
-LATEXOPT = -shell-escape -interaction=nonstopmode -file-line-error
+all: $(PDF_FILE)
 
-# 输出目录
-OUTDIR = .
+# 编译PPT
+$(PDF_FILE): $(TEX_FILE)
+	@echo "正在编译博士答辩PPT..."
+	$(LATEX) $(LATEX_FLAGS) $(TEX_FILE)
+	$(LATEX) $(LATEX_FLAGS) $(TEX_FILE)
+	@echo "编译完成: $(PDF_FILE)"
 
-# 临时文件扩展名
-TEMP_EXT = aux log out toc nav snm vrb bbl blg
-
-.PHONY: all clean distclean view
-
-# 默认目标：编译演示文稿
-all: $(MAIN).pdf
-
-# 编译 PDF（完整编译流程）
-$(MAIN).pdf: $(MAIN).tex
-	@echo "正在编译演示文稿..."
-	$(LATEX) $(LATEXOPT) $(MAIN)
-	@echo "第一次编译完成"
-	$(LATEX) $(LATEXOPT) $(MAIN)
-	@echo "第二次编译完成"
-	@echo "编译完成: $(MAIN).pdf"
-
-# 快速编译（单次，适合调试）
-quick: $(MAIN).tex
-	@echo "快速编译模式..."
-	$(LATEX) $(LATEXOPT) $(MAIN)
-
-# 使用 latexmk 自动编译（如果可用）
-auto:
-	@echo "使用 latexmk 自动编译..."
-	latexmk -xelatex -synctex=1 -interaction=nonstopmode $(MAIN).tex
+# 查看PPT
+view: $(PDF_FILE)
+	@if command -v evince >/dev/null 2>&1; then \
+		evince $(PDF_FILE) & \
+	elif command -v okular >/dev/null 2>&1; then \
+		okular $(PDF_FILE) & \
+	elif command -v xdg-open >/dev/null 2>&1; then \
+		xdg-open $(PDF_FILE) & \
+	else \
+		echo "请手动打开文件: $(PDF_FILE)"; \
+	fi
 
 # 清理临时文件
 clean:
 	@echo "清理临时文件..."
-	@for ext in $(TEMP_EXT); do \
-		rm -f $(MAIN).$$ext; \
-	done
-	@rm -f *.fls *.fdb_latexmk *.synctex.gz
-	@echo "清理完成"
+	@rm -f *.aux *.log *.nav *.out *.snm *.toc *.vrb *.fls *.fdb_latexmk *.synctex.gz
+	@echo "临时文件清理完成"
 
-# 完全清理（包括 PDF）
+# 完全清理
 distclean: clean
-	@echo "删除生成的 PDF 文件..."
-	@rm -f $(MAIN).pdf
+	@echo "删除生成的PDF文件..."
+	@rm -f $(PDF_FILE)
 	@echo "完全清理完成"
 
-# 查看 PDF
-view: $(MAIN).pdf
-	@echo "打开 PDF 文件..."
-	@if command -v xdg-open > /dev/null; then \
-		xdg-open $(MAIN).pdf & \
-	elif command -v open > /dev/null; then \
-		open $(MAIN).pdf & \
-	elif command -v evince > /dev/null; then \
-		evince $(MAIN).pdf & \
-	else \
-		echo "未找到 PDF 查看器"; \
-	fi
+# 连续编译模式（用于开发）
+watch:
+	@echo "进入连续编译模式，按Ctrl+C退出..."
+	@while inotifywait -e modify $(TEX_FILE) 2>/dev/null; do \
+		echo "检测到文件变化，重新编译..."; \
+		make $(PDF_FILE); \
+	done
 
-# 显示帮助信息
+# 帮助信息
 help:
-	@echo "可用的 make 目标："
-	@echo "  all (默认)  - 完整编译演示文稿"
-	@echo "  quick       - 快速编译（单次）"
-	@echo "  auto        - 使用 latexmk 自动编译"
-	@echo "  clean       - 清理临时文件"
-	@echo "  distclean   - 完全清理（包括 PDF）"
-	@echo "  view        - 查看生成的 PDF"
-	@echo "  help        - 显示此帮助信息"
+	@echo "LaTeX博士答辩PPT编译工具"
+	@echo ""
+	@echo "可用目标："
+	@echo "  all        - 编译PPT（默认）"
+	@echo "  view       - 编译并查看PPT"
+	@echo "  clean      - 清理临时文件"
+	@echo "  distclean  - 完全清理（包括PDF）"
+	@echo "  watch      - 连续编译模式（需要inotify-tools）"
+	@echo "  help       - 显示此帮助信息"
+	@echo ""
+	@echo "使用示例："
+	@echo "  make              # 编译PPT"
+	@echo "  make view         # 编译并查看"
+	@echo "  make clean        # 清理临时文件"
+
+# 检查依赖
+check-deps:
+	@echo "检查编译环境..."
+	@which xelatex >/dev/null || (echo "错误: 未找到xelatex编译器" && exit 1)
+	@echo "✓ XeLaTeX编译器可用"
+	@xelatex --version | head -1
+	@echo "环境检查完成"
+
+# 安装依赖提示
+install-deps:
+	@echo "安装LaTeX环境的建议："
+	@echo ""
+	@echo "Ubuntu/Debian:"
+	@echo "  sudo apt-get install texlive-full texlive-xetex"
+	@echo ""
+	@echo "CentOS/RHEL:"
+	@echo "  sudo yum install texlive texlive-xetex"
+	@echo ""
+	@echo "MacOS:"
+	@echo "  brew install --cask mactex"
+	@echo ""
+	@echo "Windows:"
+	@echo "  下载并安装 MiKTeX 或 TeX Live"
+
+.PHONY: check-deps install-deps watch
