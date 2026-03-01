@@ -51,7 +51,7 @@
 \setbeamercolor{alerted text}{fg=hitgray}
 
 % 标题页信息
-\title[人脸识别系统隐私攻击研究]{面向人脸识别模型的逆向重建方法研究}
+\title[面向人脸识别模型的逆向重建方法研究]{面向人脸识别模型的逆向重建方法研究}
 \subtitle{硕士学位论文答辩}
 \author[俞磊]{俞磊}
 \institute[HIT]{哈尔滨工业大学\\网络空间安全学院}
@@ -77,392 +77,269 @@
 % 目录
 \begin{frame}{目录}
 \begin{enumerate}
-  \item[\textcolor{hitblue}{1.}] \textbf{研究背景与威胁建模}
-  \begin{itemize}
-    \item[-] 人脸系统安全威胁与攻击面分析
-    \item[-] TIA与MIA核心技术挑战
-  \end{itemize}
+  \item \textbf{研究背景与威胁建模}
 
-  \item[\textcolor{hitblue}{2.}] \textbf{研究内容与主要方法}
-  \begin{itemize}
-    \item[-] 角度约束对比学习的模板逆向设计
-    \item[-] 换脸先验迁移的模型反演设计
-  \end{itemize}
+  \item \textbf{研究内容与主要方法}
 
-  \item[\textcolor{hitblue}{3.}] \textbf{TIA方法设计与实验验证}
-  \begin{itemize}
-    \item[-] 方法架构、训练策略与实验分析
-  \end{itemize}
+  \item \textbf{基于角度约束对比学习的模板逆向重建方法设计与验证}
 
-  \item[\textcolor{hitblue}{4.}] \textbf{MIA方法设计与实验验证}
-  \begin{itemize}
-    \item[-] 三阶段训练、多目标优化与性能评估
-  \end{itemize}
+  \item \textbf{基于换脸先验迁移的多目标自适应模型反演方法设计与验证}
 
-  \item[\textcolor{hitblue}{5.}] \textbf{研究结论与防御措施}
-  \begin{itemize}
-    \item[-] 主要发现总结与防御建议
-  \end{itemize}
+  \item \textbf{结论与防御措施讨论}
+
+  \item \textbf{评阅意见及相应修改}
 \end{enumerate}
 \end{frame} % 目录
 
 \section{研究背景与意义}
 
 \begin{frame}{研究背景}
-\begin{itemize}
-\item \highlight{人脸识别进入大规模安全敏感场景}
-  \begin{itemize}
-  \item 身份认证、公共安全、支付与门禁等关键基础设施
-  \item 深度模型显著提升识别性能，同时扩大隐私暴露面
-  \end{itemize}
-
-\vspace{0.5em}
-
-\item \highlight{两类系统对应两类核心攻击面}
-  \begin{itemize}
-  \item 检索型系统：模板泄露引发模板逆向攻击（TIA）
-  \item 分类型系统：输出暴露引发模型反演攻击（MIA）
-  \end{itemize}
-
-\vspace{0.5em}
-
-\item \highlight{研究问题}
-  \begin{itemize}
-  \item 如何在身份一致性、视觉真实性与优化稳定性之间实现协同
-  \item 如何系统评估两类攻击在真实人脸系统中的隐私风险
-  \end{itemize}
+\footnotesize
+\begin{columns}[c]
+\begin{column}{0.48\textwidth}
+\textbf{人脸识别系统的广泛部署}
+\begin{itemize}\setlength{\itemsep}{1pt}
+  \item 深度神经网络驱动的人脸识别已深度渗透至\important{身份认证、公共安全、金融支付、门禁控制}等安全敏感场景
+  \item 广泛部署在带来便捷性的同时，也使海量用户的生物特征模板成为攻击者的重要目标
 \end{itemize}
+
+\vspace{2pt}
+\textbf{两类系统架构 $\Rightarrow$ 两类攻击面}
+
+\begin{itemize}\setlength{\itemsep}{1pt}
+  \item \important{检索型架构：}特征模板长期存于数据库，泄露后可被\textbf{TIA}利用，从嵌入向量重建人脸图像
+  \item \important{分类型架构：}输出置信度/概率分布包含丰富语义，可被\textbf{MIA}利用，从类别标签重建训练样本
+\end{itemize}
+\end{column}
+
+\begin{column}{0.50\textwidth}
+\textbf{逆向重建技术的演进脉络}
+
+\begin{itemize}\setlength{\itemsep}{1pt}
+  \item \important{优化类方法：}迭代梯度下降，计算开销大、易陷局部极值，生成质量差
+  \item \important{GAN类方法：}引入生成先验，但训练不稳定且存在模式崩塌问题
+  \item \important{扩散模型方法：}训练稳定、模式覆盖全面，高保真重建
+\end{itemize}
+
+\end{column}
+\end{columns}
 \end{frame} % 研究背景
 
-\begin{frame}{主要威胁与挑战}
-\begin{columns}
-\begin{column}{0.5\textwidth}
-\textbf{模板逆向攻击 (TIA)}
-\begin{itemize}
-\item \important{攻击目标：}特征模板
-\item \important{攻击场景：}模板库泄露/内部访问滥用
-\item \important{攻击方式：}特征嵌入 $\rightarrow$ 人脸图像重建
-\item \important{技术挑战：}
-  \begin{itemize}
-  \item 连续高维特征空间的条件引导
-  \item 超球面几何约束下的身份对齐
-  \item 感知质量与匹配精度的动态平衡
-  \end{itemize}
-\end{itemize}
-\end{column}
-
-\begin{column}{0.5\textwidth}
-\textbf{模型反演攻击 (MIA)}
-\begin{itemize}
-\item \important{攻击目标：}分类模型
-\item \important{攻击场景：}置信度/梯度信息可被查询
-\item \important{攻击方式：}类别标签/输出分布 $\rightarrow$ 样本重建
-\item \important{技术挑战：}
-  \begin{itemize}
-  \item 离散标签到连续身份嵌入映射
-  \item 模态迁移训练稳定性（图像条件到标签条件）
-  \item 攻击准确率与生成保真度协同优化
-  \end{itemize}
-\end{itemize}
-\end{column}
-\end{columns}
-\end{frame} % 主要威胁与挑战
 \section{研究内容与方法}
 
-\begin{frame}{研究内容概述}
-\begin{center}
-\begin{tikzpicture}[
-  box/.style={rectangle, draw, fill=hitblue!10, text width=3.5cm, text centered, minimum height=1.5cm},
-  arrow/.style={->, thick, hitblue}
-]
-
-\node[box] (tia) at (0,3) {\textbf{模板逆向攻击}\\(TIA)\\检索型系统};
-\node[box] (mia) at (0,1) {\textbf{模型反演攻击}\\(MIA)\\分类型系统};
-
-\node[box] (method1) at (5,3) {\textbf{EDM先验 + 角度约束}\\任务不确定性加权\\模板条件梯度引导};
-\node[box] (method2) at (5,1) {\textbf{换脸先验迁移}\\标签条件嵌入 + LoRA\\三阶段渐进训练};
-
-\node[box] (result) at (10,2) {\textbf{系统评估}\\攻击有效性与保真度\\防御启示};
-
-\draw[arrow] (tia) -- (method1);
-\draw[arrow] (mia) -- (method2);
-\draw[arrow] (method1) -- (result);
-\draw[arrow] (method2) -- (result);
-
-\end{tikzpicture}
-\end{center}
-
-\vspace{0.5em}
-
-\textbf{研究目标：}针对检索型与分类型人脸识别系统，分别构建TIA与MIA方法并进行系统化风险评估
-\end{frame} % 研究内容概述
-
-\begin{frame}{主要研究方法}
-\small
-\begin{block}{模板逆向攻击（TIA）涉及工作}
-\begin{itemize}
-\item \highlight{EDM生成建模：}学习特征模板到人脸图像的条件逆映射
-\item \highlight{角度约束对比学习：}在超球面空间强化身份判别与特征对齐
-\item \highlight{两阶段训练+模板引导推理：}结合任务不确定性加权与梯度引导采样
+\begin{frame}{研究问题、威胁与方案概述}
+\footnotesize
+\begin{columns}[T]
+\begin{column}{0.5\textwidth}
+\textbf{模板逆向攻击（TIA）—— 第3章}
+\begin{itemize}\setlength{\itemsep}{1pt}
+  \item \important{威胁场景：}检索型系统数据库泄露/内部威胁，攻击者获取模板 $t\!=\!F(x_0)$
+  \item \important{攻击目标：}构造 $\hat{x}\!=\!g(t)$ 满足 $\mathrm{sim}(F(\hat{x}),t)>\tau$ 且 $\hat{x}\!\in\!\mathcal{M}_{\text{nat}}$
+  \item \important{关键瓶颈：}
+    {\scriptsize\begin{itemize}\setlength{\itemsep}{0pt}
+      \item 维度压缩 $d\!\ll\!HWC$，逆映射多对一、欠定无唯一解
+      \item 超球面几何与连续嵌入引导机制适配不足
+    \end{itemize}}
+  \item \important{本文方案：}{\scriptsize \textbf{EDM} + \textbf{角度约束对比学习} + \textbf{任务不确定性加权} + \textbf{梯度引导推理}}
 \end{itemize}
-\end{block}
-
-\begin{block}{模型反演攻击（MIA）涉及工作}
-\begin{itemize}
-\item \highlight{换脸先验迁移：}复用身份-属性解耦先验提升重建真实性
-\item \highlight{标签条件嵌入：}建立离散类别到连续身份嵌入的可学习映射
-\item \highlight{LoRA与多目标优化：}采用三阶段渐进训练实现稳定模态迁移
+\end{column}
+\begin{column}{0.5\textwidth}
+\textbf{模型反演攻击（MIA）—— 第4章}
+\begin{itemize}\setlength{\itemsep}{1pt}
+  \item \important{威胁场景：}分类型系统白盒访问，攻击者仅持有类别标签 $y$，无任何原始图像
+  \item \important{攻击目标：}构造 $\hat{x}$ 满足 $F_\theta(\hat{x})_y>\tau$ 且 $\hat{x}\!\in\!\mathcal{M}_{\text{nat}}$
+  \item \important{关键瓶颈：}
+    {\scriptsize\begin{itemize}\setlength{\itemsep}{0pt}
+      \item 换脸先验依赖真实目标图像，与离散标签输入模态根本不兼容
+      \item 标签嵌入分布与ArcFace身份嵌入分布存在显著偏移
+    \end{itemize}}
+  \item \important{本文方案：}{\scriptsize \textbf{REFace先验} + \textbf{标签条件嵌入层} + \textbf{LoRA微调} + \textbf{三阶段渐进训练}}
 \end{itemize}
-\end{block}
+\end{column}
+\end{columns}
+\end{frame} % 研究问题威胁与方案概述
 
-
-\end{frame} % 主要研究方法
-
-\section{基于角度约束对比学习的模板逆向攻击}
-
-\subsection{TIA方法：基于扩散模型的角度约束对比学习}
+\section{基于角度约束对比学习的模板逆向重建方法设计与验证}
 
 \begin{frame}{TIA问题定义与关键挑战}
-\begin{block}{攻击目标}
-给定泄露模板 $t=F(x_0)$，生成重建图像 $\hat{x}$，同时满足身份一致性与视觉真实性。
-\end{block}
-
-\begin{columns}[T]
-\column{0.5\textwidth}
-\textbf{形式化目标}
-\begin{equation*}
-\hat{x}=\arg\min_x\,\mathcal{L}_{embed}(F(x),t)+\lambda_{perc}\mathcal{L}_{perc}(x)
-\end{equation*}
-
-\column{0.5\textwidth}
-\textbf{关键挑战}
-\begin{itemize}
-  \item 降维映射多对一，逆问题欠定
-  \item ArcFace超球面几何与欧式优化失配
-  \item 感知质量与身份匹配目标冲突
-\end{itemize}
-\end{columns}
-\end{frame} % TIA问题定义与关键挑战
-
-\begin{frame}{TIA方法架构}
-\begin{figure}
-  \centering
-  \includegraphics[width=0.83\textwidth]{figures/train_finetune.pdf}
-  \caption{基于扩散模型的TIA方法架构}
-\end{figure}
-
-\begin{itemize}
-  \item \textbf{生成主干：}EDM去噪网络，保证样本位于自然人脸流形附近
-  \item \textbf{特征监督：}ArcFace提取身份特征，构建角度约束匹配目标
-  \item \textbf{优化框架：}任务不确定性加权 + 类内多样性正则
-\end{itemize}
-\end{frame} % TIA方法架构
-
-\begin{frame}{TIA损失函数设计}
-\small
-\begin{columns}[T]
-  \column{0.5\textwidth}
-  \textbf{核心损失项}
-  \begin{itemize}
-    \item 像素去噪损失 $\mathcal{L}_{pixel}$
-    \item 角度约束特征损失 $\mathcal{L}_{feat}$
-    \item 类内多样性损失 $\mathcal{L}_{div}$
-  \end{itemize}
-
-  \textbf{角度约束特征损失}
-  \begin{equation*}
-  \mathcal{L}_{feat}=\max(0,m+\cos(F(\hat{x}),F(x_{neg}))-\cos(F(\hat{x}),F(x_0)))
-  \end{equation*}
-
-  \column{0.5\textwidth}
-  \textbf{总体优化目标}
-  \begin{equation*}
-  \mathcal{L}=\frac{1}{2\sigma_p^2}\mathcal{L}_{pixel}+\frac{1}{2\sigma_f^2}\mathcal{L}_{feat}
-  +\frac{1}{2}(\log\sigma_p^2+\log\sigma_f^2)-\beta\mathcal{L}_{div}
-  \end{equation*}
-
-  \begin{itemize}
-    \item $\sigma_p,\sigma_f$为可学习不确定性参数
-    \item 训练中自适应平衡生成质量与攻击有效性
-  \end{itemize}
-\end{columns}
-\end{frame} % TIA损失函数设计
-
-\begin{frame}{TIA训练与推理策略}
-\small
-\textbf{两阶段训练策略}
-\begin{columns}
-\begin{column}{0.5\textwidth}
-\textbf{阶段1：预热阶段}
-\begin{itemize}
-\item 仅优化 $\mathcal{L}_{pixel}$
-\item 建立稳定去噪与人脸结构先验
-\end{itemize}
-
-\textbf{阶段2：主训练阶段}
-\begin{itemize}
-\item 启用完整混合损失
-\item 联合更新网络参数与$\sigma_p,\sigma_f$
-\end{itemize}
-\end{column}
-
-\begin{column}{0.5\textwidth}
-\textbf{推理阶段：模板条件梯度引导}
-\begin{equation*}
-x_{i-1}=x_i+(\sigma_{i-1}-\sigma_i)
-\left[d_{base}+\alpha\nabla_{x_i}\mathrm{sim}(F(x_i),t)\right]
-\end{equation*}
-
-\begin{itemize}
-\item 通过模板梯度动态修正采样轨迹
-\item 在保证视觉真实性前提下提升特征匹配精度
-\item 与训练目标形成一致闭环
-\end{itemize}
-\end{column}
-\end{columns}
-\end{frame} % TIA训练与推理策略
-
-\section{TIA实验结果与分析}
-
-\begin{frame}{TIA实验设置与评估指标}
-\begin{columns}[T]
-\column{0.5\textwidth}
-\textbf{实验设置}
-\begin{itemize}
-  \item 训练集：CelebA（202,599）
-  \item 测试集：MOBIO、LFW、AgeDB、IJB-C
-  \item 目标识别器：ArcFace（512维归一化模板）
-  \item 白盒攻击设定：可访问目标模型参数与梯度
-\end{itemize}
-
-\column{0.5\textwidth}
-\textbf{评估指标}
-\begin{itemize}
-  \item 攻击成功率：SAR@FMR=$10^{-2},10^{-3}$
-  \item 生成质量：FID（越低越好）
-  \item 身份保持：ID-Pres（越高越好）
-\end{itemize}
-
-\textbf{对比方法}
-\begin{itemize}
-  \item NBNet、Vendrow、GaFaR、Shahreza等代表方法
-\end{itemize}
-\end{columns}
-\end{frame} % TIA实验设置与评估指标
-
-\begin{frame}{TIA实验结果}
-\begin{table}
-\centering
 \footnotesize
-\caption{TIA方法定量性能对比（LFW测试集）}
-\vspace{-0.2cm}
-\begin{tabular}{lcccc}
-\toprule
-\textbf{方法} & \textbf{SAR@10$^{-2}$} & \textbf{SAR@10$^{-3}$} & \textbf{FID↓} & \textbf{身份保持度↑} \\
-\midrule
-NBNetB-P & 61.53\% & 40.18\% & 52.4 & 0.703 \\
-Vendrow et al. & 77.15\% & 57.84\% & 41.2 & 0.768 \\
-GaFaR & 89.41\% & 79.97\% & 32.1 & 0.834 \\
-Shahreza et al. & 92.47\% & 85.14\% & 28.5 & 0.891 \\
-\midrule
-\textbf{本文方法} & \textbf{94.23\%} & \textbf{84.23\%} & \textbf{18.27} & \textbf{0.947} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\vspace{-0.1cm}
-\begin{block}{关键发现}
-\begin{itemize}
-  \item 在LFW上，SAR@10$^{-2}$提升\textbf{2.76\%}，FID降低\textbf{35.9\%}
-  \item SAR@10$^{-3}$略低于Shahreza et al.（84.23\% vs 85.14\%），但FID与ID-Pres更优
-\end{itemize}
-\end{block}
-\end{frame} % TIA实验结果
-
-\begin{frame}{TIA方法跨数据集性能表现}
-\begin{table}
-\centering
-\scriptsize
-\caption{TIA方法在不同数据集上的攻击成功率对比}
-\vspace{-0.2cm}
-\begin{tabular}{lcccc}
-\toprule
-\textbf{方法} & \textbf{MOBIO} & \textbf{LFW} & \textbf{AgeDB} & \textbf{IJB-C} \\
-\midrule
-\multicolumn{5}{c}{\textbf{FMR=$10^{-2}$}} \\
-\midrule
-Vendrow et al. & 69.38 & 77.15 & 44.62 & 38.51 \\
-GaFaR & 95.84 & 89.41 & 63.45 & 69.32 \\
-Shahreza et al. & 96.53 & 92.47 & 73.91 & 78.62 \\
-\textbf{本文方法} & \textbf{97.38} & \textbf{94.23} & \textbf{75.64} & \textbf{82.91} \\
-\midrule
-\multicolumn{5}{c}{\textbf{FMR=$10^{-3}$}} \\
-\midrule
-Vendrow et al. & 29.18 & 57.84 & 29.78 & 7.56 \\
-GaFaR & 82.93 & 79.97 & 49.08 & 29.91 \\
-Shahreza et al. & 84.89 & 85.14 & 60.18 & 45.57 \\
-\textbf{本文方法} & \textbf{87.87} & 84.23 & \textbf{65.81} & \textbf{55.58} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{block}{关键发现}
-\begin{itemize}
-  \item \textbf{跨数据集泛化：}MOBIO/AgeDB/IJB-C在两个FMR阈值下均为最优
-  \item \textbf{高安全阈值：}FMR=$10^{-3}$下平均攻击成功率达73.41\%
-\end{itemize}
-\end{block}
-\end{frame} % TIA方法跨数据集性能表现
-
-\begin{frame}{TIA训练过程分析}
-\begin{figure}
-\centering
-\includegraphics[width=0.95\textwidth]{figures/tia_training_curves.pdf}
-\caption{TIA方法训练过程的损失与指标演化曲线}
-\end{figure}
-
-\begin{block}{与论文一致的关键信息}
-\begin{itemize}
-  \item 各项损失与指标整体稳定收敛，SAR上升、FID下降、ID-Pres提升
-  \item 不确定性参数$\sigma_p,\sigma_f$自适应演化，训练后期特征匹配任务权重更高
-\end{itemize}
-\end{block}
-\end{frame} % TIA训练过程分析
-
-\begin{frame}{TIA消融实验分析}
 \begin{columns}[T]
-  \column{0.55\textwidth}
-  \begin{table}
-  \centering
-  \footnotesize
-  \caption{TIA模块消融（LFW）}
-  \begin{tabular}{lcc}
-  \toprule
-  \textbf{模型配置} & \textbf{SAR@10$^{-3}$} & \textbf{FID} \\
-  \midrule
-  仅像素损失 & 41.67\% & 52.46 \\
-  +角度约束 & 79.83\% & 32.18 \\
-  +任务加权 & 82.17\% & 27.54 \\
-  +多样性正则 & 84.23\% & 18.27 \\
-  \bottomrule
-  \end{tabular}
-  \end{table}
-
-  \column{0.4\textwidth}
-  \begin{block}{结论}
-  \begin{itemize}
-    \item 各模块带来渐进收益
-    \item 完整模型相对基线提升42.56个百分点
-  \end{itemize}
-  \end{block}
+\begin{column}{0.5\textwidth}
+\textbf{攻击威胁模型}\\[2pt]
+特征提取器 $F\!:\mathbb{R}^{HWC}\!\to\!\mathbb{R}^d$ 将图像映射至低维嵌入。攻击者通过数据库泄露获取模板 $t=F(x_0)$，目标为逆映射 $\hat{x}=g(t)$：
+\vspace{-4pt}
+{\scriptsize\begin{equation*}
+\hat{x}=\arg\min_x\,\mathcal{L}_{emb}(F(x),t)+\lambda_p\mathcal{L}_{perc}(x)+\lambda_r R(x),\;\text{s.t.}\;\hat{x}\!\in\!\mathcal{M}_{nat}
+\end{equation*}}\vspace{-4pt}
+\textbf{攻击成功判据（三层次）}
+\begin{itemize}\setlength{\itemsep}{1pt}
+  \item \important{强成功：}$\mathrm{sim}(F(\hat{x}),t)\geq\tau$，直接通过身份验证
+  \item \important{弱成功：}相似度显著高于随机基线，部分泄露身份信息
+  \item \important{视觉成功：}生成自然人脸外观，通过人类视觉检验
+\end{itemize}
+\end{column}
+\begin{column}{0.5\textwidth}
+\textbf{核心挑战}
+\begin{itemize}\setlength{\itemsep}{2pt}
+  \item \important{逆问题求解：}$d\!\ll\!HWC$ 导致逆映射多对一，无唯一解
+  \item \important{特征空间不同：}ArcFace余弦度量空间与传统欧氏优化方向不一致
+  \item \important{协同优化：}生成先验视觉真实性目标与特征空间身份约束存在优化冲突
+  \item \important{权重平衡：}多目标损失（像素/特征）相对权重缺乏自动化调节机制
+\end{itemize}
+\end{column}
 \end{columns}
-\end{frame} % TIA消融实验分析
+\end{frame} % 模板逆向·问题定义与关键挑战
 
-\section{MIA设计与实验}
+\begin{frame}{基于角度约束对比学习的模板逆向重建方法整体架构}
+\begin{columns}[c]
+\begin{column}{0.5\textwidth}
+\scalebox{0.45}{%
+\begin{tikzpicture}[node distance=1.5cm, >=stealth, thick,
+  module/.style={rectangle, draw=blue!60, fill=blue!10, minimum width=3.2cm, minimum height=0.9cm, align=center, rounded corners},
+  input/.style={rectangle, draw=green!60, fill=green!10, minimum width=2.2cm, minimum height=0.7cm, align=center, rounded corners},
+  loss/.style={rectangle, draw=red!60, fill=red!10, minimum width=2.3cm, minimum height=0.7cm, align=center, rounded corners},
+  arrow/.style={->, thick},
+  gradient/.style={->, thick, dashed, red!70}]
+  \node[input] (x) at (0,0) {原始图像 $x$};
+  \node[input] (t) at (6,0) {目标模板 $t$};
+  \node[module] (diffusion) at (0,-2.2) {扩散去噪网络 \\ $f_\theta$ (EDM)};
+  \node[module] (recognizer) at (6,-2.2) {特征提取器 \\ $F$ (ArcFace)};
+  \node[input] (x0) at (0,-4) {生成图像 $\hat{x}_0$};
+  \node[input] (feat) at (6,-4) {特征 $F(\hat{x}_0)$};
+  \node[loss] (pixel) at (0,-5.8) {$\mathcal{L}_{\text{pixel}}$};
+  \node[loss] (angular) at (3,-5.8) {$\mathcal{L}_{\text{feat}}$};
+  \node[loss] (div) at (6,-5.8) {$\mathcal{L}_{\text{div}}$};
+  \node[loss] (total) at (3,-7.3) {$\mathcal{L}_{\text{total}}$ (加权)};
+  \draw[arrow] (x) -- (diffusion);
+  \draw[arrow] (diffusion) -- (x0);
+  \draw[arrow] (t) -- (recognizer);
+  \draw[arrow] (recognizer) -- (feat);
+  \draw[arrow] (x) -- ++(1.8,0) |- (recognizer);
+  \draw[arrow] (x0) -- ++(2.2,0) |- (recognizer);
+  \draw[arrow] (x0) -- (pixel);
+  \draw[arrow] (feat) -- (angular);
+  \draw[arrow] (feat) -- (div);
+  \draw[arrow] (pixel) -- (total);
+  \draw[arrow] (angular) -- (total);
+  \draw[arrow] (div) -- (total);
+  \draw[gradient, rounded corners=5pt] (total.south) -- ++(0,-0.5) -| ([xshift=-3cm]diffusion.west) -- (diffusion.west);
+\end{tikzpicture}}
+\end{column}
+\begin{column}{0.5\textwidth}
+\footnotesize\textbf{核心设计}
+\begin{itemize}\setlength{\itemsep}{0pt}
+  \item \highlight{EDM生成骨干：}去噪先验天然保证生成样本位于 $\mathcal{M}_{nat}$，从根本上解决视觉真实性
+  \item \highlight{角度约束对比学习 $\mathcal{L}_{feat}$：}利用ArcFace超球面几何拉近正样本、拉远负样本，与识别器决策边界精确对齐
+  \item \highlight{多样性约束 $\mathcal{L}_{div}$：}最大化批内样本角度距离，防止模式崩塌
+  \item \highlight{任务不确定性加权：}$\sigma_p,\sigma_f$ 与 $\theta$ 联合优化，自动平衡像素与特征权重
+\end{itemize}
+{\scriptsize\begin{equation*}
+\mathcal{L}=\frac{\mathcal{L}_{pixel}}{2\sigma_p^2}+\frac{\mathcal{L}_{feat}}{2\sigma_f^2}+\frac{1}{2}(\log\sigma_p^2+\log\sigma_f^2)-\beta\mathcal{L}_{div}
+\end{equation*}}
+\end{column}
+\end{columns}
+\end{frame} % 方法整体架构与核心设计
 
-\subsection{MIA方法：基于换脸先验的身份嵌入学习}
+\begin{frame}{训练策略与推理流程}
+\begin{columns}[T]
+\begin{column}{0.50\textwidth}
+\centering\footnotesize\textbf{训练流程}\\[2pt]
+\includegraphics[width=\linewidth,height=0.32\textheight,keepaspectratio]{figures/train-1.pdf}\\[4pt]
+\textbf{推理流程}\\[2pt]
+\includegraphics[width=\linewidth,height=0.32\textheight,keepaspectratio]{figures/infer.pdf}
+\end{column}
+\begin{column}{0.50\textwidth}
+\footnotesize\textbf{两阶段训练策略}
+\begin{itemize}\setlength{\itemsep}{2pt}
+  \item \important{预热阶段}：仅优化 $\mathcal{L}_{pixel}$，建立稳定人脸流形去噪先验
+  \item \important{主训练阶段}：启用完整 $\mathcal{L}$，初始 $\log\sigma_p\!=\!\log\sigma_f\!=\!0$，$\theta,\sigma_p,\sigma_f$ 联合更新；训练后期 $\sigma_f<\sigma_p$，特征匹配权重自动增大
+\end{itemize}
+\vspace{4pt}
+\textbf{模板条件梯度引导推理}\\[2pt]
+{\scriptsize\begin{equation*}
+x_{i-1}=x_i+(\sigma_{i-1}\!-\!\sigma_i)\!\left[\underbrace{\frac{f_\theta(x_i,t,\sigma_i)-x_i}{\sigma_i}}_{\text{去噪方向}}+\underbrace{\alpha\nabla_{x_i}\mathrm{sim}(F(x_i),t)}_{\text{模板引导}}\right]
+\end{equation*}}
+{\scriptsize 引导强度 $\alpha$ 权衡生成质量与特征匹配度，训练与推理形成一致闭环}
+\end{column}
+\end{columns}
+\end{frame} % 训练策略与推理流程
 
-\begin{frame}{MIA问题定义与核心挑战}
+
+\begin{frame}{实验结果}
+\begin{columns}[T]
+\begin{column}{0.5\textwidth}
+\footnotesize\textbf{实验设置}
+\begin{itemize}\setlength{\itemsep}{1pt}
+  \item 训练：CelebA（202,599）
+  \item 测试：MOBIO / LFW / AgeDB / IJB-C
+  \item 目标：ArcFace（512维，白盒）
+  \item 指标：SAR@FMR=$10^{-2}/10^{-3}$、FID、ID-Pres
+\end{itemize}
+\vspace{4pt}
+\footnotesize\textbf{LFW基准对比}\\[2pt]
+{\scriptsize\begin{tabular}{lcccc}
+\toprule
+\textbf{方法} & \textbf{SAR@$10^{-2}$} & \textbf{SAR@$10^{-3}$} & \textbf{FID↓} & \textbf{ID↑} \\
+\midrule
+GaFaR        & 89.41 & 79.97 & 32.1 & 0.834 \\
+Shahreza     & 92.47 & \textbf{85.14} & 28.5 & 0.891 \\
+\textbf{本文} & \textbf{94.23} & 84.23 & \textbf{18.27} & \textbf{0.947} \\
+\bottomrule
+\end{tabular}}
+\end{column}
+\begin{column}{0.5\textwidth}
+\footnotesize\textbf{跨数据集结果（SAR, \%）}\\[2pt]
+{\scriptsize\begin{tabular}{lcccc}
+\toprule
+ & \textbf{MOBIO} & \textbf{LFW} & \textbf{AgeDB} & \textbf{IJB-C} \\
+\midrule
+\multicolumn{5}{c}{\textit{FMR=$10^{-2}$}} \\
+GaFaR        & 95.84 & 89.41 & 63.45 & 69.32 \\
+Shahreza     & 96.53 & 92.47 & 73.91 & 78.62 \\
+\textbf{本文} & \textbf{97.38} & \textbf{94.23} & \textbf{75.64} & \textbf{82.91} \\
+\multicolumn{5}{c}{\textit{FMR=$10^{-3}$}} \\
+GaFaR        & 82.93 & 79.97 & 49.08 & 29.91 \\
+Shahreza     & 84.89 & \textbf{85.14} & 60.18 & 45.57 \\
+\textbf{本文} & \textbf{87.87} & 84.23 & \textbf{65.81} & \textbf{55.58} \\
+\bottomrule
+\end{tabular}}
+\end{column}
+\end{columns}
+\end{frame} % 模板逆向·实验结果
+
+\begin{frame}{实验结果}
+\begin{columns}[T]
+\begin{column}{0.44\textwidth}
+\centering
+\includegraphics[width=\linewidth,height=0.5\textheight,keepaspectratio]{figures/tia_training_curves.pdf}\\
+\vspace{4pt}
+\includegraphics[width=\linewidth,height=0.4\textheight,keepaspectratio]{figures/matrix_3x10.png}\\
+{\scriptsize 真实/重建/Grad-CAM}
+\end{column}
+\begin{column}{0.54\textwidth}
+\footnotesize 消融结果：\\[8pt]
+{\resizebox{\linewidth}{!}{\begin{tabular}{lcccc}
+\hline
+\textbf{模型配置} & \textbf{SAR@$10^{-2}$} & \textbf{SAR@$10^{-3}$} & \textbf{FID↓} & \textbf{ID↑} \\
+\hline
+$\mathcal{L}_{\text{pixel}}$ & 68.33\% & 41.67\% & 52.46 & 0.703 \\
+$\mathcal{L}_{\text{pixel}} + \mathcal{L}_{\text{feat}}$ & 91.33\% & 79.83\% & 32.18 & 0.891 \\
+$\mathcal{L}_{\text{pixel}} + \mathcal{L}_{\text{feat}} + $ 不确定性加权 & 92.83\% & 82.17\% & 27.54 & 0.923 \\
+\textbf{$\mathcal{L}_{\text{pixel}} + \mathcal{L}_{\text{feat}} + $ 不确定性加权 $ + \mathcal{L}_{\text{div}}$} & \textbf{94.23\%} & \textbf{84.23\%} & \textbf{18.27} & \textbf{0.947} \\
+\hline
+\end{tabular}}}
+\vspace{12pt}
+\begin{block}{}\scriptsize
+\textbf{可视化：}重建与目标高度一致；热力图激活集中于眼鼻嘴，验证超球面对齐有效性。\\[2pt]
+\textbf{消融：}$\mathcal{L}_{\text{feat}}$贡献最大（+38.16ppt）；$\mathcal{L}_{\text{div}}$对FID降幅最显著（$-$9.27）；训练曲线三阶段收敛稳定。
+\end{block}
+\end{column}
+\end{columns}
+\end{frame} % 模板逆向·可视化与消融实验
+
+\section{基于换脸先验迁移的多目标自适应模型反演方法设计与验证}
+
+\begin{frame}{模型反演·问题定义与核心挑战}
 \small
 \textbf{目标：}仅给定类别标签$y$，生成样本$\hat{x}$，使其同时满足：
 \begin{itemize}
@@ -481,26 +358,87 @@ Shahreza et al. & 84.89 & 85.14 & 60.18 & 45.57 \\
 \begin{alertblock}{一句话结论}
 MIA的关键是将“标签条件”稳定迁移到“换脸先验”的身份控制通道。
 \end{alertblock}
-\end{frame} % MIA问题定义与核心挑战
+\end{frame} % 模型反演·问题定义与核心挑战
 
-\begin{frame}{MIA方法架构}
-\begin{figure}
-  \centering
-  \includegraphics[height=0.43\textheight,keepaspectratio]{figures/infer_mia.pdf}
-\end{figure}
-
+\begin{frame}{模型反演·核心设计要点}
+\small
 \begin{itemize}
-  \item \textbf{标签条件嵌入层：}$y\rightarrow e_{id}\in\mathbb{R}^{512}$并归一化
-  \item \textbf{换脸先验适配：}在冻结主干上引入LoRA低秩增量（$r=16,\alpha=32$）
-  \item \textbf{目标引导优化：}联合分类器与身份约束端到端训练
+  \item \highlight{换脸先验（REFace）：}利用身份-属性显式解耦机制，将身份嵌入通过交叉注意力注入去噪过程；相比类条件生成，具备更丰富的面部结构与纹理先验，且无需从零训练
+  \item \highlight{标签条件嵌入层：}多层感知机将独热编码$y$映射为归一化身份嵌入$e_{id}\in\mathbb{R}^{512}$，无缝替代REFace原有的ArcFace图像编码器，建立离散标签到连续嵌入的可学习桥梁
+  \item \highlight{LoRA参数高效微调（$r{=}16,\alpha{=}32$）：}仅训练主干1\%--5\%参数，在冻结预训练权重的同时适配新嵌入分布，有效避免过拟合
+  \item \highlight{六类损失函数：}扩散先验$\mathcal{L}_{prior}$、分类引导$\mathcal{L}_{cls}$（top-k margin）、特征正则$\mathcal{L}_{p\text{-}reg}$、身份一致性$\mathcal{L}_{id}$、感知质量$\mathcal{L}_{perc}$（LPIPS）、参数正则$\mathcal{L}_{reg}$；任务不确定性加权自动整合
+  \item \highlight{三阶段渐进训练：}(1)图像条件预热$\to$(2)余弦退火混合条件过渡$\to$(3)纯标签条件适配，实现从换脸先验到MIA攻击的平滑模态迁移
 \end{itemize}
+\end{frame} % 模型反演·核心设计要点
 
-\begin{alertblock}{一句话结论}
-架构核心是“标签嵌入 + LoRA适配 + 多目标优化”的协同。
-\end{alertblock}
-\end{frame} % MIA方法架构
+\begin{frame}{模型反演·方法架构}
+\begin{columns}[T]
+  \column{0.52\textwidth}
+  \centering\small\textbf{方法整体架构}\\[2pt]
+  \scalebox{0.36}{%
+  \begin{tikzpicture}[scale=0.75, transform shape, node distance=1.3cm, >=stealth, thick,
+    module/.style={rectangle, draw=blue!60, fill=blue!10, minimum width=2.5cm, minimum height=0.75cm, align=center, rounded corners},
+    input/.style={rectangle, draw=green!60, fill=green!10, minimum width=1.8cm, minimum height=0.6cm, align=center, rounded corners},
+    submodule/.style={rectangle, draw=purple!60, fill=purple!10, minimum width=2.2cm, minimum height=0.6cm, align=center, rounded corners, font=\small},
+    loss/.style={rectangle, draw=red!60, fill=red!10, minimum width=1.6cm, minimum height=0.55cm, align=center, rounded corners, font=\small},
+    arrow/.style={->, thick},
+    gradient/.style={->, thick, dashed, red!70}]
+    \node[input] (label) at (0,0) {目标类别};
+    \node[input] (src) at (8,0) {源图像};
+    \node[module] (embed) at (0,-1.6) {嵌入层 $\mathcal{E}_\psi$};
+    \node[input] (eid) at (0,-3) {$e_{\text{id}}$};
+    \node[submodule] (vae_enc) at (8,-1.6) {VAE编码器};
+    \node[submodule] (unet) at (8,-3) {U-Net + LoRA};
+    \node[submodule] (vae_dec) at (8,-4.4) {VAE解码器};
+    \node[input] (xhat) at (4,-6) {生成图像 $\hat{x}$};
+    \node[module] (arcface) at (2,-7.5) {ArcFace $E_{\text{id}}$};
+    \node[module] (classifier) at (6.5,-7.5) {分类器 $F_\theta$};
+    \node[input] (feat_gen) at (2,-8.8) {$e_{\text{gen}}$};
+    \node[input] (logits) at (5.7,-8.8) {logits};
+    \node[input] (feat_cls) at (7.3,-8.8) {特征};
+    \node[loss] (loss_reg) at (-3,-3.5) {$\mathcal{L}_{\text{reg}}$};
+    \node[loss] (loss_prior) at (10.5,-4) {$\mathcal{L}_{\text{prior}}$};
+    \node[loss] (loss_perc) at (4,-9.8) {$\mathcal{L}_{\text{perc}}$};
+    \node[loss] (loss_id) at (2,-10) {$\mathcal{L}_{\text{id}}$};
+    \node[loss] (loss_cls) at (5.7,-10) {$\mathcal{L}_{\text{cls}}$};
+    \node[loss] (loss_preg) at (7.3,-10) {$\mathcal{L}_{\text{p-reg}}$};
+    \node[loss, minimum width=2cm] (total) at (4,-11.8) {$\mathcal{L}_{\text{total}}$ (任务不确定性加权)};
+    \draw[arrow] (label) -- (embed);
+    \draw[arrow] (embed) -- (eid);
+    \draw[arrow] (src) -- (vae_enc);
+    \draw[arrow] (vae_enc) -- (unet);
+    \draw[arrow] (unet) -- (vae_dec);
+    \draw[arrow] (vae_dec) -- (xhat);
+    \draw[arrow] (xhat) -| (arcface);
+    \draw[arrow] (xhat) -| (classifier);
+    \draw[arrow] (arcface) -- (feat_gen);
+    \draw[arrow] (classifier.south) -- ++(0,-0.4) -| (logits.north);
+    \draw[arrow] (classifier.south) -- ++(0,-0.4) -| (feat_cls.north);
+    \draw[arrow] (eid.east) -| ([xshift=-1.2cm]unet.west) -- (unet.west);
+    \draw[arrow] (embed.west) -| (loss_reg);
+    \draw[arrow] (unet.east) -| (loss_prior);
+    \draw[arrow] (xhat) -- (loss_perc);
+    \draw[arrow] (feat_gen) -- (loss_id);
+    \draw[arrow] (eid) -- ++(-1.5,0) |- (loss_id);
+    \draw[arrow] (logits) -- (loss_cls);
+    \draw[arrow] (feat_cls) -- (loss_preg);
+    \draw[arrow] (loss_reg) |- (total);
+    \draw[arrow] (loss_prior) |- (total);
+    \draw[arrow] (loss_perc) -- (total);
+    \draw[arrow] (loss_id) -- (total);
+    \draw[arrow] (loss_cls) -- (total);
+    \draw[arrow] (loss_preg) |- (total);
+    \draw[gradient, rounded corners=8pt] (total) -- ++(0,-0.8) -| ([xshift=3cm]unet.east) -- (unet.east);
+    \draw[gradient, rounded corners=8pt] (total) -- ++(0,-0.8) -| ([xshift=-3.5cm]embed.west) -- (embed.west);
+  \end{tikzpicture}}
 
-\begin{frame}{MIA多目标损失设计}
+  \column{0.46\textwidth}
+  \centering\small\textbf{三阶段训练流程}\\[2pt]
+  \includegraphics[width=\linewidth]{figures/train_mia.pdf}
+\end{columns}
+\end{frame} % 模型反演·方法架构
+
+\begin{frame}{模型反演·多目标损失设计}
 \small
 \begin{columns}[T]
   \column{0.52\textwidth}
@@ -528,177 +466,123 @@ MIA的关键是将“标签条件”稳定迁移到“换脸先验”的身份�
 \begin{alertblock}{一句话结论}
 通过自适应加权，MIA在“攻击强度”和“生成质量”之间实现动态平衡。
 \end{alertblock}
-\end{frame} % MIA多目标损失设计
+\end{frame} % 模型反演·多目标损失设计
 
-\begin{frame}{MIA训练与推理策略}
+\begin{frame}{模型反演·训练与推理策略}
 \small
 \begin{columns}[T]
-  \column{0.52\textwidth}
-  \textbf{三阶段渐进训练}
-  \begin{enumerate}
-    \item 图像条件预热：稳定先验生成能力
-    \item 混合条件过渡：余弦退火平滑迁移
-    \item 纯标签适配：聚焦分类器攻击与身份对齐
-  \end{enumerate}
+  \column{0.47\textwidth}
+  \textbf{三阶段渐进训练}\\[3pt]
+  \textbf{阶段1：图像条件预热}\\{\footnotesize 仅训 LoRA，稳定换脸生成能力}
+  \\[3pt]
+  \textbf{阶段2：混合条件过渡}\\{\footnotesize $e_{id}=(1-\lambda)E_{id}(x_{real})+\lambda\mathcal{E}_\psi(y)$，余弦退火平滑迁移}
+  \\[3pt]
+  \textbf{阶段3：纯标签条件适配}\\{\footnotesize 始用分类器引导，优化攻击有效性+身份一致性}
+  \\[4pt]
+  \begin{block}{论文对应结果}
+  {\footnotesize 三阶段将TarAcc：70.85\%\ $\to$\ 94.87\%，FID：43.21\ $\to$\ 23.26}
+  \end{block}
 
-  \column{0.46\textwidth}
-  \textbf{推理阶段}
-  \begin{itemize}
-    \item 标签嵌入驱动生成
-    \item 关键步分类器引导修正采样轨迹
-    \item 候选样本按目标置信度筛选
-  \end{itemize}
+  \column{0.5\textwidth}
+  \centering\small\textbf{分类器引导推理流程}\\[2pt]
+  \includegraphics[width=\linewidth]{figures/infer_mia-1.pdf}
 \end{columns}
+\end{frame} % 模型反演·训练与推理策略
 
-\begin{block}{论文对应结果}
-三阶段训练将TarAcc从70.85\%提升到94.87\%，并同步降低FID到23.26。
-\end{block}
-\end{frame} % MIA训练与推理策略
-
-\begin{frame}{MIA实验设置与评估指标}
+\begin{frame}{模型反演·实验结果}
+\footnotesize
 \begin{columns}[T]
-  \column{0.52\textwidth}
-  \textbf{数据与目标模型}
-  \begin{itemize}
+  \column{0.44\textwidth}
+  \textbf{实验设置}
+  \begin{itemize}\setlength{\itemsep}{1pt}
     \item 目标任务：VGGFace2（1000类）
-    \item 辅助数据：CelebA、FaceScrub
     \item 目标分类器：ArcFace / IR152 / Face.evoLVe
+    \item 辅助数据：CelebA、FaceScrub
+    \item LoRA：$r{=}16,\alpha{=}32$，AdamW
+    \item 指标：TarAcc、EvalAcc、FID、KNN
   \end{itemize}
+  \vspace{3pt}
+  \textbf{基准对比（VGGFace2, ArcFace）}\\[2pt]
+  {\scriptsize\begin{tabular}{lcccc}
+  \toprule
+  \textbf{方法} & \textbf{TarAcc↑} & \textbf{EvalAcc↑} & \textbf{FID↓} & \textbf{KNN↑} \\
+  \midrule
+  GMI     & 28.52\% & 1.38\%  & 24.87 & 0.559 \\
+  PLG-MI  & 40.95\% & 16.87\% & 43.26 & 0.579 \\
+  Diff-MI & 94.18\% & 75.62\% & 29.53 & \textbf{0.743} \\
+  \textbf{本文} & \textbf{94.87\%} & \textbf{83.15\%} & \textbf{23.26} & 0.717 \\
+  \bottomrule
+  \end{tabular}}
 
-  \textbf{训练配置}
-  \begin{itemize}
-    \item LoRA: $r=16,\alpha=32$，仅微调少量参数
-    \item 优化器：AdamW，LoRA lr=$5\times10^{-6}$
-    \item 推理：DDIM 50步
-  \end{itemize}
-
-  \column{0.46\textwidth}
-  \textbf{评估指标}
-  \begin{itemize}
-    \item TarAcc：目标分类器命中率
-    \item EvalAcc：独立分类器泛化识别率
-    \item FID：生成分布质量
-    \item KNN Dist：身份特征邻域一致性
-  \end{itemize}
-
-  \begin{block}{对比方法}
-  GMI、FMI、PLG-MI、Diff-MI
+  \column{0.55\textwidth}
+  \textbf{跨架构泛化（vs. Diff-MI）}\\[2pt]
+  {\scriptsize\begin{tabular}{lccc}
+  \toprule
+  \textbf{分类器} & \textbf{EvalAcc↑} & \textbf{FID↓} & \textbf{KNN↑} \\
+  \midrule
+  \multicolumn{4}{c}{\textit{ArcFace}} \\
+  Diff-MI & 75.62\% & 29.53 & 0.743 \\
+  \textbf{本文} & \textbf{83.15\%} & \textbf{23.26} & 0.717 \\
+  \multicolumn{4}{c}{\textit{IR152}} \\
+  Diff-MI & 76.84\% & 32.68 & 0.818 \\
+  \textbf{本文} & \textbf{84.23\%} & \textbf{25.83} & \textbf{0.853} \\
+  \multicolumn{4}{c}{\textit{Face.evoLVe}} \\
+  Diff-MI & 79.21\% & 36.47 & 0.856 \\
+  \textbf{本文} & \textbf{82.94\%} & \textbf{26.91} & \textbf{0.902} \\
+  \bottomrule
+  \end{tabular}}
+  \vspace{2pt}
+  \begin{block}{}\scriptsize
+  EvalAcc超82\%，FID优于Diff-MI；生成样本具可迁移身份语义
   \end{block}
 \end{columns}
-\end{frame} % MIA实验设置与评估指标
+\end{frame} % 模型反演·实验结果
 
-\begin{frame}{MIA基准性能对比（ArcFace）}
-\begin{table}
-\centering
-\footnotesize
-\caption{VGGFace2上MIA方法定量对比}
-\begin{tabular}{lcccc}
-\toprule
-\textbf{方法} & \textbf{TarAcc$\uparrow$} & \textbf{EvalAcc$\uparrow$} & \textbf{FID$\downarrow$} & \textbf{KNN$\uparrow$} \\
-\midrule
-GMI & 28.52\% & 1.38\% & 24.87 & 0.559 \\
-FMI & 31.27\% & 21.63\% & 36.42 & 0.531 \\
-PLG-MI & 40.95\% & 16.87\% & 43.26 & 0.579 \\
-Diff-MI & 94.18\% & 75.62\% & 29.53 & \textbf{0.743} \\
-\midrule
-\textbf{本文方法} & \textbf{94.87\%} & \textbf{83.15\%} & \textbf{23.26} & 0.717 \\
-\bottomrule
-\end{tabular}
-\end{table}
 
-\begin{block}{结论}
-相较Diff-MI，EvalAcc提升7.53个百分点、FID降低6.27，说明生成样本更具可迁移身份语义与视觉真实性。
-\end{block}
-\end{frame} % MIA基准性能对比（ArcFace）
-
-\begin{frame}{MIA方法跨架构泛化能力}
-\begin{table}
-\centering
-\tiny
-\caption{MIA方法在不同目标分类器架构下的性能}
-\vspace{-0.2cm}
-\begin{tabular}{lcccc}
-\toprule
-\textbf{方法} & \textbf{目标准确率} & \textbf{评估准确率} & \textbf{FID} & \textbf{KNN} \\
-\midrule
-\multicolumn{5}{c}{\textbf{ArcFace分类器}} \\
-\midrule
-Diff-MI & 94.18\% & 75.62\% & 29.53 & 0.743 \\
-\textbf{本文} & \textbf{94.87\%} & \textbf{83.15\%} & \textbf{23.26} & 0.717 \\
-\midrule
-\multicolumn{5}{c}{\textbf{IR152分类器}} \\
-\midrule
-Diff-MI & 93.75\% & 76.84\% & 32.68 & 0.818 \\
-\textbf{本文} & \textbf{93.28\%} & \textbf{84.23\%} & \textbf{25.83} & \textbf{0.853} \\
-\midrule
-\multicolumn{5}{c}{\textbf{Face.evoLVe分类器}} \\
-\midrule
-Diff-MI & 95.42\% & 79.21\% & 36.47 & 0.856 \\
-\textbf{本文} & 94.38\% & \textbf{82.94\%} & \textbf{26.91} & \textbf{0.902} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{block}{关键发现}
-评估准确率均超过82\%，FID性能在所有架构上均优于基线
-\end{block}
-\end{frame} % MIA方法跨架构泛化能力
-
-\begin{frame}{MIA训练过程分析}
+\begin{frame}{模型反演·可视化生成结果}
 \begin{figure}
-\centering
-\includegraphics[height=0.47\textheight,keepaspectratio]{figures/mia_training_curves.pdf}
-\caption{MIA方法三阶段渐进式训练过程的损失与指标演化曲线}
-\end{figure}
-
-\begin{itemize}
-  \item 三阶段（预热→过渡→纯标签）下，FID持续下降、KNN与准确率持续提升
-  \item 任务不确定性参数与权重系数动态调整，实现多目标自动平衡
-\end{itemize}
-
-{\small \textbf{一句话结论：}训练曲线验证“平滑模态迁移 + 自适应权重”是MIA稳定收敛的关键机制。}
-\end{frame} % MIA训练过程分析
-
-\begin{frame}{MIA消融实验分析}
-\begin{columns}[T]
-  \column{0.52\textwidth}
-  \begin{table}
   \centering
-  \footnotesize
-  \caption{训练策略消融}
-  \begin{tabular}{lccc}
+  \includegraphics[width=0.96\textwidth,height=0.49\textheight,keepaspectratio]{figures/grid_by_target.jpg}
+  \caption{针对不同目标类别的生成样本（每行为同一源图，每列为同一目标身份）}
+\end{figure}
+\vspace{-0.15cm}
+\begin{block}{关键观察}\small
+同行继承源图姿态与表情；同列在目标身份特征上高度一致，验证标签条件嵌入层成功建立离散标签→连续身份嵌入的映射。
+\end{block}
+\end{frame} % 模型反演·可视化生成结果
+
+\begin{frame}{模型反演·消融实验分析}
+\begin{columns}[T]
+  \column{0.50\textwidth}
+  \footnotesize\textbf{训练策略消融}\\[2pt]
+  {\scriptsize\begin{tabular}{lccc}
   \toprule
   \textbf{训练策略} & \textbf{TarAcc} & \textbf{EvalAcc} & \textbf{FID} \\
   \midrule
-  单阶段(标签) & 70.85\% & 63.74\% & 43.21 \\
-  两阶段训练 & 88.92\% & 78.56\% & 32.45 \\
-  三阶段训练 & 94.87\% & 83.15\% & 23.26 \\
+  单阶段（标签） & 70.85\% & 63.74\% & 43.21 \\
+  两阶段训练    & 88.92\% & 78.56\% & 32.45 \\
+  三阶段训练    & \textbf{94.87\%} & \textbf{83.15\%} & \textbf{23.26} \\
   \bottomrule
-  \end{tabular}
-  \end{table}
-
-  \column{0.45\textwidth}
-  \begin{table}
-  \centering
-  \footnotesize
-  \caption{损失组合消融}
-  \begin{tabular}{lcc}
+  \end{tabular}}
+  \vspace{4pt}
+  \footnotesize\textbf{损失组合消融}\\[2pt]
+  {\scriptsize\begin{tabular}{lcc}
   \toprule
   \textbf{损失组合} & \textbf{TarAcc} & \textbf{EvalAcc} \\
   \midrule
-  仅扩散先验 & 7.85\% & 5.92\% \\
-  +分类引导 & 77.24\% & 70.38\% \\
-  +身份一致性 & 92.56\% & 79.47\% \\
-  +感知质量 & 94.87\% & 83.15\% \\
+  仅扩散先验       & 7.85\%  & 5.92\% \\
+  +分类引导        & 77.24\% & 70.38\% \\
+  +身份一致性      & 92.56\% & 79.47\% \\
+  +感知质量（完整） & \textbf{94.87\%} & \textbf{83.15\%} \\
   \bottomrule
-  \end{tabular}
-  \end{table}
-\end{columns}
+  \end{tabular}}
 
-\begin{block}{结论}
-三阶段渐进训练与完整损失组合共同决定MIA的攻击精度和生成质量。
-\end{block}
-\end{frame} % MIA消融实验分析
+  \column{0.48\textwidth}
+  \centering
+  \includegraphics[height=0.48\textheight,keepaspectratio]{figures/mia_training_curves.pdf}\\
+  {\scriptsize FID持续下降、KNN与准确率持续提升；\\不确定性参数动态调整实现多目标平衡}
+\end{columns}
+\end{frame} % 模型反演·消融实验分析
 
 \section{研究结论}
 
