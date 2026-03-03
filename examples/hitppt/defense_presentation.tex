@@ -55,7 +55,7 @@
 \subtitle{硕士学位论文答辩}
 \author[俞磊]{俞磊}
 \institute[HIT]{哈尔滨工业大学\\网络空间安全学院}
-\date{\today}
+\date{2026年3月4日}
 
 % 自定义命令
 % 字体大小选项（从大到小）：
@@ -228,7 +228,7 @@
 \begin{column}{0.5\textwidth}
 \footnotesize\textbf{核心设计}
 \begin{itemize}\setlength{\itemsep}{0pt}
-  \item \highlight{EDM生成骨干：}去噪先验天然保证生成样本位于 $\mathcal{M}_{nat}$，从根本上解决视觉真实性
+  \item \highlight{EDM生成骨干：}相比标准DDPM，EDM采用连续时间ODE公式与输入/输出预条件化，以更少采样步数生成更高保真人脸，且确定性ODE采样器使模板梯度引导更精确、更稳定
   \item \highlight{角度约束对比学习 $\mathcal{L}_{feat}$：}利用ArcFace超球面几何拉近正样本、拉远负样本，与识别器决策边界精确对齐
   \item \highlight{多样性约束 $\mathcal{L}_{div}$：}最大化批内样本角度距离，防止模式崩塌
   \item \highlight{任务不确定性加权：}$\sigma_p,\sigma_f$ 与 $\theta$ 联合优化，自动平衡像素与特征权重
@@ -506,16 +506,21 @@ $\mathcal{L}_{\text{pixel}} + \mathcal{L}_{\text{feat}} + $ 不确定性加权 &
   \includegraphics[width=\linewidth,height=0.34\textheight,keepaspectratio]{figures/train_mia.pdf}\\[6pt]
   \begin{itemize}\setlength{\itemsep}{3pt}
     {\scriptsize
-    \item \important{阶段1}~~图像条件预热：仅训 LoRA，建立换脸生成能力
-    \item \important{阶段2}~~混合过渡：$e_{id}{=}(1{-}\lambda)E_{id}(x_{real}){+}\lambda\mathcal{E}_\psi(y)$
-    \item \important{阶段3}~~纯标签适配：启用分类器引导，优化攻击有效性
+    \item \important{阶段1}~~图像条件预热：冻结 $\mathcal{E}_\psi$，仅训 LoRA，以真实图像嵌入 $E_{id}(x_{real})$ 为条件，损失仅含 $\mathcal{L}_{prior}{+}\mathcal{L}_{perc}$，建立换脸生成能力
+    \item \important{阶段2}~~混合条件过渡：解冻 $\mathcal{E}_\psi$，插值 $e_{id}{=}(1{-}\lambda(t))E_{id}(x_{real}){+}\lambda(t)\mathcal{E}_\psi(y)$（余弦退火），攻击损失随 $\lambda(t)$ 逐步激活
+    \item \important{阶段3}~~纯标签条件适配：完全移除真实图像，$e_{id}{=}\mathcal{E}_\psi(y)$，解冻全部 LoRA 参数，启用完整 $\mathcal{L}_{total}$
     }
   \end{itemize}
 
   \column{0.46\textwidth}
   \centering\footnotesize\textbf{分类器引导推理}\\[2pt]
-  \includegraphics[width=\linewidth,height=0.34\textheight,keepaspectratio]{figures/infer_mia-1.pdf}\\[6pt]
-  \footnotesize\textbf{梯度引导修正公式：}\\[2pt]
+  \includegraphics[width=\linewidth,height=0.32\textheight,keepaspectratio]{figures/infer_mia-1.pdf}\\[4pt]
+  \begin{itemize}\setlength{\itemsep}{3pt}
+    {\scriptsize
+    \item 每步去噪时注入分类器梯度，驱动采样轨迹持续逼近目标类别高置信区域
+    }
+  \end{itemize}
+  \vspace{2pt}
   {\scriptsize\begin{equation*}
     \tilde{\epsilon}_\theta = \epsilon_\theta - \gamma(t)\sqrt{1{-}\bar{\alpha}_t}\,\nabla_{z_t}\log p_\theta(y|x_{0|t})
   \end{equation*}}
@@ -609,8 +614,14 @@ $\mathcal{L}_{\text{pixel}} + \mathcal{L}_{\text{feat}} + $ 不确定性加权 &
   \column{0.46\textwidth}
   \vfill
   \centering
-  \includegraphics[width=\linewidth,height=0.46\textheight,keepaspectratio]{figures/mia_training_curves.pdf}\\[1pt]
-  {\scriptsize 训练曲线：FID持续下降、KNN与攻击准确率协同提升\\不确定性参数 $\sigma_i$ 动态调整，实现多目标梯度平衡}
+  \includegraphics[width=\linewidth,height=0.42\textheight,keepaspectratio]{figures/mia_training_curves.pdf}\\[3pt]
+  \begin{itemize}\setlength{\itemsep}{1pt}
+    {\scriptsize
+    \item FID 随生成质量优化持续收敛
+    \item TarAcc 与 KNN 从阶段2起协同提升
+    \item $\sigma_{\text{cls}}$ 等参数早期较大，随收敛自动下调，\\防止攻击目标过早主导训练
+    }
+  \end{itemize}
   \vfill
 \end{columns}
 \end{frame} % 消融实验分析
@@ -624,7 +635,7 @@ $\mathcal{L}_{\text{pixel}} + \mathcal{L}_{\text{feat}} + $ 不确定性加权 &
 \begin{itemize}
   \item 以EDM扩散模型为骨干，设计角度约束对比学习损失，精确对齐超球面决策边界
   \item 任务不确定性加权自动平衡多目标损失，模板条件梯度引导动态调整采样轨迹
-  \item MOBIO攻击成功率97.38\%，LFW上FID=18.27
+  \item MOBIO攻击成功率97.38\%，LFW中FID=18.27
 \end{itemize}
 \end{block}
 
