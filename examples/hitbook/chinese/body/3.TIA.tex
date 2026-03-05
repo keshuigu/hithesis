@@ -1,5 +1,5 @@
 % !Mode:: "TeX:UTF-8"
-\chapter{基于角度约束对比学习的从模板逆向重建人脸的方法}[Face Image Inverse Reconstruction from Feature Templates via Angular Constraint Contrastive Learning]\label{chap:TIA}
+\chapter{基于角度约束对比学习的模板逆向重建人脸方法}[Face Image Inverse Reconstruction from Feature Templates via Angular Constraint Contrastive Learning]\label{chap:TIA}
 \section{引言}[Introduction]
 
 本章针对基于模板匹配的人脸识别模型，研究将已泄露的特征模板逆向重建为可感知人脸图像的技术方法。现有方法主要面临两方面挑战：一是传统基于优化的方法容易陷入局部最优且生成质量有限，引入生成式先验虽可改善视觉效果，但在特征空间的优化缺乏针对性设计，难以充分利用人脸识别模型的几何结构特性；二是多目标优化中像素与特征损失的权重平衡缺乏系统解决方案。
@@ -27,10 +27,10 @@
 
 从问题性质上看，人脸识别器$F:\mathcal{X}\to\mathbb{R}^d$的设计目标是从高维图像空间（如$256\times256\times3\approx196,608$维）压缩至低维特征空间（如$d=512$维），这一映射过程类似于密码学中的单向散列函数。维度约简$d \ll H\times W\times C$导致严重的信息损失，特征向量$t$仅保留身份判别所需的语义信息，而丢弃了姿态、表情、光照、纹理等大量细节属性，使得降维映射在数学上是多对一的，逆向映射$F^{-1}$在严格意义上不存在唯一解。此外，深度神经网络的高度非线性使得逆向过程无法解析求解，且特征空间的单位超球面几何结构限制了传统欧氏优化方法的有效性。因此，模板逆向重建本质上是求解高度欠定的约束优化问题：在满足特征匹配约束的前提下，生成属于自然人脸流形的图像。这些固有困难使得TIA成为极具挑战性的研究问题，需要引入强生成先验与针对性的优化策略。本章提出的基于扩散模型的生成架构、角度约束对比学习损失以及任务不确定性加权框架，正是为了系统性地应对上述挑战。
 
-\section{角度对比约束与自适应加权的多目标优化框架}[Diffusion-based Reconstruction Architecture and Angular Constraint Loss Design]
+\section{基于角度约束对比学习的模板逆向重建算法}[Diffusion-based Reconstruction Architecture and Angular Constraint Loss Design]
 \label{sec:tia_architecture}
 
-\subsection{整体架构设计}
+\subsection{整体结构设计}
 
 \begin{figure}[!htbp]
   \centering
@@ -91,7 +91,7 @@
 
 系统包含三个并行的信息流实现多任务协同优化：生成分支执行像素级重建，原始图像经噪声扰动后输入扩散网络预测清晰图像，通过去噪损失$\mathcal{L}_{\text{pixel}}$确保视觉真实性；特征监督分支提供身份级语义约束，将生成图像通过特征提取器$F$得到特征嵌入，与原始图像的特征嵌入$F(x_0)$进行比较，通过角度约束损失$\mathcal{L}_{\text{feat}}$确保特征空间精确匹配；对比学习分支增强判别性能力，从训练批次采样负样本构成三元组，通过多样性损失$\mathcal{L}_{\text{div}}$防止模式崩溃。三个分支的损失信息通过任务不确定性加权框架汇聚，可学习参数$\sigma_p, \sigma_f$根据训练动态自适应调整各损失项权重，统一的梯度信号回传至扩散网络参数更新。该架构设计的技术优势在于EDM框架与ArcFace超球面度量空间几何一致，确保特征优化方向与识别器决策边界对齐，避免传统欧氏距离方法在角度空间的失配问题。扩散模型渐进去噪机制天然匹配人脸特征的层次结构，通过身份条件信息的有效融合实现对生成图像身份属性的精确控制，双分支协同设计在保证像素质量的同时确保特征匹配精度。
 
-\subsection{混合损失函数设计}
+\subsection{混合损失函数}
 \label{sec:tia_loss}
 
 损失函数的设计是影响模型性能的关键因素。本小节提出一种融合像素空间重建、特征空间匹配与多样性约束的混合损失函数，通过引入角度约束、任务不确定性加权与一致性正则化，实现视觉质量与特征匹配精度的联合优化。以下分别介绍三个核心损失组件，然后给出完整的任务不确定性加权框架。
@@ -137,7 +137,7 @@
 \section{分阶段训练策略与模板引导推理}[Multi-stage Training Strategy and Template-guided Inference]
 \label{sec:tia_training_inference}
 
-\subsection{训练流程与分阶段策略}
+\subsection{分阶段训练策略}
 
 基于前述混合损失函数，本节详细阐述模板逆向重建模型的训练流程。为确保训练稳定性并充分发挥任务不确定性参数的自适应能力，本文采用两阶段训练策略:先通过预热阶段建立基础生成能力，再通过主训练阶段引入复杂的特征匹配约束，避免训练初期的优化冲突。
 
@@ -192,7 +192,7 @@
   \end{algorithmic}
 \end{algorithm}
 
-\subsection{推理流程}
+\subsection{推理策略}
 
 模型训练完成后，即可用于从目标模板重建人脸图像。推理阶段的核心是求解条件扩散过程的逆向随机微分方程（reverse SDE），从纯噪声逐步去噪至清晰图像。
 
@@ -267,7 +267,7 @@ EDM采用确定性的ODE求解器进行采样，其离散化形式为：
 \section{实验验证}[Experimental Validation]
 \label{sec:tia_experiments}
 
-本节通过系统实验验证前述提出的基于角度约束对比学习的从模板逆向重建人脸的方法的有效性。实验在标准测试集上与现有代表性方法进行定量对比以评估攻击成功率与生成质量，并通过消融实验量化各关键模块的性能贡献。
+本节通过系统实验验证前述提出的基于角度约束对比学习的模板逆向重建人脸方法的有效性。实验在标准测试集上与现有代表性方法进行定量对比以评估攻击成功率与生成质量，并通过消融实验量化各关键模块的性能贡献。
 
 \subsection{实验配置与评估指标}[Experimental Setup and Evaluation Metrics]
 \label{sec:tia_setup}
