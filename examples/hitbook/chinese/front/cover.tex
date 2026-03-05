@@ -19,8 +19,8 @@
   %=========
   ctitleone={局部多孔质气体静压},%本科生封面使用
   ctitletwo={轴承关键技术的研究},%本科生封面使用
-  ctitlecover={面向人脸识别模型的逆向重建方法研究},%放在封面中使用，自由断行
-  ctitle={面向人脸识别模型的逆向重建方法研究},%放在原创性声明中使用
+  ctitlecover={面向人脸识别模型的图像逆向重建方法研究},%放在封面中使用，自由断行
+  ctitle={面向人脸识别模型的图像逆向重建方法研究},%放在原创性声明中使用
   % csubtitle={一条副标题}, %一般情况没有，可以注释掉
   cxueke={工学},
   csubject={网络空间安全},
@@ -48,7 +48,7 @@
   %=========
   % 英文信息
   %=========
-  etitle={Inverse Reconstruction Methods for Face Recognition Models},
+  etitle={Research on Inverse Image Reconstruction Methods for Face Recognition Models},
   % esubtitle={This is the sub title},
   exueke={Engineering},
   esubject={Cyberspace Security},
@@ -61,28 +61,28 @@
   estudenttype={Master of Engineering},
   %
   % 关键词用“英文逗号”分割
-  ckeywords={人脸识别, 模板逆向攻击, 模型反演攻击, 扩散生成模型, 隐私泄露},
+  ckeywords={人脸识别, 模板逆向攻击, 模型逆向攻击, 扩散生成模型, 隐私泄露},
   ekeywords={face recognition, template inversion attack, model inversion attack, diffusion models, privacy leakage},
 }
   % 关键词是为了文献标引工作、用以表示全文主要内容信息的单词或术语。关键词不超过 5
   % 个，每个关键词中间用分号分隔。（模板作者注：关键词分隔符不用考虑，模板会自动处
   % 理。英文关键词同理。）
 \begin{cabstract}
-随着人脸识别系统在身份认证等关键领域的广泛部署，其特征模板与模型输出的隐私泄露风险日益凸显。攻击者可能通过逆向重建手段从抽象特征或类别标签恢复用户面部图像，对个人隐私构成严重威胁。本研究针对模板逆向攻击与模型反演攻击两类典型威胁，提出两种高效逆向重建方法。
+随着人脸识别系统在身份认证等关键领域的广泛部署，其特征模板与模型输出所蕴含的敏感信息面临日益严峻的隐私泄露风险。攻击者可从泄露的特征向量模板或模型输出的类别标签中恢复用户面部图像，对个人隐私构成严重威胁。本研究针对上述两类逆向重建场景分别提出高效方法，以系统揭示人脸识别模型在信息输出层面的隐私脆弱性。
 
-针对基于模板匹配的检索型人脸识别系统，本研究提出基于角度约束对比学习的模板逆向重建方法。现有方法未充分利用单位超球面几何特性且权重平衡依赖手动调参，导致特征匹配精度不足、训练不稳定。针对这些问题，本方法设计角度约束对比学习损失，通过负样本对比显式拉开生成特征与非目标类别的角度距离，使优化方向与识别器决策边界对齐；引入任务不确定性加权框架自动平衡像素重建与特征匹配损失；采用类内多样性约束防止模式崩塌；推理阶段结合模板条件梯度引导动态调整采样轨迹。该方法在MOBIO数据集上于误识率为$10^{-2}$时达到97.38\%的攻击成功率，平均攻击成功率87.54\%，在LFW数据集上FID降至18.27。
+针对输出特征嵌入向量的人脸识别模型，本研究提出基于角度约束对比学习的从模板逆向重建人脸的方法。本方法以角度约束对比学习损失为核心，通过负样本对比机制显式拉开生成特征与非目标类别的角度距离，使优化方向与识别器决策边界精准对齐。同时引入任务不确定性加权框架，以可学习参数自动调节像素重建与特征匹配的权重比例，并通过类内多样性约束防止模式崩塌。推理阶段利用模板条件梯度引导机制动态校正生成轨迹，实现对目标特征的精确逆向映射。该方法在MOBIO数据集上于误识率$10^{-2}$时达到97.38\%的重建成功率，平均重建成功率87.54\%，在LFW数据集上FID降至18.27。
 
-针对基于分类的端到端人脸识别系统，本研究提出基于换脸先验迁移的多目标自适应模型反演方法。传统方法从类别标签生成高保真人脸图像面临生成质量低、训练成本高、多目标优化难以平衡等困难。为解决这些问题，本方法利用扩散换脸模型的身份属性解耦机制作为生成先验，设计标签条件嵌入层将离散标签映射为连续身份嵌入向量；采用低秩适配技术仅需训练原模型1\%至5\%参数量即可适配新的嵌入分布，保留生成先验并避免过拟合；构建多目标损失框架涵盖扩散先验保真度、分类引导有效性等五个维度，通过任务不确定性加权实现自动平衡；采用渐进式三阶段训练策略实现从图像条件到标签条件的平滑模态迁移。该方法在ArcFace目标分类器上达到94.87\%目标准确率和83.15\%评估准确率，FID为23.26。消融实验表明渐进式三阶段训练使目标准确率从单阶段的70.85\%提升至94.87\%。
+在上述模板逆向重建工作的基础上，针对输出置信概率的人脸识别模型，本研究进一步提出基于人脸替换模型先验迁移的从标签逆向重建人脸的方法。本方法以预训练扩散式人脸替换模型为生成骨干，设计标签条件嵌入层将离散类别标签映射为连续身份嵌入向量，并采用低秩适配技术进行参数高效微调，仅需更新原模型1\%至5\%的参数量。在优化目标上，构建涵盖扩散先验保真度、分类引导有效性、感知质量等五维度的多目标损失框架，并通过渐进式三阶段训练策略实现从图像条件到纯标签条件的平滑迁移。该方法在ArcFace分类器上达到94.87\%的目标准确率与83.15\%的评估准确率，FID为23.26。
 
-研究成果揭示了人脸识别系统在特征表示与模型输出层面存在的隐私脆弱性，为系统安全评估与防护机制设计提供了重要参考。
+上述研究系统揭示了人脸识别模型在特征嵌入与置信概率输出层面的逆向重建隐私风险，为评估模型隐私脆弱性与设计针对性防护机制提供了重要参考。
 \end{cabstract}
 
 \begin{eabstract}
-With the widespread deployment of face recognition systems in identity authentication and other critical domains, privacy leakage risks in feature templates and model outputs have become increasingly prominent. Attackers may recover users' facial images from abstract features or class labels through inverse reconstruction, posing serious threats to personal privacy. This research proposes two efficient inverse reconstruction methods for template inversion attack and model inversion attack.
+With the widespread deployment of face recognition systems in identity authentication and other critical domains, the sensitive information embedded in feature templates and model outputs faces growing privacy leakage risks. Through inverse reconstruction, facial images can be recovered from leaked feature vector templates or class labels output by models, posing serious threats to personal privacy. This research proposes efficient methods for these two inverse reconstruction scenarios respectively, to systematically reveal the privacy vulnerabilities of face recognition models at the information output level.
 
-For retrieval-based face recognition systems, this research proposes a template inversion method based on angle-constrained contrastive learning. Existing methods fail to fully exploit unit hypersphere geometry and rely on manual weight tuning, resulting in insufficient feature matching precision and training instability. To address these issues, the method designs angle-constrained contrastive learning loss that explicitly enlarges angular distance between generated features and non-target classes through negative sample contrast, aligning optimization direction with recognizer decision boundaries. Task uncertainty weighting framework automatically balances pixel reconstruction and feature matching losses. Intra-class diversity constraint prevents mode collapse, while template-conditioned gradient guidance dynamically adjusts sampling trajectory during inference. The method achieves 97.38\% attack success rate on MOBIO at FMR=$10^{-2}$, with 87.54\% average success rate and 18.27 FID on LFW.
+For face recognition models that output feature embedding vectors, this research proposes a method for inverse face image reconstruction from feature templates based on angle-constrained contrastive learning. The method centers on an angle-constrained contrastive learning loss that explicitly enlarges the angular distance between generated features and non-target classes through negative sample contrast, precisely aligning the optimization direction with recognizer decision boundaries. A task uncertainty weighting framework is also introduced to automatically adjust the balance between pixel reconstruction and feature matching losses via learnable parameters, and intra-class diversity constraints further prevent mode collapse. During inference, template-conditioned gradient guidance dynamically corrects the generation trajectory, enabling precise inverse mapping of target features. The method achieves a 97.38\% reconstruction success rate on MOBIO at FMR=$10^{-2}$, with an average reconstruction success rate of 87.54\% and an FID of 18.27 on LFW.
 
-For classification-based face recognition systems, this research proposes a model inversion method based on face-swapping prior transfer. Traditional methods face challenges of low generation quality, high training cost, and difficulty in balancing multi-objective optimization when generating high-fidelity faces from class labels. To solve these problems, the method leverages identity-attribute disentanglement mechanism of diffusion face-swapping models as generative prior. A label-conditioned embedding layer maps discrete labels to continuous identity embedding vectors. Low-Rank Adaptation enables parameter-efficient fine-tuning with only 1\% to 5\% parameters, adapting to new embedding distributions while preserving generative priors and avoiding overfitting. A multi-objective loss framework covering five dimensions achieves automatic balance through task uncertainty weighting. Progressive three-stage training strategy achieves smooth modal transition from image conditions to label conditions. The method achieves 94.87\% target accuracy and 83.15\% evaluation accuracy on ArcFace with 23.26 FID. Ablation studies show progressive three-stage training improves target accuracy from 70.85\% to 94.87\%.
+Building on the above template inversion work, for face recognition models that output confidence probabilities, this research further proposes a method for inverse face image reconstruction from class labels based on face swapping model prior transfer. The method adopts a pretrained diffusion-based face swapping model as the generative backbone, with a label-conditioned embedding layer mapping discrete class labels to continuous identity embedding vectors, and employs Low-Rank Adaptation for parameter-efficient fine-tuning, requiring updates to only 1\% to 5\% of the original model's parameters. A multi-objective loss framework covering five dimensions---including diffusion prior fidelity, classification guidance effectiveness, and perceptual quality---is constructed, and a progressive three-stage training strategy achieves smooth transition from image-conditioned to pure label-conditioned generation. The method achieves 94.87\% target accuracy and 83.15\% evaluation accuracy on ArcFace with an FID of 23.26.
 
-The research reveals privacy vulnerabilities in feature representation and model output of face recognition systems, providing important reference for security evaluation and defense mechanism design.
+The above research systematically reveals the inverse reconstruction privacy risks of face recognition models at the feature embedding and confidence probability output levels, providing important reference for evaluating model privacy vulnerabilities and designing targeted defense mechanisms.
 \end{eabstract}
