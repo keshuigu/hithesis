@@ -1,5 +1,5 @@
 % !Mode:: "TeX:UTF-8"
-\chapter{基于角度约束对比学习的模板重建人脸方法}[Face Image Inverse Reconstruction from Feature Templates via Angular Constraint Contrastive Learning]\label{chap:TIA}
+\chapter{基于角度约束的模板重建人脸方法}[Face Image Inverse Reconstruction from Feature Templates via Angular Constraint Contrastive Learning]\label{chap:TIA}
 \section{引言}[Introduction]
 
 本章针对基于模板匹配的人脸识别模型，研究将已泄露的特征模板逆向重建为可感知人脸图像的技术方法。现有方法主要面临两方面挑战：一是传统基于优化的方法容易陷入局部最优且生成质量有限，引入生成式先验虽可改善视觉效果，但在特征空间的优化缺乏针对性设计，难以充分利用人脸识别模型的几何结构特性；二是多目标优化中像素与特征损失的权重平衡缺乏系统解决方案。
@@ -292,7 +292,7 @@ EDM采用确定性的ODE求解器进行采样，其离散化形式为：
 \section{实验验证}[Experimental Validation]
 \label{sec:tia_experiments}
 
-本节通过系统实验验证前述提出的基于角度约束对比学习的模板重建人脸方法的有效性。实验在标准测试集上与现有代表性方法进行定量对比以评估攻击成功率与生成质量，并通过消融实验量化各关键模块的性能贡献。
+本节通过系统实验验证前述提出的基于角度约束的模板重建人脸方法的有效性。实验在标准测试集上与现有代表性方法进行定量对比以评估攻击成功率与生成质量，并通过消融实验量化各关键模块的性能贡献。
 
 \subsection{实验配置与评估指标}[Experimental Setup and Evaluation Metrics]
 \label{sec:tia_setup}
