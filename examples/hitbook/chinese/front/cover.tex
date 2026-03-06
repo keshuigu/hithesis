@@ -19,8 +19,8 @@
   %=========
   ctitleone={局部多孔质气体静压},%本科生封面使用
   ctitletwo={轴承关键技术的研究},%本科生封面使用
-  ctitlecover={面向人脸识别模型的图像逆向重建方法研究},%放在封面中使用，自由断行
-  ctitle={面向人脸识别模型的图像逆向重建方法研究},%放在原创性声明中使用
+  ctitlecover={面向人脸识别模型的图像重建方法研究},%放在封面中使用，自由断行
+  ctitle={面向人脸识别模型的图像重建方法研究},%放在原创性声明中使用
   % csubtitle={一条副标题}, %一般情况没有，可以注释掉
   cxueke={工学},
   csubject={网络空间安全},
@@ -48,7 +48,7 @@
   %=========
   % 英文信息
   %=========
-  etitle={Research on Inverse Image Reconstruction Methods for Face Recognition Models},
+  etitle={Research on Image Reconstruction Methods for Face Recognition Models},
   % esubtitle={This is the sub title},
   exueke={Engineering},
   esubject={Cyberspace Security},
@@ -68,21 +68,21 @@
   % 个，每个关键词中间用分号分隔。（模板作者注：关键词分隔符不用考虑，模板会自动处
   % 理。英文关键词同理。）
 \begin{cabstract}
-随着人脸识别系统在身份认证等关键领域的广泛部署，其特征模板与模型输出所蕴含的敏感信息面临日益严峻的隐私泄露风险。攻击者可从泄露的特征向量模板或模型输出的类别标签中恢复用户面部图像，对个人隐私构成严重威胁。本研究针对上述两类逆向重建场景分别提出高效方法，以系统揭示人脸识别模型在信息输出层面的隐私脆弱性。
+随着人脸识别系统在生物特征提取、身份认证、安防监控等关键领域的广泛部署，其特征模板与模型输出所蕴含的敏感信息面临日益严峻的隐私泄露风险。攻击者可从泄露的特征向量模板或模型输出的类别标签中恢复用户面部图像，对个人隐私构成严重威胁。本研究针对上述两类逆向重建场景分别提出高效方法，以系统揭示人脸识别模型在信息输出层面的隐私脆弱性。
 
-针对输出特征嵌入向量的人脸识别模型，本研究提出基于角度约束对比学习的模板逆向重建人脸方法。本方法以角度约束对比学习损失为核心，通过负样本对比机制显式拉开生成特征与非目标类别的角度距离，使优化方向与识别器决策边界精准对齐。同时引入任务不确定性加权框架，以可学习参数自动调节像素重建与特征匹配的权重比例，并通过类内多样性约束防止模式崩塌。推理阶段利用模板条件梯度引导机制动态校正生成轨迹，实现对目标特征的精确逆向映射。该方法在MOBIO数据集上于误识率$10^{-2}$时达到97.38\%的重建成功率，平均重建成功率87.54\%，在LFW数据集上FID降至18.27。
+针对以特征向量模板形式泄露信息的人脸识别模型，本研究提出基于角度约束对比学习的模板重建人脸方法（ArcTIA）。本方法以角度约束对比学习损失为核心，通过负样本对比机制显式拉开生成特征与非目标类别的角度距离，使优化方向与识别器决策边界精准对齐。同时引入任务不确定性加权框架，以可学习参数自动调节像素重建与特征匹配的权重比例，并通过类内多样性约束防止模式崩塌。推理阶段利用模板条件梯度引导机制动态校正生成轨迹，实现对目标特征的精确逆向映射。ArcTIA在MOBIO数据集上于误识率$10^{-2}$时达到97.38\%的重建成功率，平均重建成功率87.54\%，在LFW数据集上FID降至18.27。
 
-在上述模板逆向重建工作的基础上，针对输出置信概率的人脸识别模型，本研究进一步提出基于人脸替换模型先验迁移的标签逆向重建人脸方法。本方法以预训练扩散式人脸替换模型为生成骨干，设计标签条件嵌入层将离散类别标签映射为连续身份嵌入向量，并采用低秩适配技术进行参数高效微调，仅需更新原模型1\%至5\%的参数量。在优化目标上，构建涵盖扩散先验保真度、分类引导有效性、感知质量等五维度的多目标损失框架，并通过渐进式三阶段训练策略实现从图像条件到纯标签条件的平滑迁移。该方法在ArcFace分类器上达到94.87\%的目标准确率与83.15\%的评估准确率，FID为23.26。
+针对以类别标签形式泄露信息的人脸识别模型，本研究提出基于人脸替换模型先验迁移的标签重建人脸方法（SwapMIA）。本方法以预训练扩散式人脸替换模型为先验模型，设计标签条件嵌入层将离散类别标签映射为连续身份嵌入向量，并采用低秩适配技术进行参数高效微调，大幅缩短训练时间与计算开销。在优化目标上，构建涵盖扩散先验保真度、分类引导有效性、感知质量等五维度的多目标损失框架，并通过渐进式三阶段训练策略实现从图像条件到纯标签条件的平滑迁移。SwapMIA在ArcFace分类器上目标准确率与评估准确率分别达到94.87\%与83.15\%，较基线方法均有显著提升，FID降至23.26，重建图像的视觉真实性明显改善。
 
 上述研究系统揭示了人脸识别模型在特征嵌入与置信概率输出层面的逆向重建隐私风险，为评估模型隐私脆弱性与设计针对性防护机制提供了重要参考。
 \end{cabstract}
 
 \begin{eabstract}
-With the widespread deployment of face recognition systems in identity authentication and other critical domains, the sensitive information embedded in feature templates and model outputs faces growing privacy leakage risks. Through inverse reconstruction, facial images can be recovered from leaked feature vector templates or class labels output by models, posing serious threats to personal privacy. This research proposes efficient methods for these two inverse reconstruction scenarios respectively, to systematically reveal the privacy vulnerabilities of face recognition models at the information output level.
+With the widespread deployment of face recognition systems in biometric feature extraction, identity authentication, surveillance, and other critical domains, the sensitive information embedded in feature templates and model outputs faces growing privacy leakage risks. Through inverse reconstruction, facial images can be recovered from leaked feature vector templates or class labels output by models, posing serious threats to personal privacy. This research proposes efficient methods for these two inverse reconstruction scenarios respectively, to systematically reveal the privacy vulnerabilities of face recognition models at the information output level.
 
-For face recognition models that output feature embedding vectors, this research proposes a method for inverse face image reconstruction from feature templates based on angle-constrained contrastive learning. The method centers on an angle-constrained contrastive learning loss that explicitly enlarges the angular distance between generated features and non-target classes through negative sample contrast, precisely aligning the optimization direction with recognizer decision boundaries. A task uncertainty weighting framework is also introduced to automatically adjust the balance between pixel reconstruction and feature matching losses via learnable parameters, and intra-class diversity constraints further prevent mode collapse. During inference, template-conditioned gradient guidance dynamically corrects the generation trajectory, enabling precise inverse mapping of target features. The method achieves a 97.38\% reconstruction success rate on MOBIO at FMR=$10^{-2}$, with an average reconstruction success rate of 87.54\% and an FID of 18.27 on LFW.
+For face recognition models that output feature embedding vectors, this research proposes ArcTIA, a method for inverse face image reconstruction from feature templates based on angle-constrained contrastive learning. The method centers on an angle-constrained contrastive learning loss that explicitly enlarges the angular distance between generated features and non-target classes through negative sample contrast, precisely aligning the optimization direction with recognizer decision boundaries. A task uncertainty weighting framework is also introduced to automatically adjust the balance between pixel reconstruction and feature matching losses via learnable parameters, and intra-class diversity constraints further prevent mode collapse. During inference, template-conditioned gradient guidance dynamically corrects the generation trajectory, enabling precise inverse mapping of target features. ArcTIA achieves a 97.38\% reconstruction success rate on MOBIO at FMR=$10^{-2}$, with an average reconstruction success rate of 87.54\% and an FID of 18.27 on LFW.
 
-Building on the above template inversion work, for face recognition models that output confidence probabilities, this research further proposes a method for inverse face image reconstruction from class labels based on face swapping model prior transfer. The method adopts a pretrained diffusion-based face swapping model as the generative backbone, with a label-conditioned embedding layer mapping discrete class labels to continuous identity embedding vectors, and employs Low-Rank Adaptation for parameter-efficient fine-tuning, requiring updates to only 1\% to 5\% of the original model's parameters. A multi-objective loss framework covering five dimensions---including diffusion prior fidelity, classification guidance effectiveness, and perceptual quality---is constructed, and a progressive three-stage training strategy achieves smooth transition from image-conditioned to pure label-conditioned generation. The method achieves 94.87\% target accuracy and 83.15\% evaluation accuracy on ArcFace with an FID of 23.26.
+For face recognition models that leak information in the form of class labels, this research proposes SwapMIA, a method for inverse face image reconstruction from class labels based on face swapping model prior transfer. The method adopts a pretrained diffusion-based face swapping model as the generative backbone, with a label-conditioned embedding layer mapping discrete class labels to continuous identity embedding vectors, and employs Low-Rank Adaptation for parameter-efficient fine-tuning, greatly reducing training time and computational overhead. A multi-objective loss framework covering five dimensions---including diffusion prior fidelity, classification guidance effectiveness, and perceptual quality---is constructed, and a progressive three-stage training strategy achieves smooth transition from image-conditioned to pure label-conditioned generation. SwapMIA achieves 94.87\% target accuracy and 83.15\% evaluation accuracy on ArcFace, both significantly outperforming baseline methods, with FID reduced to 23.26 and noticeably improved visual realism of reconstructed images.
 
 The above research systematically reveals the inverse reconstruction privacy risks of face recognition models at the feature embedding and confidence probability output levels, providing important reference for evaluating model privacy vulnerabilities and designing targeted defense mechanisms.
 \end{eabstract}
